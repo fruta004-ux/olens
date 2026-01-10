@@ -86,9 +86,9 @@ export function CrmSidebar() {
           <Image
             src="/images/olens-logo.png"
             alt="OLENS logo"
-            width={180}
-            height={60}
-            className="h-auto w-[180px]"
+            width={90}
+            height={30}
+            className="h-auto w-[90px]"
           />
         </div>
 
