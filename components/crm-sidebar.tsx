@@ -84,8 +84,8 @@ export function CrmSidebar() {
         {/* 로고 */}
         <div className="flex h-16 items-center justify-center border-b border-border px-4">
           <Image
-            src="/images/image.png"
-            alt="oort 영업 SOS logo"
+            src="/images/olens-logo.png"
+            alt="OLENS logo"
             width={180}
             height={60}
             className="h-auto w-[180px]"
