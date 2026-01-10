@@ -19,6 +19,8 @@ import {
   FileText,
   History,
   ScrollText,
+  BookOpen,
+  ExternalLink,
 } from "lucide-react"
 import { useState } from "react"
 import { Badge } from "@/components/ui/badge"
@@ -35,6 +37,7 @@ const processStages = [
   { id: 5, name: "검수·종료", enabled: false },
   { id: 6, name: "회고·데이터", enabled: true }, // 활성화
   { id: 7, name: "재활용·확장", enabled: false },
+  { id: 8, name: "커뮤니티", enabled: true }, // 활성화
 ]
 
 const stage0SubMenus = [
@@ -65,6 +68,11 @@ const stage2SubMenus = [
 
 const stage6SubMenus = [
   { name: "종료 분석", href: "/retrospective", icon: History },
+]
+
+const stage8SubMenus = [
+  { name: "00_오렌즈(영업CRM) 규칙문서", href: "https://www.notion.so/fruta/00_-CRM-2e2393551a9180dfa377fa8f7cf9a3e3", icon: BookOpen, external: true },
+  { name: "영업/응대 메뉴얼", href: "#", icon: FileText, disabled: true },
 ]
 
 export function CrmSidebar() {
@@ -104,7 +112,7 @@ export function CrmSidebar() {
           <div className="space-y-0.5 px-1.5">
             {processStages.map((stage) => {
               const isExpanded = expandedStage === stage.id
-              const hasSubMenu = stage.id === 0 || stage.id === 1 || stage.id === 2 || stage.id === 6
+              const hasSubMenu = stage.id === 0 || stage.id === 1 || stage.id === 2 || stage.id === 6 || stage.id === 8
 
               return (
                 <div key={stage.id}>
@@ -284,6 +292,41 @@ export function CrmSidebar() {
                             <span>{item.name}</span>
                           </Link>
                         )
+                      })}
+                    </div>
+                  )}
+
+                  {stage.id === 8 && isExpanded && (
+                    <div className="ml-7 mt-1 space-y-0.5">
+                      {stage8SubMenus.map((item) => {
+                        if (item.disabled) {
+                          return (
+                            <div
+                              key={item.name}
+                              className="flex items-center gap-2 rounded-md px-2 py-1.5 text-xs text-muted-foreground opacity-60 cursor-not-allowed"
+                            >
+                              <item.icon className="h-3.5 w-3.5 flex-shrink-0" />
+                              <span>{item.name}</span>
+                              <Lock className="h-2.5 w-2.5 ml-auto flex-shrink-0" />
+                            </div>
+                          )
+                        }
+                        if (item.external) {
+                          return (
+                            <a
+                              key={item.name}
+                              href={item.href}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="flex items-center gap-2 rounded-md px-2 py-1.5 text-xs transition-colors text-muted-foreground hover:bg-secondary hover:text-foreground"
+                            >
+                              <item.icon className="h-3.5 w-3.5 flex-shrink-0" />
+                              <span className="flex-1">{item.name}</span>
+                              <ExternalLink className="h-2.5 w-2.5 flex-shrink-0 opacity-50" />
+                            </a>
+                          )
+                        }
+                        return null
                       })}
                     </div>
                   )}
