@@ -14,7 +14,7 @@ import { Search, Filter, Plus, MoreVertical, Building2, User, AlertCircle, Clock
 import { cn } from "@/lib/utils"
 import CrmSidebar from "@/components/crm-sidebar"
 import CrmHeader from "@/components/crm-header"
-import AddDealDialog from "@/components/add-deal-dialog"
+import AddClientDialog from "@/components/add-client-dialog"
 import { createBrowserClient } from "@/lib/supabase/client"
 import {
   AlertDialog,
@@ -145,26 +145,26 @@ const isChosungSearch = (text: string) => {
   return text.split("").every((char) => CHOSUNG_LIST.includes(char))
 }
 
-export default function DealsPage() {
+export default function ClientsPage() {
   const router = useRouter()
   const [searchTerm, setSearchTerm] = useState("")
   const [selectedStages, setSelectedStages] = useState<string[]>(() => {
     if (typeof window !== "undefined") {
-      const saved = localStorage.getItem("deals-stage-filter")
+      const saved = localStorage.getItem("clients-stage-filter")
       return saved ? JSON.parse(saved) : []
     }
     return []
   })
   const [selectedAmounts, setSelectedAmounts] = useState<string[]>(() => {
     if (typeof window !== "undefined") {
-      const saved = localStorage.getItem("deals-amount-filter")
+      const saved = localStorage.getItem("clients-amount-filter")
       return saved ? JSON.parse(saved) : []
     }
     return []
   })
   const [selectedContacts, setSelectedContacts] = useState<string[]>(() => {
     if (typeof window !== "undefined") {
-      const saved = localStorage.getItem("deals-assignee-filter")
+      const saved = localStorage.getItem("clients-assignee-filter")
       if (saved) {
         // 기존 저장된 값에서 직함 제거하여 정규화
         const parsed = JSON.parse(saved)
@@ -172,7 +172,7 @@ export default function DealsPage() {
           name.replace(/\s*(대표|과장|사원|팀장|부장|차장|이사|사장)$/g, '').trim()
         )
         // 정규화된 값으로 localStorage 업데이트
-        localStorage.setItem("deals-assignee-filter", JSON.stringify(normalized))
+        localStorage.setItem("clients-assignee-filter", JSON.stringify(normalized))
         return normalized
       }
       return []
@@ -185,18 +185,18 @@ export default function DealsPage() {
   const [isNeedsFilterOpen, setIsNeedsFilterOpen] = useState(false)
   const [selectedNeeds, setSelectedNeeds] = useState<string[]>(() => {
     if (typeof window !== "undefined") {
-      const saved = localStorage.getItem("deals-needs-filter")
+      const saved = localStorage.getItem("clients-needs-filter")
       return saved ? JSON.parse(saved) : []
     }
     return []
   })
   const [isAddDealOpen, setIsAddDealOpen] = useState(false)
   const [activeTab, setActiveTab] = useState("all")
-
+  
   // 컬럼별 정렬 상태 (localStorage에서 복원)
   const [columnSort, setColumnSort] = useState<{ column: string; direction: 'asc' | 'desc' } | null>(() => {
     if (typeof window !== "undefined") {
-      const saved = localStorage.getItem("oort-crm-column-sort")
+      const saved = localStorage.getItem("clients-column-sort")
       return saved ? JSON.parse(saved) : null
     }
     return null
@@ -322,9 +322,9 @@ export default function DealsPage() {
     try {
       const supabase = createBrowserClient()
 
-      await supabase.from("activities").delete().eq("deal_id", dealToDelete.id)
+      await supabase.from("client_activities").delete().eq("client_id", dealToDelete.id)
 
-      const { error: dealError } = await supabase.from("deals").delete().eq("id", dealToDelete.id)
+      const { error: dealError } = await supabase.from("clients").delete().eq("id", dealToDelete.id)
       if (dealError) throw dealError
 
       if (deleteAccount && dealToDelete.accountId) {
@@ -359,7 +359,7 @@ export default function DealsPage() {
     try {
       const supabase = createBrowserClient()
       const { data, error } = await supabase
-        .from("deals")
+        .from("clients")
         .select(`
           *,
           account:accounts(company_name, industry),
@@ -389,7 +389,7 @@ export default function DealsPage() {
 
       setDeals(dealsData || [])
     } catch (error) {
-      console.error("[v0] 거래 데이터 로드 실패:", error)
+      console.error("[v0] 기존 거래처 데이터 로드 실패:", error)
     } finally {
       setLoading(false)
     }
@@ -453,7 +453,7 @@ export default function DealsPage() {
     setSelectedStages((prev) => {
       const newValue = prev.includes(stageId) ? prev.filter((id) => id !== stageId) : [...prev, stageId]
       if (typeof window !== "undefined") {
-        localStorage.setItem("deals-stage-filter", JSON.stringify(newValue))
+        localStorage.setItem("clients-stage-filter", JSON.stringify(newValue))
       }
       return newValue
     })
@@ -463,7 +463,7 @@ export default function DealsPage() {
     setSelectedAmounts((prev) => {
       const newValue = prev.includes(rangeId) ? prev.filter((id) => id !== rangeId) : [...prev, rangeId]
       if (typeof window !== "undefined") {
-        localStorage.setItem("deals-amount-filter", JSON.stringify(newValue))
+        localStorage.setItem("clients-amount-filter", JSON.stringify(newValue))
       }
       return newValue
     })
@@ -473,7 +473,7 @@ export default function DealsPage() {
     setSelectedContacts((prev) => {
       const newValue = prev.includes(contactId) ? prev.filter((id) => id !== contactId) : [...prev, contactId]
       if (typeof window !== "undefined") {
-        localStorage.setItem("deals-assignee-filter", JSON.stringify(newValue))
+        localStorage.setItem("clients-assignee-filter", JSON.stringify(newValue))
       }
       return newValue
     })
@@ -483,7 +483,7 @@ export default function DealsPage() {
     setSelectedNeeds((prev) => {
       const newValue = prev.includes(needsId) ? prev.filter((id) => id !== needsId) : [...prev, needsId]
       if (typeof window !== "undefined") {
-        localStorage.setItem("deals-needs-filter", JSON.stringify(newValue))
+        localStorage.setItem("clients-needs-filter", JSON.stringify(newValue))
       }
       return newValue
     })
@@ -498,10 +498,10 @@ export default function DealsPage() {
     setSearchTerm("")
     setColumnSort(null)
     if (typeof window !== "undefined") {
-      localStorage.removeItem("deals-stage-filter")
-      localStorage.removeItem("deals-amount-filter")
-      localStorage.removeItem("deals-assignee-filter")
-      localStorage.removeItem("deals-needs-filter")
+      localStorage.removeItem("clients-stage-filter")
+      localStorage.removeItem("clients-amount-filter")
+      localStorage.removeItem("clients-assignee-filter")
+      localStorage.removeItem("clients-needs-filter")
     }
   }
 
@@ -587,7 +587,7 @@ export default function DealsPage() {
   // 정렬 기준 상태: 'nextContact' (다음 연락일) 또는 'firstContact' (첫 문의 날짜)
   const [sortBy, setSortBy] = useState<'nextContact' | 'firstContact'>(() => {
     if (typeof window !== "undefined") {
-      const saved = localStorage.getItem("deals-sort-by")
+      const saved = localStorage.getItem("clients-sort-by")
       return (saved as 'nextContact' | 'firstContact') || 'nextContact'
     }
     return 'nextContact'
@@ -656,7 +656,7 @@ export default function DealsPage() {
   const handleSortChange = (newSortBy: 'nextContact' | 'firstContact') => {
     setSortBy(newSortBy)
     if (typeof window !== "undefined") {
-      localStorage.setItem("deals-sort-by", newSortBy)
+      localStorage.setItem("clients-sort-by", newSortBy)
     }
   }
 
@@ -668,7 +668,7 @@ export default function DealsPage() {
     
     setColumnSort(newSort)
     if (typeof window !== "undefined") {
-      localStorage.setItem("oort-crm-column-sort", JSON.stringify(newSort))
+      localStorage.setItem("clients-column-sort", JSON.stringify(newSort))
     }
   }
 
@@ -679,7 +679,7 @@ export default function DealsPage() {
         <div className="flex flex-1 items-center justify-center">
           <div className="text-center">
             <div className="inline-block h-8 w-8 animate-spin rounded-full border-4 border-solid border-current border-r-transparent"></div>
-            <p className="mt-4 text-muted-foreground">거래 데이터 로딩중...</p>
+            <p className="mt-4 text-muted-foreground">기존 거래처 데이터 로딩중...</p>
           </div>
         </div>
       </div>
@@ -697,8 +697,8 @@ export default function DealsPage() {
           <div className="border-b bg-background p-6">
             <div className="mb-6 flex items-center justify-between">
               <div>
-                <h1 className="text-3xl font-bold">영업 현황</h1>
-                <p className="text-muted-foreground">진행 중인 영업 현황을 관리하세요</p>
+                <h1 className="text-3xl font-bold">기존 거래처</h1>
+                <p className="text-muted-foreground">기존 거래처 현황을 관리하세요</p>
               </div>
               <Button onClick={() => setIsAddDealOpen(true)}>
                 <Plus className="mr-2 h-4 w-4" />
@@ -1030,7 +1030,7 @@ export default function DealsPage() {
                         <TableRow
                           key={deal.id}
                           className="cursor-pointer hover:bg-secondary"
-                          onClick={() => router.push(`/deals/${deal.id}?tab=activity`)}
+                          onClick={() => router.push(`/clients/${deal.id}?tab=activity`)}
                         >
                           {columnOrder.map((column) => (
                             <TableCell key={column.id} className="text-center">
@@ -1068,7 +1068,7 @@ export default function DealsPage() {
         </main>
       </div>
 
-      <AddDealDialog
+      <AddClientDialog
         open={isAddDealOpen}
         onOpenChange={(open) => setIsAddDealOpen(open)}
         stage={undefined}

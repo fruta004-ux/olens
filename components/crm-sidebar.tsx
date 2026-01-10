@@ -47,7 +47,15 @@ const stage1SubMenus = [
 
 const stage2SubMenus = [
   { name: "대시보드", href: "/dashboard", icon: LayoutDashboard, disabled: false },
-  { name: "영업 현황", href: "/deals", icon: Target, disabled: false },
+  { 
+    name: "영업 현황", 
+    icon: Target, 
+    disabled: false,
+    subItems: [
+      { name: "신규", href: "/deals" },
+      { name: "기존", href: "/clients" },
+    ]
+  },
   { name: "연락처", href: "/contacts", icon: Users, disabled: false },
   { name: "작업", href: "/tasks", icon: CheckSquare, disabled: false },
   { name: "견적서", href: "/quotations", icon: FileText, disabled: false },
@@ -185,7 +193,47 @@ export function CrmSidebar() {
                   {stage.id === 2 && isExpanded && (
                     <div className="ml-7 mt-1 space-y-0.5">
                       {stage2SubMenus.map((item) => {
-                        const isActive = pathname === item.href
+                        // 하위 메뉴가 있는 경우 (영업 현황)
+                        if ('subItems' in item && item.subItems) {
+                          const isAnySubActive = item.subItems.some(sub => pathname === sub.href)
+                          return (
+                            <div key={item.name} className="space-y-0.5">
+                              <div
+                                className={cn(
+                                  "flex items-center gap-2 rounded-md px-2 py-1.5 text-xs",
+                                  isAnySubActive
+                                    ? "text-primary font-medium"
+                                    : "text-muted-foreground",
+                                )}
+                              >
+                                <item.icon className="h-3.5 w-3.5 flex-shrink-0" />
+                                <span>{item.name}</span>
+                              </div>
+                              <div className="ml-5 space-y-0.5">
+                                {item.subItems.map((subItem) => {
+                                  const isSubActive = pathname === subItem.href
+                                  return (
+                                    <Link
+                                      key={subItem.name}
+                                      href={subItem.href}
+                                      className={cn(
+                                        "flex items-center gap-2 rounded-md px-2 py-1 text-xs transition-colors",
+                                        isSubActive
+                                          ? "bg-primary/10 text-primary font-medium"
+                                          : "text-muted-foreground hover:bg-secondary hover:text-foreground",
+                                      )}
+                                    >
+                                      <span>• {subItem.name}</span>
+                                    </Link>
+                                  )
+                                })}
+                              </div>
+                            </div>
+                          )
+                        }
+                        
+                        // 일반 메뉴
+                        const isActive = pathname === (item as any).href
                         if (item.disabled) {
                           return (
                             <div
@@ -201,7 +249,7 @@ export function CrmSidebar() {
                         return (
                           <Link
                             key={item.name}
-                            href={item.href}
+                            href={(item as any).href}
                             className={cn(
                               "flex items-center gap-2 rounded-md px-2 py-1.5 text-xs transition-colors",
                               isActive

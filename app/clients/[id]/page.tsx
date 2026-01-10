@@ -157,13 +157,13 @@ const parseFormattedNumber = (value: string): string => {
   return value.replace(/,/g, "")
 }
 
-export default function DealDetailPage({ params }: { params: { id: string } }) {
+export default function ClientDetailPage({ params }: { params: { id: string } }) {
   // Next.js 15에서는 params가 Promise이지만, 클라이언트 컴포넌트에서는 use()로 처리
   const resolvedParams = React.use(params as unknown as Promise<{ id: string }>)
-  return <DealDetailPageClient dealId={resolvedParams.id} />
+  return <ClientDetailPageClient clientId={resolvedParams.id} />
 }
 
-function DealDetailPageClient({ dealId }: { dealId: string }) {
+function ClientDetailPageClient({ clientId }: { clientId: string }) {
   const router = useRouter()
   const [activeTab, setActiveTab] = useState(() => {
     if (typeof window !== "undefined") {
@@ -218,7 +218,7 @@ function DealDetailPageClient({ dealId }: { dealId: string }) {
   const supabase = createBrowserClient() // supabase 클라이언트 한번만 생성
 
   // resolvedId를 useEffect 외부에서 선언
-  const resolvedId = dealId
+  const resolvedId = clientId
 
   // isClosedStage 변수 정의
   const isClosedStage =
@@ -229,29 +229,9 @@ function DealDetailPageClient({ dealId }: { dealId: string }) {
 
   const loadActivities = async () => {
     const { data, error } = await supabase
-      .from("activities")
-      .select(`
-        *,
-        deal:deals!deal_id (
-          id,
-          deal_name
-        ),
-        quotation:quotations!activity_id (
-          id,
-          quotation_number,
-          company,
-          title,
-          items,
-          supply_amount,
-          vat_amount,
-          total_amount,
-          valid_until,
-          notes,
-          status,
-          created_at
-        )
-      `)
-      .eq("deal_id", resolvedId)
+      .from("client_activities")
+      .select("*")
+      .eq("client_id", resolvedId)
       .order("activity_date", { ascending: false })
 
     if (error) {
@@ -278,7 +258,6 @@ function DealDetailPageClient({ dealId }: { dealId: string }) {
       return {
         ...activity,
         attachments: parsedAttachments,
-        quotation: Array.isArray(activity.quotation) && activity.quotation.length > 0 ? activity.quotation[0] : null,
       }
     })
 
@@ -290,7 +269,7 @@ function DealDetailPageClient({ dealId }: { dealId: string }) {
     let dealError = null
 
     const { data, error } = await supabase
-      .from("deals")
+      .from("clients")
       .select(`
         *,
         account:accounts!account_id (
@@ -358,7 +337,7 @@ function DealDetailPageClient({ dealId }: { dealId: string }) {
 
     fetchSettings() // settings 로드
     loadDealData() // deal 데이터 로드
-  }, [resolvedId, supabase, dealId]) // resolvedId, supabase, dealId 변경 시 다시 로드
+  }, [resolvedId, supabase, clientId]) // resolvedId, supabase, clientId 변경 시 다시 로드
 
   // Activities 아이콘 매핑 함수
   const getActivityIcon = (type: string) => {
@@ -392,7 +371,7 @@ function DealDetailPageClient({ dealId }: { dealId: string }) {
 
     console.log("[v0] handleUpdateDeal 호출:", updates)
 
-    const { error } = await supabase.from("deals").update(updates).eq("id", resolvedId)
+    const { error } = await supabase.from("clients").update(updates).eq("id", resolvedId)
 
     if (error) {
       console.error("[v0] 거래 업데이트 오류:", error)
@@ -456,9 +435,9 @@ function DealDetailPageClient({ dealId }: { dealId: string }) {
 
     // 2. 연결된 작업들 업데이트
     const { error: tasksError } = await supabase
-      .from("tasks")
+      .from("client_tasks")
       .update({ assigned_to: newAssignedTo })
-      .eq("deal_id", resolvedId)
+      .eq("client_id", resolvedId)
 
     if (tasksError) {
       console.error("[v0] 작업 담당자 업데이트 오류:", tasksError)
@@ -466,9 +445,9 @@ function DealDetailPageClient({ dealId }: { dealId: string }) {
 
     // 3. 연결된 활동들 업데이트
     const { error: activitiesError } = await supabase
-      .from("activities")
+      .from("client_activities")
       .update({ assigned_to: newAssignedTo })
-      .eq("deal_id", resolvedId)
+      .eq("client_id", resolvedId)
 
     if (activitiesError) {
       console.error("[v0] 활동 담당자 업데이트 오류:", activitiesError)
@@ -584,9 +563,9 @@ function DealDetailPageClient({ dealId }: { dealId: string }) {
       const activityTitle = titleMap[newActivity.activity_type] || "활동"
 
       const { data: activity, error } = await supabase
-        .from("activities")
+        .from("client_activities")
         .insert({
-          deal_id: resolvedId,
+          client_id: resolvedId,
           activity_type: newActivity.activity_type,
           title: activityTitle,
           content: newActivity.content,
@@ -655,7 +634,7 @@ function DealDetailPageClient({ dealId }: { dealId: string }) {
       const activityTitle = titleMap[editData.activity_type] || "활동"
 
       const { error } = await supabase
-        .from("activities")
+        .from("client_activities")
         .update({
           activity_type: editData.activity_type,
           title: activityTitle,
@@ -698,7 +677,7 @@ function DealDetailPageClient({ dealId }: { dealId: string }) {
       const updatedAttachments = currentAttachments.filter((att: any) => att.url && att.url !== attachmentUrl)
 
       const { error: dbError } = await supabase
-        .from("activities")
+        .from("client_activities")
         .update({
           attachments: JSON.stringify(updatedAttachments),
         })
@@ -749,7 +728,7 @@ function DealDetailPageClient({ dealId }: { dealId: string }) {
       }
 
       // DB에서 활동 삭제
-      const { error } = await supabase.from("activities").delete().eq("id", activityId)
+      const { error } = await supabase.from("client_activities").delete().eq("id", activityId)
 
       if (error) {
         console.error("[v0] 활동 삭제 오류:", error)
@@ -800,7 +779,7 @@ function DealDetailPageClient({ dealId }: { dealId: string }) {
 
   const handleTabChange = (tab: string) => {
     setActiveTab(tab)
-    const newUrl = `/deals/${dealId}${tab === "activity" ? "" : `?tab=${tab}`}`
+    const newUrl = `/clients/${clientId}${tab === "activity" ? "" : `?tab=${tab}`}`
     router.replace(newUrl, { scroll: false })
   }
 
@@ -811,7 +790,7 @@ function DealDetailPageClient({ dealId }: { dealId: string }) {
       <div className="flex flex-1 overflow-hidden">
         <div className="w-80 border-r border-border bg-card overflow-y-auto">
           <div className="p-6">
-            <Link href={activeTab === "info" ? "/contacts" : "/deals"}>
+            <Link href={activeTab === "info" ? "/contacts" : "/clients"}>
               <Button variant="ghost" size="sm" className="mb-6">
                 <ArrowLeft className="mr-2 h-4 w-4" />
                 {activeTab === "info" ? "연락처 목록" : "파이프라인 목록"}
@@ -1066,7 +1045,7 @@ function DealDetailPageClient({ dealId }: { dealId: string }) {
                   <Card>
                     <CardHeader className="flex flex-row items-center justify-between">
                       <div className="flex items-center gap-3">
-                      <CardTitle>활동 타임라인</CardTitle>
+                        <CardTitle>활동 타임라인</CardTitle>
                         <Button
                           variant="outline"
                           size="sm"
