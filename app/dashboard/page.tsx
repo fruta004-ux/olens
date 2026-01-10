@@ -61,7 +61,7 @@ const PIPELINE_DUMMY_DATA = {
   targetPipeline: 1000000000,
   stages: [
     { id: "S3", name: "제안발송", count: 10, amount: 78600000, target: 666000000, color: "bg-amber-500" },
-    { id: "S4", name: "결정대기", count: 23, amount: 127400000, target: 333000000, color: "bg-blue-500" },
+    { id: "S4", name: "결정대기", count: 23, amount: 127400000, target: 333000000, color: "bg-purple-500" },
     { id: "S5", name: "계약완료", count: 3, amount: 100000000, target: 100000000, color: "bg-green-500" },
   ],
   serviceTypes: [
@@ -316,14 +316,14 @@ export default function DashboardPage() {
                     insight.type === "warning" 
                       ? "bg-red-50 dark:bg-red-950/30 border border-red-200 dark:border-red-900" 
                       : insight.type === "tip"
-                      ? "bg-blue-50 dark:bg-blue-950/30 border border-blue-200 dark:border-blue-900"
+                      ? "bg-purple-50 dark:bg-purple-950/30 border border-purple-200 dark:border-purple-900"
                       : "bg-green-50 dark:bg-green-950/30 border border-green-200 dark:border-green-900"
                   }`}
                 >
                   {insight.type === "warning" ? (
                     <AlertTriangle className="h-5 w-5 text-red-500 shrink-0 mt-0.5" />
                   ) : insight.type === "tip" ? (
-                    <Lightbulb className="h-5 w-5 text-blue-500 shrink-0 mt-0.5" />
+                    <Lightbulb className="h-5 w-5 text-purple-500 shrink-0 mt-0.5" />
                   ) : (
                     <TrendingUp className="h-5 w-5 text-green-500 shrink-0 mt-0.5" />
                   )}
@@ -473,7 +473,7 @@ export default function DashboardPage() {
   const getStatusStyle = (status: "low" | "normal" | "high") => {
     switch (status) {
       case "low":
-        return { bg: "bg-blue-50 border-blue-200", text: "text-blue-700", badge: "bg-blue-100 text-blue-700", icon: <TrendingDown className="h-4 w-4" />, iconColor: "text-blue-500" };
+        return { bg: "bg-purple-50 border-purple-200", text: "text-purple-700", badge: "bg-purple-100 text-purple-700", icon: <TrendingDown className="h-4 w-4" />, iconColor: "text-purple-500" };
       case "high":
         return { bg: "bg-red-50 border-red-200", text: "text-red-700", badge: "bg-red-100 text-red-700", icon: <TrendingUp className="h-4 w-4" />, iconColor: "text-red-500" };
       default:
@@ -519,7 +519,7 @@ export default function DashboardPage() {
 
           return (
             <div key={stage.key} ref={(el) => { stageRefs.current[stage.key] = el; }}>
-              <Card className={cn("transition-all duration-200 border-2", isSelected ? "ring-2 ring-blue-500 border-blue-500" : style.bg, "hover:shadow-md")}>
+              <Card className={cn("transition-all duration-200 border-2", isSelected ? "ring-2 ring-primary border-primary" : style.bg, "hover:shadow-md")}>
                 <CardContent className="p-4">
                   <div className="cursor-pointer" onClick={() => handleStageChange(stage.key)}>
                     <div className="flex items-center justify-between mb-3">
@@ -534,7 +534,7 @@ export default function DashboardPage() {
                     </div>
 
                     <div className="relative h-6 bg-gray-100 rounded-full overflow-hidden">
-                      <div className={cn("absolute h-full rounded-full transition-all duration-500 z-10", status === "low" ? "bg-blue-500" : status === "high" ? "bg-red-500" : "bg-green-500")} style={{ width: `${progressWidth}%` }} />
+                      <div className={cn("absolute h-full rounded-full transition-all duration-500 z-10", status === "low" ? "bg-purple-500" : status === "high" ? "bg-red-500" : "bg-green-500")} style={{ width: `${progressWidth}%` }} />
                       <div className="absolute h-full z-20" style={{ left: `${range.left}%`, width: `${range.width}%`, backgroundColor: status === "high" ? 'rgba(251, 191, 36, 0.3)' : 'rgba(34, 197, 94, 0.25)' }} />
                       <div className={cn("absolute h-full w-[2px] z-30", status === "high" ? "bg-amber-500" : "bg-green-600")} style={{ left: `${range.left}%` }} />
                       <div className={cn("absolute h-full w-[2px] z-30", status === "high" ? "bg-amber-500" : "bg-green-600")} style={{ left: `calc(${range.left + range.width}% - 2px)` }} />
@@ -610,7 +610,7 @@ export default function DashboardPage() {
           <Card>
             <CardHeader className="pb-3">
               <CardTitle className="flex items-center gap-2">
-                <AlertCircle className="h-5 w-5 text-blue-600" />
+                <AlertCircle className="h-5 w-5 text-primary" />
                 {STAGE_CONFIG.find(s => s.key === selectedStage)?.label} 피드백
               </CardTitle>
               <p className="text-sm text-muted-foreground">현재 상태에 대한 분석과 액션 아이템을 기록하세요</p>
@@ -672,7 +672,7 @@ export default function DashboardPage() {
       <main className="flex-1 p-6 space-y-6">
         {/* 헤더 */}
         <div className="flex items-center gap-3">
-          <BarChart3 className="h-8 w-8 text-blue-600" />
+          <BarChart3 className="h-8 w-8 text-primary" />
           <div>
             <h1 className="text-2xl font-bold">대시보드</h1>
             <p className="text-sm text-muted-foreground">영업 현황을 한눈에 확인하세요</p>

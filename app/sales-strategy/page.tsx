@@ -1275,7 +1275,7 @@ function CellWithHistory({
             <span className="text-xs text-muted-foreground">저장 대기중...</span>
           )}
           {autoSaveStatus === "saving" && (
-            <span className="text-xs text-blue-500">저장 중...</span>
+            <span className="text-xs text-primary">저장 중...</span>
           )}
           {autoSaveStatus === "saved" && (
             <span className="text-xs text-green-500">저장됨 ✓</span>

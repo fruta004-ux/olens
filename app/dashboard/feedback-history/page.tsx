@@ -107,7 +107,7 @@ export default function FeedbackHistoryPage() {
   const getStageColor = (stageKey: string) => {
     const colors: Record<string, string> = {
       S0: "bg-gray-100 text-gray-700",
-      S1: "bg-blue-100 text-blue-700",
+      S1: "bg-purple-100 text-purple-700",
       S2: "bg-cyan-100 text-cyan-700",
       S3: "bg-yellow-100 text-yellow-700",
       S4: "bg-orange-100 text-orange-700",
@@ -133,7 +133,7 @@ export default function FeedbackHistoryPage() {
               <ArrowLeft className="h-5 w-5" />
             </Button>
             <div className="flex items-center gap-3">
-              <History className="h-8 w-8 text-blue-600" />
+              <History className="h-8 w-8 text-primary" />
               <div>
                 <h1 className="text-2xl font-bold">피드백 히스토리</h1>
                 <p className="text-sm text-muted-foreground">

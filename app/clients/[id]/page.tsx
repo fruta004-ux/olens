@@ -801,7 +801,7 @@ function ClientDetailPageClient({ clientId }: { clientId: string }) {
               <h1 className="text-2xl font-bold text-foreground mb-2">
                 {dealData.account?.company_name || "거래 정보 없음"}
               </h1>
-              <Badge className="bg-blue-500 text-white mb-2">{getStageDisplay(dealData.stage)}</Badge>
+              <Badge className="bg-primary text-primary-foreground mb-2">{getStageDisplay(dealData.stage)}</Badge>
               <div className="flex items-center gap-2 mt-2 p-2 rounded-md bg-primary/5 border border-primary/20">
                 <User className="h-4 w-4 text-primary" />
                 <div>
@@ -1373,7 +1373,7 @@ function ClientDetailPageClient({ clientId }: { clientId: string }) {
                                                   통화
                                                 </SelectItem>
                                                 <SelectItem value="미팅">
-                                                  <Users className="inline h-4 w-4 mr-2 text-blue-500" />
+                                                  <Users className="inline h-4 w-4 mr-2 text-primary" />
                                                   미팅
                                                 </SelectItem>
                                                 <SelectItem value="이메일">
@@ -1583,13 +1583,13 @@ function ClientDetailPageClient({ clientId }: { clientId: string }) {
 
                                           {/* 활동 타임라인에서 견적서 표시 */}
                                           {activity.quotation && (
-                                            <div className="mt-3 p-3 bg-sky-50 border border-sky-200 rounded-lg">
+                                            <div className="mt-3 p-3 bg-purple-50 border border-purple-200 rounded-lg">
                                               <div className="flex items-center justify-between">
                                                 <div>
-                                                  <p className="text-sm font-semibold text-sky-900">
+                                                  <p className="text-sm font-semibold text-purple-900">
                                                     💰 견적서: {activity.quotation.quotation_number}
                                                   </p>
-                                                  <p className="text-xs text-sky-700">
+                                                  <p className="text-xs text-purple-700">
                                                     ₩{activity.quotation.total_amount.toLocaleString("ko-KR")} (
                                                     {activity.quotation.company})
                                                   </p>

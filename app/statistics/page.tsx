@@ -427,8 +427,8 @@ export default function StatisticsPage() {
             <Card>
               <CardContent className="p-4">
                 <div className="flex items-center gap-3">
-                  <div className="p-2 bg-blue-100 rounded-lg">
-                    <Users className="h-5 w-5 text-blue-600" />
+                  <div className="p-2 bg-purple-100 rounded-lg">
+                    <Users className="h-5 w-5 text-primary" />
                   </div>
                   <div>
                     <p className="text-sm text-muted-foreground">
@@ -550,7 +550,7 @@ export default function StatisticsPage() {
                             "min-h-[100px] p-2 border rounded-lg transition-colors",
                             day.isCurrentMonth ? "bg-card" : "bg-muted/30",
                             isToday && "ring-2 ring-primary",
-                            day.deals.length > 0 && day.isCurrentMonth && "bg-blue-50 dark:bg-blue-950/30"
+                            day.deals.length > 0 && day.isCurrentMonth && "bg-purple-50 dark:bg-purple-950/30"
                           )}
                         >
                           <div className={cn(

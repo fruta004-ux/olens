@@ -185,7 +185,7 @@ export function QuotationDetailDialog({ open, onOpenChange, quotation, clientNam
                   </tr>
                   <tr>
                     <td className="py-3 px-4 bg-gray-200 font-bold text-lg">총 견적금액</td>
-                    <td className="py-3 px-4 text-right font-bold text-lg text-blue-600">
+                    <td className="py-3 px-4 text-right font-bold text-lg text-primary">
                       ₩ {formatNumber(quotation.total_amount)}
                     </td>
                   </tr>

@@ -447,7 +447,7 @@ export default function TasksPage() {
                                       ? "bg-red-500"
                                       : task.priority === "보통"
                                         ? "bg-yellow-500"
-                                        : "bg-blue-500"
+                                        : "bg-primary"
                                   }`}
                                 />
                               ))}

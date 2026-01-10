@@ -917,7 +917,7 @@ export default function DealsPage() {
 
                       {/* 진행 중 */}
                       <div className="space-y-2">
-                        <div className="text-xs font-semibold text-blue-700">진행 중</div>
+                        <div className="text-xs font-semibold text-primary">진행 중</div>
                         <div className="flex items-center space-x-2">
                           <Checkbox
                             id="stage-S2"

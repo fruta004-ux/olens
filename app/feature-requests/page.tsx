@@ -64,7 +64,7 @@ type FeatureRequest = {
 
 const STATUS_CONFIG: Record<string, { label: string; color: string; icon: React.ReactNode }> = {
   proposed: { label: "제안됨", color: "bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300", icon: <Lightbulb className="h-3 w-3" /> },
-  reviewing: { label: "검토중", color: "bg-blue-100 text-blue-700 dark:bg-blue-900 dark:text-blue-300", icon: <Clock className="h-3 w-3" /> },
+  reviewing: { label: "검토중", color: "bg-purple-100 text-purple-700 dark:bg-purple-900 dark:text-purple-300", icon: <Clock className="h-3 w-3" /> },
   approved: { label: "승인됨", color: "bg-green-100 text-green-700 dark:bg-green-900 dark:text-green-300", icon: <CheckCircle2 className="h-3 w-3" /> },
   in_progress: { label: "개발중", color: "bg-purple-100 text-purple-700 dark:bg-purple-900 dark:text-purple-300", icon: <Loader2 className="h-3 w-3" /> },
   completed: { label: "완료", color: "bg-emerald-100 text-emerald-700 dark:bg-emerald-900 dark:text-emerald-300", icon: <CheckCircle2 className="h-3 w-3" /> },
@@ -530,7 +530,7 @@ export default function FeatureRequestsPage() {
                           <MessageSquare className="h-3 w-3" />
                           관리자 코멘트
                         </Label>
-                        <div className="p-3 bg-blue-50 dark:bg-blue-950 rounded-lg text-sm whitespace-pre-wrap border border-blue-200 dark:border-blue-800">
+                        <div className="p-3 bg-purple-50 dark:bg-purple-950 rounded-lg text-sm whitespace-pre-wrap border border-purple-200 dark:border-purple-800">
                           {selectedRequest.admin_comment}
                         </div>
                       </div>

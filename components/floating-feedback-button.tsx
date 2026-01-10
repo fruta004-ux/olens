@@ -51,8 +51,8 @@ export function FloatingFeedbackButton() {
       <button
         onClick={() => setIsOpen(!isOpen)}
         className={cn(
-          "flex items-center justify-center w-6 h-16 bg-blue-600 hover:bg-blue-700 text-white rounded-l-md shadow-lg transition-all duration-200",
-          "hover:w-7 focus:outline-none focus:ring-2 focus:ring-blue-400 focus:ring-offset-2"
+          "flex items-center justify-center w-6 h-16 bg-primary hover:bg-primary/90 text-primary-foreground rounded-l-md shadow-lg transition-all duration-200",
+          "hover:w-7 focus:outline-none focus:ring-2 focus:ring-primary/50 focus:ring-offset-2"
         )}
         title="피드백"
       >
