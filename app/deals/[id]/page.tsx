@@ -1791,10 +1791,23 @@ function DealDetailPageClient({ dealId }: { dealId: string }) {
                 </div>
                 <div className="col-span-2">
                   <label className="text-xs text-muted-foreground">거래 예상 금액</label>
-                  <div className="mt-1 flex gap-2">
+                  <div className="mt-1 space-y-2">
                     <select
-                      className="flex-1 px-3 py-2 text-sm border rounded-md"
-                      value={dealData.amount_range || ""}
+                      className="w-full px-3 py-2 text-sm border rounded-md bg-background"
+                      value={
+                        [
+                          "500만원 이하",
+                          "500 ~ 1000만원",
+                          "1000 ~ 2000만원",
+                          "2000 ~ 3000만원",
+                          "3000만원 이상",
+                          "1억 이상",
+                          "미입력 / 내부 검토",
+                          "미확정",
+                        ].includes(dealData.amount_range || "")
+                          ? dealData.amount_range
+                          : ""
+                      }
                       onChange={(e) => {
                         const newAmount = e.target.value
                         handleUpdateDeal({ amount_range: newAmount })
@@ -1813,7 +1826,7 @@ function DealDetailPageClient({ dealId }: { dealId: string }) {
                     <Input
                       type="text"
                       placeholder="직접 입력 (예: 1,500,000)"
-                      className="flex-1 text-sm"
+                      className="w-full text-sm bg-background"
                       value={
                         dealData.amount_range &&
                         ![
