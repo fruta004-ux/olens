@@ -41,8 +41,10 @@ import {
   DollarSign,
   ArrowRight,
   Lightbulb,
-  PieChart
+  PieChart,
+  LayoutDashboard
 } from "lucide-react";
+import { PageHeader } from "@/components/page-header";
 
 // ===== 공통 타입 =====
 interface Deal {
@@ -56,30 +58,61 @@ interface Deal {
 }
 
 // ===== 파이프라인 관련 =====
-const PIPELINE_DUMMY_DATA = {
-  totalPipeline: 206000000,
-  targetPipeline: 1000000000,
-  stages: [
-    { id: "S3", name: "제안발송", count: 10, amount: 78600000, target: 666000000, color: "bg-amber-500" },
-    { id: "S4", name: "결정대기", count: 23, amount: 127400000, target: 333000000, color: "bg-purple-500" },
-    { id: "S5", name: "계약완료", count: 3, amount: 100000000, target: 100000000, color: "bg-green-500" },
-  ],
-  serviceTypes: [
-    { name: "마케팅", amount: 48100000, target: 300000000, color: "bg-purple-500" },
-    { name: "홈페이지", amount: 33500000, target: 400000000, color: "bg-cyan-500" },
-    { name: "ERP/커스텀", amount: 124400000, target: 300000000, color: "bg-orange-500" },
-  ],
-  conversions: [
-    { from: "S3", to: "S5", rate: 10, currentAmount: 78600000 },
-    { from: "S4", to: "S5", rate: 20, currentAmount: 127400000 },
-  ],
-  targetRevenue: 100000000,
-  insights: [
-    { type: "warning", message: "S3 파이프라인이 목표 대비 8.5배 부족합니다" },
-    { type: "tip", message: "ERP/커스텀 비중을 높여 딜 평균 금액 증가 필요" },
-    { type: "opportunity", message: "S4→S5 전환율 20%→30% 개선 시 +12,700,000원 추가 가능" },
-  ]
+// 목표 금액 설정 (나중에 관리자에서 수정 가능하게 할 수 있음)
+const PIPELINE_TARGETS = {
+  total: 1000000000,
+  S3: 666000000,
+  S4: 333000000,
+  S5: 100000000,
+  services: {
+    "마케팅": 300000000,
+    "홈페이지": 400000000,
+    "ERP/커스텀": 300000000,
+    "미분류": 0, // 미분류는 목표 없음
+  }
 };
+
+// amount_range 문자열에서 금액 추출 (예: "1,000만원 ~ 3,000만원" -> 2000만원 평균)
+function parseAmountRange(amountRange: string | null): number {
+  if (!amountRange) return 0;
+  
+  // 숫자와 단위 추출
+  const matches = amountRange.match(/[\d,]+/g);
+  if (!matches || matches.length === 0) return 0;
+  
+  // 단위 확인 (만원, 억원 등)
+  const isManwon = amountRange.includes("만");
+  const isEok = amountRange.includes("억");
+  
+  let multiplier = 1;
+  if (isManwon) multiplier = 10000;
+  if (isEok) multiplier = 100000000;
+  
+  // 숫자 파싱
+  const numbers = matches.map(m => parseInt(m.replace(/,/g, ""), 10));
+  
+  if (numbers.length >= 2) {
+    // 범위인 경우 평균값 사용
+    return ((numbers[0] + numbers[1]) / 2) * multiplier;
+  }
+  return numbers[0] * multiplier;
+}
+
+interface ServiceTypeMapping {
+  [needValue: string]: string;
+}
+
+interface PipelineData {
+  totalPipeline: number;
+  targetPipeline: number;
+  stages: { id: string; name: string; count: number; amount: number; target: number; color: string }[];
+  serviceByStage: {
+    S3: { name: string; amount: number; target: number; color: string }[];
+    S4: { name: string; amount: number; target: number; color: string }[];
+    total: { name: string; amount: number; target: number; color: string }[];
+  };
+  insights: { type: string; message: string }[];
+}
 
 function formatWon(amount: number): string {
   return `${amount.toLocaleString()}원`;
@@ -140,199 +173,554 @@ export default function DashboardPage() {
 
   // ===== 파이프라인 탭 컴포넌트 =====
   const PipelineTab = () => {
-    const data = PIPELINE_DUMMY_DATA;
+    const [pipelineData, setPipelineData] = useState<PipelineData | null>(null);
+    const [serviceTypeMap, setServiceTypeMap] = useState<ServiceTypeMapping>({});
+    const [showInsight, setShowInsight] = useState(false);
+    const [expandedService, setExpandedService] = useState<string | null>(null);
+    const [serviceDeals, setServiceDeals] = useState<Record<string, Deal[]>>({});
+    const [isLoading, setIsLoading] = useState(true);
+    
+    // 파이프라인 데이터 로드
+    useEffect(() => {
+      loadPipelineData();
+    }, []);
+    
+    const loadPipelineData = async () => {
+      setIsLoading(true);
+      try {
+        // 1. 니즈 축약의 서비스 타입 매핑 가져오기
+        const { data: settingsData } = await supabase
+          .from("settings")
+          .select("value, service_type")
+          .eq("category", "needs");
+        
+        const typeMap: ServiceTypeMapping = {};
+        settingsData?.forEach((s: any) => {
+          if (s.service_type) {
+            typeMap[s.value] = s.service_type;
+          }
+        });
+        setServiceTypeMap(typeMap);
+        
+        // 2. S3, S4, S5 단계 딜 가져오기
+        const stageFilters = [
+          "S3_proposal", "S3_제안 발송",
+          "S4_negotiation", "S4_decision", "S4_결정 대기", "S4_협상",
+          "S5_contract", "S5_complete", "S5_계약완료", "S5_계약 완료"
+        ];
+        
+        const { data: dealsData } = await supabase
+          .from("deals")
+          .select("id, deal_name, needs_summary, stage, amount_range")
+          .in("stage", stageFilters);
+        
+        // 3. 단계별, 서비스별 금액 집계
+        const stageAmounts: Record<string, { count: number; amount: number }> = {
+          S3: { count: 0, amount: 0 },
+          S4: { count: 0, amount: 0 },
+          S5: { count: 0, amount: 0 },
+        };
+        
+        const serviceAmounts: Record<string, Record<string, number>> = {
+          S3: { "마케팅": 0, "홈페이지": 0, "ERP/커스텀": 0, "미분류": 0 },
+          S4: { "마케팅": 0, "홈페이지": 0, "ERP/커스텀": 0, "미분류": 0 },
+          total: { "마케팅": 0, "홈페이지": 0, "ERP/커스텀": 0, "미분류": 0 },
+        };
+        
+        dealsData?.forEach((deal: any) => {
+          const amount = parseAmountRange(deal.amount_range);
+          const stageKey = deal.stage?.startsWith("S3") ? "S3" : 
+                          deal.stage?.startsWith("S4") ? "S4" : "S5";
+          
+          // 단계별 집계
+          stageAmounts[stageKey].count++;
+          stageAmounts[stageKey].amount += amount;
+          
+          // 서비스 타입 결정 (needs_summary의 첫 번째 니즈 기준)
+          let serviceType = "미분류"; // 기본값을 미분류로 변경
+          if (deal.needs_summary) {
+            const needs = deal.needs_summary.split(",");
+            for (const need of needs) {
+              if (typeMap[need.trim()]) {
+                serviceType = typeMap[need.trim()];
+                break;
+              }
+            }
+          }
+          
+          // S3, S4만 서비스별 파이프라인에 포함
+          if (stageKey === "S3" || stageKey === "S4") {
+            serviceAmounts[stageKey][serviceType] += amount;
+            serviceAmounts.total[serviceType] += amount;
+          }
+        });
+        
+        // 4. 인사이트 생성
+        const insights: { type: string; message: string }[] = [];
+        
+        const totalPipeline = stageAmounts.S3.amount + stageAmounts.S4.amount;
+        const s3Ratio = PIPELINE_TARGETS.S3 / stageAmounts.S3.amount;
+        const s4Ratio = PIPELINE_TARGETS.S4 / stageAmounts.S4.amount;
+        
+        if (stageAmounts.S3.amount > 0 && s3Ratio > 2) {
+          insights.push({
+            type: "warning",
+            message: `S3 파이프라인이 목표 대비 ${s3Ratio.toFixed(1)}배 부족합니다`
+          });
+        }
+        
+        // 서비스별 비중 분석
+        const maxService = Object.entries(serviceAmounts.total).sort((a, b) => b[1] - a[1])[0];
+        if (maxService && maxService[1] > 0) {
+          const ratio = (maxService[1] / totalPipeline * 100).toFixed(0);
+          insights.push({
+            type: "tip",
+            message: `${maxService[0]} 비중이 ${ratio}%로 가장 높습니다`
+          });
+        }
+        
+        // 예상 매출 계산
+        const expectedRevenue = stageAmounts.S3.amount * 0.1 + stageAmounts.S4.amount * 0.2;
+        insights.push({
+          type: "opportunity",
+          message: `현재 파이프라인 기준 예상 매출: ${formatWon(expectedRevenue)}`
+        });
+        
+        // 5. 파이프라인 데이터 설정
+        setPipelineData({
+          totalPipeline,
+          targetPipeline: PIPELINE_TARGETS.total,
+          stages: [
+            { id: "S3", name: "제안발송", count: stageAmounts.S3.count, amount: stageAmounts.S3.amount, target: PIPELINE_TARGETS.S3, color: "bg-amber-500" },
+            { id: "S4", name: "결정대기", count: stageAmounts.S4.count, amount: stageAmounts.S4.amount, target: PIPELINE_TARGETS.S4, color: "bg-purple-500" },
+            { id: "S5", name: "계약완료", count: stageAmounts.S5.count, amount: stageAmounts.S5.amount, target: PIPELINE_TARGETS.S5, color: "bg-green-500" },
+          ],
+          serviceByStage: {
+            S3: [
+              { name: "마케팅", amount: serviceAmounts.S3["마케팅"], target: PIPELINE_TARGETS.services["마케팅"] / 2, color: "bg-purple-500" },
+              { name: "홈페이지", amount: serviceAmounts.S3["홈페이지"], target: PIPELINE_TARGETS.services["홈페이지"] / 2, color: "bg-cyan-500" },
+              { name: "ERP/커스텀", amount: serviceAmounts.S3["ERP/커스텀"], target: PIPELINE_TARGETS.services["ERP/커스텀"] / 2, color: "bg-orange-500" },
+              { name: "미분류", amount: serviceAmounts.S3["미분류"], target: 0, color: "bg-gray-400" },
+            ],
+            S4: [
+              { name: "마케팅", amount: serviceAmounts.S4["마케팅"], target: PIPELINE_TARGETS.services["마케팅"] / 2, color: "bg-purple-500" },
+              { name: "홈페이지", amount: serviceAmounts.S4["홈페이지"], target: PIPELINE_TARGETS.services["홈페이지"] / 2, color: "bg-cyan-500" },
+              { name: "ERP/커스텀", amount: serviceAmounts.S4["ERP/커스텀"], target: PIPELINE_TARGETS.services["ERP/커스텀"] / 2, color: "bg-orange-500" },
+              { name: "미분류", amount: serviceAmounts.S4["미분류"], target: 0, color: "bg-gray-400" },
+            ],
+            total: [
+              { name: "마케팅", amount: serviceAmounts.total["마케팅"], target: PIPELINE_TARGETS.services["마케팅"], color: "bg-purple-500" },
+              { name: "홈페이지", amount: serviceAmounts.total["홈페이지"], target: PIPELINE_TARGETS.services["홈페이지"], color: "bg-cyan-500" },
+              { name: "ERP/커스텀", amount: serviceAmounts.total["ERP/커스텀"], target: PIPELINE_TARGETS.services["ERP/커스텀"], color: "bg-orange-500" },
+              { name: "미분류", amount: serviceAmounts.total["미분류"], target: 0, color: "bg-gray-400" },
+            ],
+          },
+          insights,
+        });
+      } catch (error) {
+        console.error("파이프라인 데이터 로드 오류:", error);
+      } finally {
+        setIsLoading(false);
+      }
+    };
+    
+    // 서비스별 딜 목록 로드
+    const loadServiceDeals = async (serviceName: string, stageType: "S3" | "S4" | "total") => {
+      const cacheKey = `${stageType}_${serviceName}`;
+      
+      if (expandedService === cacheKey) {
+        setExpandedService(null);
+        return;
+      }
+      
+      if (serviceDeals[cacheKey]) {
+        setExpandedService(cacheKey);
+        return;
+      }
+      
+      // 단계에 따라 다른 stage 필터링
+      let stageFilter: string[] = [];
+      if (stageType === "S3") {
+        stageFilter = ["S3_proposal", "S3_제안 발송"];
+      } else if (stageType === "S4") {
+        stageFilter = ["S4_negotiation", "S4_decision", "S4_결정 대기", "S4_협상"];
+      } else {
+        stageFilter = ["S3_proposal", "S3_제안 발송", "S4_negotiation", "S4_decision", "S4_결정 대기", "S4_협상"];
+      }
+      
+      const { data: deals, error } = await supabase
+        .from("deals")
+        .select("id, deal_name, needs_summary, stage, amount_range, grade, priority")
+        .in("stage", stageFilter);
+      
+      if (!error && deals) {
+        // 서비스 타입으로 필터링
+        const filteredDeals = deals.filter((deal: any) => {
+          // 니즈가 없으면 미분류
+          if (!deal.needs_summary) return serviceName === "미분류";
+          
+          const needs = deal.needs_summary.split(",");
+          let foundType: string | null = null;
+          
+          for (const need of needs) {
+            const type = serviceTypeMap[need.trim()];
+            if (type) {
+              foundType = type;
+              break;
+            }
+          }
+          
+          // 매핑된 타입이 없으면 미분류
+          if (!foundType) return serviceName === "미분류";
+          
+          return foundType === serviceName;
+        });
+        setServiceDeals(prev => ({ ...prev, [cacheKey]: filteredDeals }));
+      }
+      setExpandedService(cacheKey);
+    };
+    
+    if (isLoading) {
+      return (
+        <div className="flex items-center justify-center h-64">
+          <div className="text-muted-foreground">파이프라인 데이터 로딩 중...</div>
+        </div>
+      );
+    }
+    
+    if (!pipelineData) {
+      return (
+        <div className="flex items-center justify-center h-64">
+          <div className="text-muted-foreground">데이터를 불러올 수 없습니다.</div>
+        </div>
+      );
+    }
+    
+    const data = pipelineData;
     const totalPercentage = (data.totalPipeline / data.targetPipeline) * 100;
-    const expectedRevenue = data.conversions.reduce((sum, conv) => {
-      return sum + (conv.currentAmount * conv.rate / 100);
-    }, 0);
-    const revenuePercentage = (expectedRevenue / data.targetRevenue) * 100;
 
     return (
       <div className="space-y-6">
-        {/* 기간 선택 */}
-        <div className="flex justify-end">
-          <Select defaultValue="2025-01">
-            <SelectTrigger className="w-[140px]">
-              <SelectValue placeholder="기간 선택" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="2025-01">2025년 1월</SelectItem>
-              <SelectItem value="2024-12">2024년 12월</SelectItem>
-              <SelectItem value="2024-11">2024년 11월</SelectItem>
-            </SelectContent>
-          </Select>
+        {/* 기간 선택 + 인사이트 버튼 */}
+        <div className="flex justify-between items-center">
+          <div className="flex-1" />
+          <div className="flex items-center gap-3">
+            {/* 인사이트 버튼 */}
+            <div className="relative">
+              <Button
+                variant="outline"
+                size="sm"
+                className={cn(
+                  "flex items-center gap-2 transition-colors",
+                  showInsight && "bg-yellow-50 border-yellow-300 dark:bg-yellow-950/30 dark:border-yellow-700"
+                )}
+                onClick={() => setShowInsight(!showInsight)}
+              >
+                <Lightbulb className={cn("h-4 w-4", showInsight ? "text-yellow-500" : "text-muted-foreground")} />
+                인사이트
+              </Button>
+              
+              {/* 인사이트 말풍선 */}
+              {showInsight && (
+                <div className="absolute right-0 top-full mt-2 w-96 z-50">
+                  <div className="relative bg-background border rounded-lg shadow-lg p-4">
+                    {/* 말풍선 화살표 */}
+                    <div className="absolute -top-2 right-6 w-4 h-4 bg-background border-l border-t rounded-tl rotate-45" />
+                    <div className="space-y-3">
+                      <div className="flex items-center gap-2 font-medium">
+                        <Lightbulb className="h-5 w-5 text-yellow-500" />
+                        인사이트
+                      </div>
+                      {data.insights.map((insight, idx) => (
+                        <div 
+                          key={idx}
+                          className={`flex items-start gap-3 p-3 rounded-lg ${
+                            insight.type === "warning" 
+                              ? "bg-red-50 dark:bg-red-950/30 border border-red-200 dark:border-red-900" 
+                              : insight.type === "tip"
+                              ? "bg-purple-50 dark:bg-purple-950/30 border border-purple-200 dark:border-purple-900"
+                              : "bg-green-50 dark:bg-green-950/30 border border-green-200 dark:border-green-900"
+                          }`}
+                        >
+                          {insight.type === "warning" ? (
+                            <AlertTriangle className="h-4 w-4 text-red-500 shrink-0 mt-0.5" />
+                          ) : insight.type === "tip" ? (
+                            <Lightbulb className="h-4 w-4 text-purple-500 shrink-0 mt-0.5" />
+                          ) : (
+                            <TrendingUp className="h-4 w-4 text-green-500 shrink-0 mt-0.5" />
+                          )}
+                          <p className="text-sm">{insight.message}</p>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+              )}
+            </div>
+            
+            <Select defaultValue="2025-01">
+              <SelectTrigger className="w-[140px]">
+                <SelectValue placeholder="기간 선택" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="2025-01">2025년 1월</SelectItem>
+                <SelectItem value="2024-12">2024년 12월</SelectItem>
+                <SelectItem value="2024-11">2024년 11월</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
         </div>
 
-        {/* 전체 파이프라인 현황 */}
-        <Card>
-          <CardHeader className="pb-2">
-            <CardTitle className="text-lg flex items-center gap-2">
-              <Target className="h-5 w-5" />
-              전체 파이프라인 현황
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="space-y-3">
-              <div className="flex items-center justify-between text-sm">
-                <span className="text-muted-foreground">현재 파이프라인</span>
-                <span className="font-bold text-lg">
-                  {formatWon(data.totalPipeline)} / {formatWon(data.targetPipeline)}
-                </span>
+        {/* 전체 파이프라인 현황 + S3/S4/S5 카드 - 1줄 배치 */}
+        <div className="grid grid-cols-1 lg:grid-cols-4 gap-4">
+          {/* 전체 파이프라인 현황 */}
+          <Card>
+            <CardHeader className="pb-2">
+              <CardTitle className="text-sm flex items-center gap-2">
+                <Target className="h-4 w-4" />
+                전체 파이프라인
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="space-y-2">
+                <div className="text-xl font-bold">
+                  {formatWon(data.totalPipeline)}
+                </div>
+                <div className="text-xs text-muted-foreground">
+                  목표: {formatWon(data.targetPipeline)}
+                </div>
+                <div className="relative">
+                  <Progress value={totalPercentage} className="h-2" />
+                </div>
+                <div className="text-xs text-muted-foreground">
+                  {totalPercentage.toFixed(1)}% 달성
+                </div>
               </div>
-              <div className="relative">
-                <Progress value={totalPercentage} className="h-4" />
-                <span className="absolute inset-0 flex items-center justify-center text-xs font-medium">
-                  {totalPercentage.toFixed(1)}%
-                </span>
-              </div>
-              <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                <TrendingUp className="h-4 w-4 text-green-500" />
-                목표 달성까지 {formatWon(data.targetPipeline - data.totalPipeline)} 필요
-              </div>
-            </div>
-          </CardContent>
-        </Card>
+            </CardContent>
+          </Card>
 
-        {/* 단계별 파이프라인 카드 */}
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+          {/* 단계별 파이프라인 카드 - S3, S4, S5 */}
           {data.stages.map((stage) => {
             const percentage = (stage.amount / stage.target) * 100;
+            // S3는 10%, S4는 20% 예상 매출 표시
+            const conversionRate = stage.id === "S3" ? 10 : stage.id === "S4" ? 20 : null;
+            const stageExpected = conversionRate ? stage.amount * (conversionRate / 100) : null;
+            
             return (
               <Card key={stage.id} className="relative overflow-hidden">
                 <div className={`absolute top-0 left-0 w-1 h-full ${stage.color}`} />
                 <CardHeader className="pb-2">
-                  <CardTitle className="text-base flex items-center justify-between">
+                  <CardTitle className="text-sm flex items-center justify-between">
                     <span className="flex items-center gap-2">
-                      <Badge variant="outline" className="font-mono">{stage.id}</Badge>
+                      <Badge variant="outline" className="font-mono text-xs">{stage.id}</Badge>
                       {stage.name}
                     </span>
-                    <span className="text-2xl font-bold">{stage.count}건</span>
+                    <span className="text-lg font-bold">{stage.count}건</span>
                   </CardTitle>
                 </CardHeader>
-                <CardContent className="space-y-3">
-                  <div className="text-center">
-                    <p className="text-xl font-bold">{formatWon(stage.amount)}</p>
+                <CardContent className="space-y-2">
+                  <div>
+                    <p className="text-lg font-bold">{formatWon(stage.amount)}</p>
                     <p className="text-xs text-muted-foreground">목표: {formatWon(stage.target)}</p>
                   </div>
                   <div className="space-y-1">
                     <Progress value={Math.min(percentage, 100)} className="h-2" />
-                    <p className="text-xs text-right text-muted-foreground">{percentage.toFixed(1)}% 달성</p>
+                    <p className="text-xs text-muted-foreground">{percentage.toFixed(1)}% 달성</p>
                   </div>
+                  {stageExpected !== null && (
+                    <div className="pt-2 border-t">
+                      <p className="text-xs text-muted-foreground">예상 매출 ({conversionRate}%)</p>
+                      <p className="text-sm font-bold text-green-600">{formatWon(stageExpected)}</p>
+                    </div>
+                  )}
                 </CardContent>
               </Card>
             );
           })}
         </div>
 
-        {/* 서비스별 파이프라인 & 전환율/예상매출 */}
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-          {/* 서비스별 파이프라인 */}
+        {/* 서비스별 파이프라인 - S3 / S4 / 종합 3열 */}
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+          {/* S3 서비스별 파이프라인 */}
           <Card>
             <CardHeader className="pb-2">
-              <CardTitle className="text-lg flex items-center gap-2">
-                <DollarSign className="h-5 w-5" />
-                서비스별 파이프라인 (S3+S4)
+              <CardTitle className="text-sm flex items-center gap-2">
+                <div className="w-3 h-3 rounded-full bg-amber-500" />
+                S3 서비스별 파이프라인
               </CardTitle>
             </CardHeader>
-            <CardContent className="space-y-4">
-              {data.serviceTypes.map((service) => {
+            <CardContent className="space-y-2">
+              {data.serviceByStage.S3.map((service) => {
                 const percentage = (service.amount / service.target) * 100;
+                const cacheKey = `S3_${service.name}`;
+                const isExpanded = expandedService === cacheKey;
+                const deals = serviceDeals[cacheKey] || [];
+                
                 return (
-                  <div key={service.name} className="space-y-2">
-                    <div className="flex items-center justify-between text-sm">
-                      <span className="flex items-center gap-2">
-                        <div className={`w-3 h-3 rounded-full ${service.color}`} />
-                        {service.name}
-                      </span>
-                      <span className="font-medium">
-                        {formatWon(service.amount)}
-                        <span className="text-muted-foreground text-xs ml-1">/ {formatWon(service.target)}</span>
-                      </span>
+                  <div key={service.name}>
+                    <div 
+                      className={cn(
+                        "p-2 rounded-lg cursor-pointer transition-colors hover:bg-muted/50",
+                        isExpanded && "bg-muted/50"
+                      )}
+                      onClick={() => loadServiceDeals(service.name, "S3")}
+                    >
+                      <div className="flex items-center justify-between text-sm mb-1">
+                        <span className="flex items-center gap-2">
+                          {isExpanded ? (
+                            <ChevronDown className="h-3 w-3 text-muted-foreground" />
+                          ) : (
+                            <ChevronRight className="h-3 w-3 text-muted-foreground" />
+                          )}
+                          <div className={`w-2 h-2 rounded-full ${service.color}`} />
+                          <span className="font-medium text-xs">{service.name}</span>
+                        </span>
+                        <span className="font-medium text-xs">
+                          {formatWon(service.amount)}
+                        </span>
+                      </div>
+                      <Progress value={Math.min(percentage, 100)} className="h-1.5" />
                     </div>
-                    <Progress value={Math.min(percentage, 100)} className="h-2" />
+                    {isExpanded && deals.length > 0 && (
+                      <div className="ml-4 mt-1 mb-2 space-y-1 max-h-[200px] overflow-y-auto">
+                        {deals.map((deal) => (
+                          <div 
+                            key={deal.id}
+                            onClick={() => router.push(`/deals/${deal.id}`)}
+                            className="text-xs p-1.5 rounded bg-muted/30 hover:bg-muted/50 cursor-pointer flex justify-between"
+                          >
+                            <span className="truncate max-w-[120px]">{deal.deal_name || "이름 없음"}</span>
+                            <Badge variant="outline" className="text-[10px] h-4">{deal.stage?.split("_")[0]}</Badge>
+                          </div>
+                        ))}
+                      </div>
+                    )}
                   </div>
                 );
               })}
             </CardContent>
           </Card>
 
-          {/* 전환율 & 예상 매출 */}
+          {/* S4 서비스별 파이프라인 */}
           <Card>
             <CardHeader className="pb-2">
-              <CardTitle className="text-lg flex items-center gap-2">
-                <TrendingUp className="h-5 w-5" />
-                전환율 & 예상 매출
+              <CardTitle className="text-sm flex items-center gap-2">
+                <div className="w-3 h-3 rounded-full bg-purple-500" />
+                S4 서비스별 파이프라인
               </CardTitle>
             </CardHeader>
-            <CardContent className="space-y-4">
-              {data.conversions.map((conv, idx) => {
-                const expected = conv.currentAmount * conv.rate / 100;
+            <CardContent className="space-y-2">
+              {data.serviceByStage.S4.map((service) => {
+                const percentage = (service.amount / service.target) * 100;
+                const cacheKey = `S4_${service.name}`;
+                const isExpanded = expandedService === cacheKey;
+                const deals = serviceDeals[cacheKey] || [];
+                
                 return (
-                  <div key={idx} className="flex items-center justify-between p-3 bg-muted/50 rounded-lg">
-                    <div className="flex items-center gap-2">
-                      <Badge variant="outline" className="font-mono">{conv.from}</Badge>
-                      <ArrowRight className="h-4 w-4 text-muted-foreground" />
-                      <Badge variant="outline" className="font-mono">{conv.to}</Badge>
-                      <span className="text-sm font-medium">({conv.rate}%)</span>
+                  <div key={service.name}>
+                    <div 
+                      className={cn(
+                        "p-2 rounded-lg cursor-pointer transition-colors hover:bg-muted/50",
+                        isExpanded && "bg-muted/50"
+                      )}
+                      onClick={() => loadServiceDeals(service.name, "S4")}
+                    >
+                      <div className="flex items-center justify-between text-sm mb-1">
+                        <span className="flex items-center gap-2">
+                          {isExpanded ? (
+                            <ChevronDown className="h-3 w-3 text-muted-foreground" />
+                          ) : (
+                            <ChevronRight className="h-3 w-3 text-muted-foreground" />
+                          )}
+                          <div className={`w-2 h-2 rounded-full ${service.color}`} />
+                          <span className="font-medium text-xs">{service.name}</span>
+                        </span>
+                        <span className="font-medium text-xs">
+                          {formatWon(service.amount)}
+                        </span>
+                      </div>
+                      <Progress value={Math.min(percentage, 100)} className="h-1.5" />
                     </div>
-                    <div className="text-right">
-                      <p className="text-sm text-muted-foreground">{formatWon(conv.currentAmount)} × {conv.rate}%</p>
-                      <p className="font-bold text-green-600">= {formatWon(expected)} 예상</p>
-                    </div>
+                    {isExpanded && deals.length > 0 && (
+                      <div className="ml-4 mt-1 mb-2 space-y-1 max-h-[200px] overflow-y-auto">
+                        {deals.map((deal) => (
+                          <div 
+                            key={deal.id}
+                            onClick={() => router.push(`/deals/${deal.id}`)}
+                            className="text-xs p-1.5 rounded bg-muted/30 hover:bg-muted/50 cursor-pointer flex justify-between"
+                          >
+                            <span className="truncate max-w-[120px]">{deal.deal_name || "이름 없음"}</span>
+                            <Badge variant="outline" className="text-[10px] h-4">{deal.stage?.split("_")[0]}</Badge>
+                          </div>
+                        ))}
+                      </div>
+                    )}
                   </div>
                 );
               })}
-              
-              <div className="border-t pt-4 mt-4">
-                <div className="flex items-center justify-between mb-2">
-                  <span className="font-medium">총 예상 매출</span>
-                  <span className="text-xl font-bold">{formatWon(expectedRevenue)}</span>
-                </div>
-                <div className="flex items-center justify-between text-sm text-muted-foreground mb-2">
-                  <span>목표 매출</span>
-                  <span>{formatWon(data.targetRevenue)}</span>
-                </div>
-                <Progress value={Math.min(revenuePercentage, 100)} className="h-3" />
-                <p className="text-xs text-right mt-1 text-muted-foreground">달성률: {revenuePercentage.toFixed(1)}%</p>
-              </div>
+            </CardContent>
+          </Card>
+
+          {/* 종합 서비스별 파이프라인 */}
+          <Card>
+            <CardHeader className="pb-2">
+              <CardTitle className="text-sm flex items-center gap-2">
+                <div className="w-3 h-3 rounded-full bg-primary" />
+                종합 서비스별 파이프라인
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-2">
+              {data.serviceByStage.total.map((service) => {
+                const percentage = (service.amount / service.target) * 100;
+                const cacheKey = `total_${service.name}`;
+                const isExpanded = expandedService === cacheKey;
+                const deals = serviceDeals[cacheKey] || [];
+                
+                return (
+                  <div key={service.name}>
+                    <div 
+                      className={cn(
+                        "p-2 rounded-lg cursor-pointer transition-colors hover:bg-muted/50",
+                        isExpanded && "bg-muted/50"
+                      )}
+                      onClick={() => loadServiceDeals(service.name, "total")}
+                    >
+                      <div className="flex items-center justify-between text-sm mb-1">
+                        <span className="flex items-center gap-2">
+                          {isExpanded ? (
+                            <ChevronDown className="h-3 w-3 text-muted-foreground" />
+                          ) : (
+                            <ChevronRight className="h-3 w-3 text-muted-foreground" />
+                          )}
+                          <div className={`w-2 h-2 rounded-full ${service.color}`} />
+                          <span className="font-medium text-xs">{service.name}</span>
+                        </span>
+                        <span className="font-medium text-xs">
+                          {formatWon(service.amount)}
+                        </span>
+                      </div>
+                      <Progress value={Math.min(percentage, 100)} className="h-1.5" />
+                    </div>
+                    {isExpanded && deals.length > 0 && (
+                      <div className="ml-4 mt-1 mb-2 space-y-1 max-h-[200px] overflow-y-auto">
+                        {deals.map((deal) => (
+                          <div 
+                            key={deal.id}
+                            onClick={() => router.push(`/deals/${deal.id}`)}
+                            className="text-xs p-1.5 rounded bg-muted/30 hover:bg-muted/50 cursor-pointer flex justify-between"
+                          >
+                            <span className="truncate max-w-[120px]">{deal.deal_name || "이름 없음"}</span>
+                            <Badge variant="outline" className="text-[10px] h-4">{deal.stage?.split("_")[0]}</Badge>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
             </CardContent>
           </Card>
         </div>
-
-        {/* 인사이트 */}
-        <Card>
-          <CardHeader className="pb-2">
-            <CardTitle className="text-lg flex items-center gap-2">
-              <Lightbulb className="h-5 w-5 text-yellow-500" />
-              인사이트
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="space-y-3">
-              {data.insights.map((insight, idx) => (
-                <div 
-                  key={idx}
-                  className={`flex items-start gap-3 p-3 rounded-lg ${
-                    insight.type === "warning" 
-                      ? "bg-red-50 dark:bg-red-950/30 border border-red-200 dark:border-red-900" 
-                      : insight.type === "tip"
-                      ? "bg-purple-50 dark:bg-purple-950/30 border border-purple-200 dark:border-purple-900"
-                      : "bg-green-50 dark:bg-green-950/30 border border-green-200 dark:border-green-900"
-                  }`}
-                >
-                  {insight.type === "warning" ? (
-                    <AlertTriangle className="h-5 w-5 text-red-500 shrink-0 mt-0.5" />
-                  ) : insight.type === "tip" ? (
-                    <Lightbulb className="h-5 w-5 text-purple-500 shrink-0 mt-0.5" />
-                  ) : (
-                    <TrendingUp className="h-5 w-5 text-green-500 shrink-0 mt-0.5" />
-                  )}
-                  <p className="text-sm">{insight.message}</p>
-                </div>
-              ))}
-            </div>
-          </CardContent>
-        </Card>
       </div>
     );
   };
@@ -669,37 +1057,33 @@ export default function DashboardPage() {
     <div className="flex min-h-screen">
       <CrmSidebar />
       
-      <main className="flex-1 p-6 space-y-6">
-        {/* 헤더 */}
-        <div className="flex items-center gap-3">
-          <BarChart3 className="h-8 w-8 text-primary" />
-          <div>
-            <h1 className="text-2xl font-bold">대시보드</h1>
-            <p className="text-sm text-muted-foreground">영업 현황을 한눈에 확인하세요</p>
-          </div>
-        </div>
+      <main className="flex-1 flex flex-col">
+        {/* 헤더 - 여백 없이 */}
+        <PageHeader icon={LayoutDashboard} title="대시보드" className="shrink-0" />
 
-        {/* 탭 */}
-        <Tabs value={activeTab} onValueChange={setActiveTab}>
-          <TabsList className="grid w-full max-w-md grid-cols-2">
-            <TabsTrigger value="pipeline" className="flex items-center gap-2">
-              <PieChart className="h-4 w-4" />
-              파이프라인
-            </TabsTrigger>
-            <TabsTrigger value="stage-analysis" className="flex items-center gap-2">
-              <BarChart3 className="h-4 w-4" />
-              단계별 현황 분석
-            </TabsTrigger>
-          </TabsList>
-          
-          <TabsContent value="pipeline" className="mt-6">
-            <PipelineTab />
-          </TabsContent>
-          
-          <TabsContent value="stage-analysis" className="mt-6">
-            <StageAnalysisTab />
-          </TabsContent>
-        </Tabs>
+        <div className="flex-1 p-6 space-y-6">
+          {/* 탭 */}
+          <Tabs value={activeTab} onValueChange={setActiveTab}>
+            <TabsList className="grid w-full max-w-md grid-cols-2">
+              <TabsTrigger value="pipeline" className="flex items-center gap-2">
+                <PieChart className="h-4 w-4" />
+                파이프라인
+              </TabsTrigger>
+              <TabsTrigger value="stage-analysis" className="flex items-center gap-2">
+                <BarChart3 className="h-4 w-4" />
+                단계별 현황 분석
+              </TabsTrigger>
+            </TabsList>
+            
+            <TabsContent value="pipeline" className="mt-6">
+              <PipelineTab />
+            </TabsContent>
+            
+            <TabsContent value="stage-analysis" className="mt-6">
+              <StageAnalysisTab />
+            </TabsContent>
+          </Tabs>
+        </div>
       </main>
     </div>
   );

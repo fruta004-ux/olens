@@ -9,6 +9,7 @@ import { Card } from "@/components/ui/card"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
 import { Calendar as CalendarComponent } from "@/components/ui/calendar"
 import { createBrowserClient } from "@/lib/supabase/client"
@@ -26,6 +27,7 @@ export default function AdminPage() {
   const [isDialogOpen, setIsDialogOpen] = useState(false)
   const [editingItem, setEditingItem] = useState<any>(null)
   const [newValue, setNewValue] = useState("")
+  const [newServiceType, setNewServiceType] = useState<string>("")
   const [currentCategory, setCurrentCategory] = useState<string>("needs")
 
   const [activities, setActivities] = useState<any[]>([])
@@ -314,6 +316,7 @@ export default function AdminPage() {
     setCurrentCategory(category)
     setEditingItem(null)
     setNewValue("")
+    setNewServiceType("")
     setIsDialogOpen(true)
   }
 
@@ -321,6 +324,7 @@ export default function AdminPage() {
     setCurrentCategory(item.category)
     setEditingItem(item)
     setNewValue(item.value)
+    setNewServiceType(item.service_type || "")
     setIsDialogOpen(true)
   }
 
@@ -334,7 +338,11 @@ export default function AdminPage() {
     if (!newValue.trim()) return
 
     if (editingItem) {
-      await supabase.from("settings").update({ value: newValue }).eq("id", editingItem.id)
+      const updateData: any = { value: newValue }
+      if (currentCategory === "needs") {
+        updateData.service_type = newServiceType || null
+      }
+      await supabase.from("settings").update(updateData).eq("id", editingItem.id)
     } else {
       const settings =
         currentCategory === "needs"
@@ -344,62 +352,86 @@ export default function AdminPage() {
             : currentCategory === "grade"
               ? gradeSettings
               : channelSettings
-      await supabase.from("settings").insert({
+      const insertData: any = {
         category: currentCategory,
         value: newValue,
         display_order: settings.length + 1,
-      })
+      }
+      if (currentCategory === "needs") {
+        insertData.service_type = newServiceType || null
+      }
+      await supabase.from("settings").insert(insertData)
     }
     loadSettings()
     setIsDialogOpen(false)
   }
 
-  const renderSettingsTable = (settings: any[], category: string, title: string) => (
-    <Card className="p-6 max-w-2xl">
-      <div className="flex items-center justify-between mb-4">
-        <h3 className="text-lg font-semibold">{title}</h3>
-        <Button onClick={() => handleAdd(category)} size="sm">
-          <Plus className="h-4 w-4 mr-2" />
-          추가
-        </Button>
-      </div>
-      <Table>
-        <TableHeader>
-          <TableRow className="h-10">
-            <TableHead className="py-2">항목</TableHead>
-            <TableHead className="w-[100px] py-2">순서</TableHead>
-            <TableHead className="w-[150px] py-2">작업</TableHead>
-          </TableRow>
-        </TableHeader>
-        <TableBody>
-          {settings.length === 0 ? (
-            <TableRow className="h-12">
-              <TableCell colSpan={3} className="text-center text-muted-foreground py-3">
-                등록된 항목이 없습니다.
-              </TableCell>
+  const renderSettingsTable = (settings: any[], category: string, title: string) => {
+    const isNeedsCategory = category === "needs"
+    
+    return (
+      <Card className="p-6 max-w-3xl">
+        <div className="flex items-center justify-between mb-4">
+          <h3 className="text-lg font-semibold">{title}</h3>
+          <Button onClick={() => handleAdd(category)} size="sm">
+            <Plus className="h-4 w-4 mr-2" />
+            추가
+          </Button>
+        </div>
+        <Table>
+          <TableHeader>
+            <TableRow className="h-10">
+              <TableHead className="py-2">항목</TableHead>
+              {isNeedsCategory && <TableHead className="w-[120px] py-2">서비스 타입</TableHead>}
+              <TableHead className="w-[80px] py-2">순서</TableHead>
+              <TableHead className="w-[120px] py-2">작업</TableHead>
             </TableRow>
-          ) : (
-            settings.map((item) => (
-              <TableRow key={item.id} className="h-12">
-                <TableCell className="py-2">{item.value}</TableCell>
-                <TableCell className="py-2">{item.display_order}</TableCell>
-                <TableCell className="py-2">
-                  <div className="flex gap-2">
-                    <Button variant="outline" size="sm" onClick={() => handleEdit(item)}>
-                      <Pencil className="h-4 w-4" />
-                    </Button>
-                    <Button variant="outline" size="sm" onClick={() => handleDelete(item.id)}>
-                      <Trash2 className="h-4 w-4" />
-                    </Button>
-                  </div>
+          </TableHeader>
+          <TableBody>
+            {settings.length === 0 ? (
+              <TableRow className="h-12">
+                <TableCell colSpan={isNeedsCategory ? 4 : 3} className="text-center text-muted-foreground py-3">
+                  등록된 항목이 없습니다.
                 </TableCell>
               </TableRow>
-            ))
-          )}
-        </TableBody>
-      </Table>
-    </Card>
-  )
+            ) : (
+              settings.map((item) => (
+                <TableRow key={item.id} className="h-12">
+                  <TableCell className="py-2">{item.value}</TableCell>
+                  {isNeedsCategory && (
+                    <TableCell className="py-2">
+                      {item.service_type ? (
+                        <span className={`px-2 py-1 rounded-full text-xs font-medium ${
+                          item.service_type === "마케팅" ? "bg-purple-100 text-purple-700" :
+                          item.service_type === "홈페이지" ? "bg-cyan-100 text-cyan-700" :
+                          "bg-orange-100 text-orange-700"
+                        }`}>
+                          {item.service_type}
+                        </span>
+                      ) : (
+                        <span className="text-muted-foreground text-xs">미지정</span>
+                      )}
+                    </TableCell>
+                  )}
+                  <TableCell className="py-2">{item.display_order}</TableCell>
+                  <TableCell className="py-2">
+                    <div className="flex gap-2">
+                      <Button variant="outline" size="sm" onClick={() => handleEdit(item)}>
+                        <Pencil className="h-4 w-4" />
+                      </Button>
+                      <Button variant="outline" size="sm" onClick={() => handleDelete(item.id)}>
+                        <Trash2 className="h-4 w-4" />
+                      </Button>
+                    </div>
+                  </TableCell>
+                </TableRow>
+              ))
+            )}
+          </TableBody>
+        </Table>
+      </Card>
+    )
+  }
 
   return (
     <div className="flex h-screen bg-background">
@@ -452,6 +484,24 @@ export default function AdminPage() {
                     className="mt-1"
                   />
                 </div>
+                {currentCategory === "needs" && (
+                  <div>
+                    <label className="text-sm font-medium">서비스 타입</label>
+                    <Select value={newServiceType} onValueChange={setNewServiceType}>
+                      <SelectTrigger className="mt-1">
+                        <SelectValue placeholder="서비스 타입을 선택하세요" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="마케팅">마케팅</SelectItem>
+                        <SelectItem value="홈페이지">홈페이지</SelectItem>
+                        <SelectItem value="ERP/커스텀">ERP/커스텀</SelectItem>
+                      </SelectContent>
+                    </Select>
+                    <p className="text-xs text-muted-foreground mt-1">
+                      파이프라인에서 서비스별 분류에 사용됩니다.
+                    </p>
+                  </div>
+                )}
               </div>
               <DialogFooter>
                 <Button variant="outline" onClick={() => setIsDialogOpen(false)}>

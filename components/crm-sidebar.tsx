@@ -77,7 +77,8 @@ const stage8SubMenus = [
 
 export function CrmSidebar() {
   const pathname = usePathname()
-  const [expandedStage, setExpandedStage] = useState<number | null>(2)
+  const [expandedStage, setExpandedStage] = useState<number | null>(null)
+  const [expandedSubMenu, setExpandedSubMenu] = useState<string | null>(null)
   const [patchNotesOpen, setPatchNotesOpen] = useState(false)
   const { currentVersion } = usePatchNotes()
   const { markPatchNotesAsSeen, checkHasNewPatchNotes } = useHelpSettings()
@@ -97,8 +98,8 @@ export function CrmSidebar() {
   return (
     <>
       <div className="fixed left-0 top-2 z-50 flex h-screen w-48 flex-col border-r border-border bg-card">
-        {/* 로고 */}
-        <div className="flex h-14 items-center justify-center px-2">
+        {/* 로고 - 클릭시 홈으로 */}
+        <Link href="/" className="flex h-14 items-center justify-center px-2 hover:opacity-80 transition-opacity">
           <Image
             src="/images/olens-logo.png"
             alt="OLENS logo"
@@ -106,7 +107,7 @@ export function CrmSidebar() {
             height={28}
             className="h-auto w-[80px]"
           />
-        </div>
+        </Link>
 
         <nav className="flex-1 overflow-y-auto py-1">
           <div className="space-y-0.5 px-1.5">
@@ -124,7 +125,7 @@ export function CrmSidebar() {
                       "group relative w-full flex items-center gap-2 rounded-lg px-2 py-2 text-xs font-medium transition-all",
                       stage.enabled
                         ? isExpanded
-                          ? "bg-primary/10 text-primary"
+                          ? "bg-gradient-to-r from-primary to-primary/80 text-white shadow-md"
                           : "text-foreground hover:bg-secondary"
                         : "text-muted-foreground cursor-not-allowed opacity-60",
                     )}
@@ -135,7 +136,7 @@ export function CrmSidebar() {
                         "flex h-5 w-5 flex-shrink-0 items-center justify-center rounded text-[10px] font-bold",
                         stage.enabled
                           ? isExpanded
-                            ? "bg-primary text-primary-foreground"
+                            ? "bg-white/20 text-white"
                             : "bg-secondary text-foreground"
                           : "bg-muted text-muted-foreground",
                       )}
@@ -204,38 +205,47 @@ export function CrmSidebar() {
                         // 하위 메뉴가 있는 경우 (영업 현황)
                         if ('subItems' in item && item.subItems) {
                           const isAnySubActive = item.subItems.some(sub => pathname === sub.href)
+                          const isSubMenuExpanded = expandedSubMenu === item.name
                           return (
                             <div key={item.name} className="space-y-0.5">
-                              <div
+                              <button
+                                onClick={() => setExpandedSubMenu(isSubMenuExpanded ? null : item.name)}
                                 className={cn(
-                                  "flex items-center gap-2 rounded-md px-2 py-1.5 text-xs",
+                                  "w-full flex items-center gap-2 rounded-md px-2 py-1.5 text-xs transition-colors hover:bg-secondary",
                                   isAnySubActive
                                     ? "text-primary font-medium"
                                     : "text-muted-foreground",
                                 )}
                               >
                                 <item.icon className="h-3.5 w-3.5 flex-shrink-0" />
-                                <span>{item.name}</span>
-                              </div>
-                              <div className="ml-5 space-y-0.5">
-                                {item.subItems.map((subItem) => {
-                                  const isSubActive = pathname === subItem.href
-                                  return (
-                                    <Link
-                                      key={subItem.name}
-                                      href={subItem.href}
-                                      className={cn(
-                                        "flex items-center gap-2 rounded-md px-2 py-1 text-xs transition-colors",
-                                        isSubActive
-                                          ? "bg-primary/10 text-primary font-medium"
-                                          : "text-muted-foreground hover:bg-secondary hover:text-foreground",
-                                      )}
-                                    >
-                                      <span>• {subItem.name}</span>
-                                    </Link>
-                                  )
-                                })}
-                              </div>
+                                <span className="flex-1 text-left">{item.name}</span>
+                                {isSubMenuExpanded ? (
+                                  <ChevronDown className="h-3 w-3 flex-shrink-0" />
+                                ) : (
+                                  <ChevronRight className="h-3 w-3 flex-shrink-0" />
+                                )}
+                              </button>
+                              {isSubMenuExpanded && (
+                                <div className="ml-5 space-y-0.5">
+                                  {item.subItems.map((subItem) => {
+                                    const isSubActive = pathname === subItem.href
+                                    return (
+                                      <Link
+                                        key={subItem.name}
+                                        href={subItem.href}
+                                        className={cn(
+                                          "flex items-center gap-2 rounded-md px-2 py-1 text-xs transition-colors",
+                                          isSubActive
+                                            ? "bg-primary/10 text-primary font-medium"
+                                            : "text-muted-foreground hover:bg-secondary hover:text-foreground",
+                                        )}
+                                      >
+                                        <span>• {subItem.name}</span>
+                                      </Link>
+                                    )
+                                  })}
+                                </div>
+                              )}
                             </div>
                           )
                         }
