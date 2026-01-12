@@ -235,11 +235,18 @@ export function CrmQuickRegisterDialog({ open, onOpenChange }: CrmQuickRegisterD
       }
     }
 
-    // 응대자 처리 - 직함 포함 처리
-    const assignedMatch = text.match(/응\s*대\s*[:：]\s*(.+?)(?=\n|$)/i)
-    if (assignedMatch) {
-      const rawAssigned = assignedMatch[1].trim()
-      parsed.assigned_to = normalizeAssignedTo(rawAssigned)
+    // 담당자 처리 (새 양식) - 직함 포함 처리
+    const managerMatch = text.match(/담당자\s*[:：]\s*(.+?)(?=\n|$)/i)
+    if (managerMatch) {
+      const rawManager = managerMatch[1].trim()
+      parsed.assigned_to = normalizeAssignedTo(rawManager)
+    } else {
+      // 이전 양식 호환 - 응대자에서 가져오기
+      const assignedMatch = text.match(/응\s*대\s*[:：]\s*(.+?)(?=\n|$)/i)
+      if (assignedMatch) {
+        const rawAssigned = assignedMatch[1].trim()
+        parsed.assigned_to = normalizeAssignedTo(rawAssigned)
+      }
     }
 
     const datetimeMatch = text.match(/일\s*시\s*[:：]\s*(.+?)(?=\n|$)/i)

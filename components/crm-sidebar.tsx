@@ -21,6 +21,7 @@ import {
   ScrollText,
   BookOpen,
   ExternalLink,
+  StickyNote,
 } from "lucide-react"
 import { useState } from "react"
 import { Badge } from "@/components/ui/badge"
@@ -73,6 +74,7 @@ const stage6SubMenus = [
 const stage8SubMenus = [
   { name: "00_오렌즈(영업CRM) 규칙문서", href: "https://www.notion.so/fruta/00_-CRM-2e2393551a9180dfa377fa8f7cf9a3e3", icon: BookOpen, external: true },
   { name: "영업/응대 메뉴얼", href: "#", icon: FileText, disabled: true },
+  { name: "메모장", href: "/memos", icon: StickyNote, disabled: false },
 ]
 
 export function CrmSidebar() {

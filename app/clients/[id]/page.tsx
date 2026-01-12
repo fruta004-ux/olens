@@ -1754,14 +1754,14 @@ function ClientDetailPageClient({ clientId }: { clientId: string }) {
                 <div className="col-span-2">
                   <label className="text-xs text-muted-foreground">우선권</label>
                   <select
-                    className="w-full mt-1 px-3 py-2 text-sm border rounded-md"
+                    className="w-full mt-1 px-3 py-2 text-sm border rounded-md bg-background"
                     value={dealData.priority || ""}
                     onChange={(e) => {
-                      const newPriority = e.target.value
+                      const newPriority = e.target.value || null // 빈 값이면 null로 저장
                       handleUpdateDeal({ priority: newPriority })
                     }}
                   >
-                    <option value="">선택하세요</option>
+                    <option value="">선택 안함</option>
                     <option value="P0">P0</option>
                     <option value="P1">P1</option>
                     <option value="P2">P2</option>

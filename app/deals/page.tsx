@@ -1173,10 +1173,20 @@ const renderCell = (columnId: string, deal: any, nextContactStatus: any) => {
         </div>
       )
     case "grade":
+      // 등급별 색상 스타일
+      const getGradeStyle = (grade: string) => {
+        const g = grade.toUpperCase().replace('-', '')
+        if (g === 'S') return "bg-gradient-to-r from-purple-500 to-pink-500 text-white border-0 shadow-md"
+        if (g === 'A' || g === 'A-') return "bg-gradient-to-r from-orange-400 to-amber-500 text-white border-0"
+        if (g === 'B') return "bg-blue-100 text-blue-700 border-blue-200"
+        if (g === 'C') return "bg-slate-100 text-slate-600 border-slate-200"
+        if (g === 'F') return "bg-gray-200 text-gray-500 border-gray-300"
+        return "bg-gray-100 text-gray-500 border-gray-200" // 추정불가 등
+      }
       return (
         <div className="flex justify-center">
           {deal.grade !== "-" ? (
-            <Badge variant="secondary" className="font-medium">
+            <Badge className={cn("font-bold", getGradeStyle(deal.grade))}>
               {deal.grade}
             </Badge>
           ) : (
