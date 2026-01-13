@@ -101,6 +101,7 @@ const COMPANY_INFO = {
     business_type: "정보통신업",
     business_item: "응용 소프트웨어 개발 및 공급업, 광고 대행업",
     phone: "031-575-0168",
+    logo: "/images/fruta-logo.png",
   },
   오코랩스: {
     registration: "296-86-03505",
@@ -111,6 +112,7 @@ const COMPANY_INFO = {
     business_type: "정보통신업",
     business_item: "응용 소프트웨어 개발 및 공급업, 광고 대행업",
     phone: "031-575-0168",
+    logo: "/images/ocolabs-logo.png",
   },
 }
 
@@ -164,16 +166,21 @@ export function QuotationViewDialog({ open, onOpenChange, quotation, clientName 
   }
 
   const items = parseItems()
-  // 비고가 있으면 행 수를 줄이고, 없으면 더 많은 행 표시
-  const MIN_ROWS = quotation.notes ? 10 : 12
+  // A4 사이즈에 맞게 행 수 조정 (비고 유무에 따라 다르게)
+  // MIN: 최소 행 수, MAX: 최대 행 수 (항목이 많으면 그대로 표시)
+  const MIN_ROWS = quotation.notes ? 17 : 20
+  const MAX_ROWS = quotation.notes ? 17 : 20
   const filledItems = [...items]
+  // 항목이 MIN보다 적으면 빈 행 추가
   while (filledItems.length < MIN_ROWS) {
     filledItems.push({ name: "", quantity: 0, unit_price: 0, amount: 0 })
   }
+  // 항목이 MAX보다 많으면 MAX까지만 (페이지 넘침 방지)
+  const displayItems = filledItems.slice(0, Math.max(items.length, MAX_ROWS))
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="!max-w-[95vw] max-h-[95vh] overflow-y-auto p-0">
+      <DialogContent className="!max-w-[850px] max-h-[95vh] overflow-y-auto p-0">
         <div className="p-4 border-b print:hidden flex justify-between items-center">
           <h2 className="text-lg font-semibold">견적서 상세</h2>
           <Button onClick={handlePrint} className="gap-2">
@@ -182,7 +189,7 @@ export function QuotationViewDialog({ open, onOpenChange, quotation, clientName 
           </Button>
         </div>
 
-        <div className="flex justify-center p-8 print:p-0 print:block">
+        <div className="flex justify-center p-4 print:p-0 print:block">
           <div
             className="print-page bg-white shadow-lg print:shadow-none"
             style={{
@@ -194,10 +201,22 @@ export function QuotationViewDialog({ open, onOpenChange, quotation, clientName 
               overflow: "hidden",
             }}
           >
-            {/* 제목 */}
-            <div className="text-center mb-4">
-              <h1 className="text-2xl font-bold mb-1 underline decoration-2 underline-offset-4">견 적 서</h1>
-              <p className="text-xs text-gray-500 mt-1">NO: {quotation.quotation_number}</p>
+            {/* 제목 + 로고 */}
+            <div className="flex items-center justify-between mb-4">
+              <div className="w-24">
+                {/* 왼쪽 여백 (로고와 균형) */}
+              </div>
+              <div className="text-center flex-1">
+                <h1 className="text-2xl font-bold mb-1 underline decoration-2 underline-offset-4">견 적 서</h1>
+                <p className="text-xs text-gray-500 mt-1">NO: {quotation.quotation_number}</p>
+              </div>
+              <div className="w-24 flex justify-end">
+                <img 
+                  src={companyInfo.logo} 
+                  alt={companyInfo.name} 
+                  className="h-10 w-auto object-contain"
+                />
+              </div>
             </div>
 
             {/* 메인 테이블 */}
@@ -278,8 +297,8 @@ export function QuotationViewDialog({ open, onOpenChange, quotation, clientName 
                   </tr>
                 </thead>
                 <tbody>
-                  {filledItems.map((item, idx) => (
-                    <tr key={idx} className="border-b border-gray-300" style={{ height: "24px" }}>
+                  {displayItems.map((item, idx) => (
+                    <tr key={idx} className="border-b border-gray-300" style={{ height: "29px" }}>
                       <td className="py-1 px-2 border-r border-gray-300 text-center text-xs">{item.name ? idx + 1 : ""}</td>
                       <td className="py-1 px-2 border-r border-gray-300 text-xs">{item.name}</td>
                       <td className="py-1 px-2 border-r border-gray-300 text-center text-xs">

@@ -24,12 +24,12 @@ export function FloatingFeedbackButton() {
 
   return (
     <>
-      <div className="fixed right-0 top-1/2 -translate-y-1/2 z-50 flex items-center">
+      <div className="fixed right-0 top-1/2 -translate-y-1/2 z-50 flex items-center pointer-events-none">
         {/* 슬라이드 패널 */}
         <div
           className={cn(
             "flex flex-col gap-2 p-2 bg-background/95 backdrop-blur-sm border border-r-0 rounded-l-lg shadow-lg transition-all duration-300 ease-in-out",
-            isOpen ? "translate-x-0 opacity-100" : "translate-x-full opacity-0 pointer-events-none"
+            isOpen ? "translate-x-0 opacity-100 pointer-events-auto" : "translate-x-full opacity-0"
           )}
         >
           {/* 메모장 버튼 */}
@@ -71,7 +71,7 @@ export function FloatingFeedbackButton() {
         <button
           onClick={() => setIsOpen(!isOpen)}
           className={cn(
-            "flex items-center justify-center w-6 h-16 bg-primary hover:bg-primary/90 text-primary-foreground rounded-l-md shadow-lg transition-all duration-200",
+            "flex items-center justify-center w-6 h-16 bg-primary hover:bg-primary/90 text-primary-foreground rounded-l-md shadow-lg transition-all duration-200 pointer-events-auto",
             "hover:w-7 focus:outline-none focus:ring-2 focus:ring-primary/50 focus:ring-offset-2"
           )}
           title="피드백"

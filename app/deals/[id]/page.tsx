@@ -818,23 +818,11 @@ function DealDetailPageClient({ dealId }: { dealId: string }) {
               </Button>
             </Link>
 
-            <div className="mb-6">
-              <h1 className="text-2xl font-bold text-foreground mb-2">
+            <div className="mb-8 text-center">
+              <h1 className="text-2xl font-bold text-foreground">
                 {dealData.account?.company_name || "거래 정보 없음"}
               </h1>
-              <Badge className="bg-primary text-primary-foreground mb-2">{getStageDisplay(dealData.stage)}</Badge>
-              <div className="flex items-center gap-2 mt-2 p-2 rounded-md bg-primary/5 border border-primary/20">
-                <User className="h-4 w-4 text-primary" />
-                <div>
-                  <p className="text-xs text-muted-foreground">담당자</p>
-                  <p className="text-sm font-semibold text-foreground">
-                    {dealData.owner || dealData.assigned_to || "담당자 없음"}
-                  </p>
-                </div>
-              </div>
             </div>
-
-            <Separator className="my-6" />
 
             <div className="grid grid-cols-2 gap-2 mb-6">
               <Button className="justify-start bg-transparent" variant="outline">
@@ -963,6 +951,28 @@ function DealDetailPageClient({ dealId }: { dealId: string }) {
                     <span className="text-sm font-medium">{dealData.company}</span>
                   </div>
                 )}
+              </div>
+
+              {/* 첫 문의 날짜/시간 - 왼쪽 사이드바로 이동 */}
+              <div>
+                <label className="text-xs text-muted-foreground">첫 문의 날짜/시간</label>
+                <Input
+                  type="datetime-local"
+                  className="w-full mt-1"
+                  value={
+                    dealData.first_contact_date
+                      ? dealData.first_contact_date.slice(0, 16)
+                      : ""
+                  }
+                  onChange={(e) => {
+                    if (e.target.value) {
+                      const datetime = e.target.value.includes("T")
+                        ? e.target.value + ":00"
+                        : e.target.value + "T00:00:00"
+                      handleUpdateDeal({ first_contact_date: datetime })
+                    }
+                  }}
+                />
               </div>
             </div>
           </div>
@@ -1686,29 +1696,8 @@ function DealDetailPageClient({ dealId }: { dealId: string }) {
             <h3 className="font-semibold text-foreground mb-4">거래 기본 정보</h3>
             <div className="space-y-4">
               <div className="grid grid-cols-2 gap-4">
-                {/* 오른쪽 사이드바의 첫 문의 날짜/시간 - 로컬 시간대 유지 */}
-                <div className="space-y-1 col-span-2">
-                  <label className="text-xs text-muted-foreground">첫 문의 날짜/시간</label>
-                  <Input
-                    type="datetime-local"
-                    className="w-full mt-1"
-                    value={
-                      dealData.first_contact_date
-                        ? dealData.first_contact_date.slice(0, 16) // ISO 문자열에서 직접 추출
-                        : ""
-                    }
-                    onChange={(e) => {
-                      if (e.target.value) {
-                        const datetime = e.target.value.includes("T")
-                          ? e.target.value + ":00"
-                          : e.target.value + "T00:00:00"
-                        handleUpdateDeal({ first_contact_date: datetime })
-                      }
-                    }}
-                  />
-                </div>
-
-                <div className="col-span-2">
+                {/* 단계 + 담당자 (1줄에 반반) */}
+                <div>
                   <label className="text-xs text-muted-foreground">단계</label>
                   <select
                     className="w-full mt-1 px-3 py-2 text-sm border rounded-md"
@@ -1727,18 +1716,7 @@ function DealDetailPageClient({ dealId }: { dealId: string }) {
                     <option value="S6_complete">S6_종료</option>
                   </select>
                 </div>
-                
-                {/* 종료 사유 표시 (종료 단계일 때만) */}
-                {(dealData.stage === "S6_complete" || dealData.stage === "S6_closed") && dealData.close_reason && (
-                  <div className="col-span-2">
-                    <label className="text-xs text-muted-foreground">종료 사유</label>
-                    <div className="mt-1 px-3 py-2 text-sm border rounded-md bg-muted">
-                      {getCloseReasonText(dealData.close_reason)}
-                    </div>
-                  </div>
-                )}
-
-                <div className="col-span-2">
+                <div>
                   <label className="text-xs text-muted-foreground">담당자</label>
                   <select
                     className="w-full mt-1 px-3 py-2 text-sm border rounded-md"
@@ -1754,7 +1732,19 @@ function DealDetailPageClient({ dealId }: { dealId: string }) {
                     <option value="윤경호">윤경호</option>
                   </select>
                 </div>
-                <div className="col-span-2">
+                
+                {/* 종료 사유 표시 (종료 단계일 때만) */}
+                {(dealData.stage === "S6_complete" || dealData.stage === "S6_closed") && dealData.close_reason && (
+                  <div className="col-span-2">
+                    <label className="text-xs text-muted-foreground">종료 사유</label>
+                    <div className="mt-1 px-3 py-2 text-sm border rounded-md bg-muted">
+                      {getCloseReasonText(dealData.close_reason)}
+                    </div>
+                  </div>
+                )}
+
+                {/* 등급 + 우선권 (1줄에 반반) */}
+                <div>
                   <label className="text-xs text-muted-foreground">등급</label>
                   <select
                     className="w-full mt-1 px-3 py-2 text-sm border rounded-md"
@@ -1772,7 +1762,7 @@ function DealDetailPageClient({ dealId }: { dealId: string }) {
                     ))}
                   </select>
                 </div>
-                <div className="col-span-2">
+                <div>
                   <label className="text-xs text-muted-foreground">우선권</label>
                   <select
                     className="w-full mt-1 px-3 py-2 text-sm border rounded-md bg-background"
@@ -1918,6 +1908,73 @@ function DealDetailPageClient({ dealId }: { dealId: string }) {
                     }}
                   />
                 </div>
+              </div>
+            </div>
+
+            {/* 견적서 섹션 */}
+            <div className="mt-6 pt-4 border-t">
+              <h4 className="text-sm font-semibold text-foreground mb-3 flex items-center gap-2">
+                <FileText className="h-4 w-4 text-purple-500" />
+                견적서
+                <Badge variant="secondary" className="ml-auto text-xs">
+                  {activities.filter(a => a.quotation).length}
+                </Badge>
+              </h4>
+              <div className="space-y-2 max-h-[150px] overflow-y-auto">
+                {activities.filter(a => a.quotation).length === 0 ? (
+                  <p className="text-xs text-muted-foreground text-center py-3">등록된 견적서가 없습니다</p>
+                ) : (
+                  activities.filter(a => a.quotation).map((activity) => (
+                    <div 
+                      key={activity.quotation.id}
+                      className="p-2 bg-purple-50 dark:bg-purple-950/30 border border-purple-200 dark:border-purple-800 rounded-md cursor-pointer hover:bg-purple-100 dark:hover:bg-purple-950/50 transition-colors"
+                      onClick={() => {
+                        setSelectedQuotation(activity.quotation)
+                        setShowQuotationDetail(true)
+                      }}
+                    >
+                      <p className="text-xs font-medium text-purple-900 dark:text-purple-100 truncate">
+                        {activity.quotation.quotation_number}
+                      </p>
+                      <p className="text-xs text-purple-700 dark:text-purple-300">
+                        ₩{activity.quotation.total_amount?.toLocaleString("ko-KR")}
+                      </p>
+                    </div>
+                  ))
+                )}
+              </div>
+            </div>
+
+            {/* 첨부파일 섹션 */}
+            <div className="mt-4 pt-4 border-t">
+              <h4 className="text-sm font-semibold text-foreground mb-3 flex items-center gap-2">
+                <FileText className="h-4 w-4 text-blue-500" />
+                첨부파일
+                <Badge variant="secondary" className="ml-auto text-xs">
+                  {activities.reduce((count, a) => count + (a.attachments?.length || 0), 0)}
+                </Badge>
+              </h4>
+              <div className="space-y-2 max-h-[150px] overflow-y-auto">
+                {activities.reduce((count, a) => count + (a.attachments?.length || 0), 0) === 0 ? (
+                  <p className="text-xs text-muted-foreground text-center py-3">등록된 파일이 없습니다</p>
+                ) : (
+                  activities.flatMap((activity) => 
+                    (activity.attachments || []).map((att: any, idx: number) => (
+                      <a
+                        key={`${activity.id}-${idx}`}
+                        href={att.url}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="flex items-center gap-2 p-2 bg-blue-50 dark:bg-blue-950/30 border border-blue-200 dark:border-blue-800 rounded-md hover:bg-blue-100 dark:hover:bg-blue-950/50 transition-colors"
+                      >
+                        <FileText className="h-3 w-3 text-blue-500 flex-shrink-0" />
+                        <span className="text-xs text-blue-900 dark:text-blue-100 truncate flex-1">
+                          {att.name}
+                        </span>
+                      </a>
+                    ))
+                  )
+                )}
               </div>
             </div>
           </div>
