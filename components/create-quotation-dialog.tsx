@@ -29,12 +29,23 @@ interface QuotationItem {
   amount: number
 }
 
+interface EditableQuotation {
+  id: string
+  quotation_number: string
+  company: "플루타" | "오코랩스"
+  title: string
+  valid_until: string | null
+  notes: string | null
+  items: QuotationItem[]
+}
+
 interface CreateQuotationDialogProps {
   open: boolean
   onOpenChange: (open: boolean) => void
   dealId?: string
   activityId?: string
   onSuccess?: (quotationId: string, totalAmount: number) => void
+  editQuotation?: EditableQuotation | null
 }
 
 const COMPANY_INFO = {
@@ -64,7 +75,9 @@ export function CreateQuotationDialog({
   dealId,
   activityId,
   onSuccess,
+  editQuotation,
 }: CreateQuotationDialogProps) {
+  const isEditMode = !!editQuotation
   const [company, setCompany] = useState<"플루타" | "오코랩스">("플루타")
   const [title, setTitle] = useState("")
   const [validUntil, setValidUntil] = useState<Date>()
@@ -81,24 +94,37 @@ export function CreateQuotationDialog({
   const [saving, setSaving] = useState(false)
   const [validUntilOpen, setValidUntilOpen] = useState(false)
 
-  // 다이얼로그가 열릴 때 폼 초기화
+  // 다이얼로그가 열릴 때 폼 초기화 또는 수정 데이터 로드
   useEffect(() => {
     if (open) {
-      setCompany("플루타")
-      setTitle("")
-      setValidUntil(undefined)
-      setNotes("")
-      setItems([
-        {
-          id: generateId(),
-          name: "",
-          quantity: 1,
-          unit_price: 0,
-          amount: 0,
-        },
-      ])
+      if (editQuotation) {
+        // 수정 모드: 기존 데이터 로드
+        setCompany(editQuotation.company)
+        setTitle(editQuotation.title)
+        setValidUntil(editQuotation.valid_until ? new Date(editQuotation.valid_until) : undefined)
+        setNotes(editQuotation.notes || "")
+        setItems(editQuotation.items.map(item => ({
+          ...item,
+          id: item.id || generateId(),
+        })))
+      } else {
+        // 생성 모드: 폼 초기화
+        setCompany("플루타")
+        setTitle("")
+        setValidUntil(undefined)
+        setNotes("")
+        setItems([
+          {
+            id: generateId(),
+            name: "",
+            quantity: 1,
+            unit_price: 0,
+            amount: 0,
+          },
+        ])
+      }
     }
-  }, [open])
+  }, [open, editQuotation])
 
   const addItem = () => {
     setItems([
@@ -168,53 +194,80 @@ export function CreateQuotationDialog({
     try {
       const supabase = createBrowserClient()
 
-      // 견적서 번호 생성 (Q-YYYYMMDD-001)
-      const today = new Date()
-      const dateStr = `${today.getFullYear()}${String(today.getMonth() + 1).padStart(2, "0")}${String(today.getDate()).padStart(2, "0")}`
+      if (isEditMode && editQuotation) {
+        // 수정 모드
+        const { data: quotation, error } = await supabase
+          .from("quotations")
+          .update({
+            company,
+            title,
+            items,
+            supply_amount: supplyAmount,
+            vat_amount: taxAmount,
+            total_amount: totalAmount,
+            valid_until: validUntil ? validUntil.toISOString().split("T")[0] : null,
+            notes,
+          })
+          .eq("id", editQuotation.id)
+          .select()
+          .single()
 
-      // 오늘 날짜의 견적서 개수 확인
-      const { data: existingQuotations } = await supabase
-        .from("quotations")
-        .select("quotation_number")
-        .like("quotation_number", `Q-${dateStr}-%`)
-        .order("quotation_number", { ascending: false })
-        .limit(1)
+        if (error) throw error
 
-      let sequence = 1
-      if (existingQuotations && existingQuotations.length > 0) {
-        const lastNumber = existingQuotations[0].quotation_number
-        const lastSequence = Number.parseInt(lastNumber.split("-")[2])
-        sequence = lastSequence + 1
-      }
+        alert("견적서가 수정되었습니다.")
 
-      const quotationNumber = `Q-${dateStr}-${String(sequence).padStart(3, "0")}`
+        if (onSuccess) {
+          onSuccess(quotation.id, totalAmount)
+        }
+      } else {
+        // 생성 모드: 견적서 번호 생성 (Q-YYYYMMDD-001)
+        const today = new Date()
+        const dateStr = `${today.getFullYear()}${String(today.getMonth() + 1).padStart(2, "0")}${String(today.getDate()).padStart(2, "0")}`
 
-      // 견적서 저장
-      const { data: quotation, error } = await supabase
-        .from("quotations")
-        .insert({
-          deal_id: dealId,
-          activity_id: activityId,
-          quotation_number: quotationNumber,
-          company,
-          title,
-          items,
-          supply_amount: supplyAmount,
-          vat_amount: taxAmount,
-          total_amount: totalAmount,
-          valid_until: validUntil ? validUntil.toISOString().split("T")[0] : null,
-          notes,
-          status: "작성중",
-        })
-        .select()
-        .single()
+        // 오늘 날짜의 견적서 개수 확인
+        const { data: existingQuotations } = await supabase
+          .from("quotations")
+          .select("quotation_number")
+          .like("quotation_number", `Q-${dateStr}-%`)
+          .order("quotation_number", { ascending: false })
+          .limit(1)
 
-      if (error) throw error
+        let sequence = 1
+        if (existingQuotations && existingQuotations.length > 0) {
+          const lastNumber = existingQuotations[0].quotation_number
+          const lastSequence = Number.parseInt(lastNumber.split("-")[2])
+          sequence = lastSequence + 1
+        }
 
-      alert("견적서가 생성되었습니다.")
+        const quotationNumber = `Q-${dateStr}-${String(sequence).padStart(3, "0")}`
 
-      if (onSuccess) {
-        onSuccess(quotation.id, totalAmount)
+        // 견적서 저장
+        const { data: quotation, error } = await supabase
+          .from("quotations")
+          .insert({
+            deal_id: dealId,
+            activity_id: activityId,
+            quotation_number: quotationNumber,
+            company,
+            title,
+            items,
+            supply_amount: supplyAmount,
+            vat_amount: taxAmount,
+            total_amount: totalAmount,
+            valid_until: validUntil ? validUntil.toISOString().split("T")[0] : null,
+            notes,
+            status: "작성중",
+          })
+          .select()
+          .single()
+
+        if (error) throw error
+
+        alert("견적서가 생성되었습니다.")
+
+        if (onSuccess) {
+          onSuccess(quotation.id, totalAmount)
+        }
       }
 
       // 폼 초기화
@@ -233,8 +286,8 @@ export function CreateQuotationDialog({
 
       onOpenChange(false)
     } catch (error) {
-      console.error("견적서 생성 실패:", error)
-      alert("견적서 생성에 실패했습니다.")
+      console.error(isEditMode ? "견적서 수정 실패:" : "견적서 생성 실패:", error)
+      alert(isEditMode ? "견적서 수정에 실패했습니다." : "견적서 생성에 실패했습니다.")
     } finally {
       setSaving(false)
     }
@@ -244,8 +297,14 @@ export function CreateQuotationDialog({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
         <DialogHeader>
-          <DialogTitle className="text-2xl font-bold">견적서 생성</DialogTitle>
-          <DialogDescription>거래에 대한 견적서를 작성하세요.</DialogDescription>
+          <DialogTitle className="text-2xl font-bold">
+            {isEditMode ? "견적서 수정" : "견적서 생성"}
+          </DialogTitle>
+          <DialogDescription>
+            {isEditMode 
+              ? `견적서 ${editQuotation?.quotation_number}을 수정합니다.`
+              : "거래에 대한 견적서를 작성하세요."}
+          </DialogDescription>
         </DialogHeader>
 
         <form onSubmit={handleSubmit} className="space-y-6 mt-4">
@@ -430,7 +489,9 @@ export function CreateQuotationDialog({
               취소
             </Button>
             <Button type="submit" disabled={saving} className="flex-1">
-              {saving ? "생성 중..." : "견적서 생성"}
+              {saving 
+                ? (isEditMode ? "수정 중..." : "생성 중...") 
+                : (isEditMode ? "견적서 수정" : "견적서 생성")}
             </Button>
           </div>
         </form>

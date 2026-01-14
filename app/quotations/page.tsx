@@ -8,7 +8,8 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Button } from "@/components/ui/button"
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog"
-import { Eye, FileText } from "lucide-react"
+import { Eye, FileText, Pencil } from "lucide-react"
+import { CreateQuotationDialog } from "@/components/create-quotation-dialog"
 import { createClient } from "@/lib/supabase/client"
 
 type Quotation = {
@@ -39,6 +40,8 @@ export default function QuotationsPage() {
   const [selectedCompany, setSelectedCompany] = useState<string>("전체")
   const [selectedQuotation, setSelectedQuotation] = useState<Quotation | null>(null)
   const [showDetailDialog, setShowDetailDialog] = useState(false)
+  const [showEditDialog, setShowEditDialog] = useState(false)
+  const [editingQuotation, setEditingQuotation] = useState<Quotation | null>(null)
   const supabase = createClient()
 
   useEffect(() => {
@@ -106,6 +109,17 @@ export default function QuotationsPage() {
   function handleViewQuotation(quotation: Quotation) {
     setSelectedQuotation(quotation)
     setShowDetailDialog(true)
+  }
+
+  function handleEditQuotation(quotation: Quotation) {
+    setEditingQuotation(quotation)
+    setShowEditDialog(true)
+  }
+
+  function handleEditSuccess() {
+    setShowEditDialog(false)
+    setEditingQuotation(null)
+    loadQuotations() // 목록 새로고침
   }
 
   function handlePrintQuotation() {
@@ -184,14 +198,26 @@ export default function QuotationsPage() {
                       <TableCell>{formatDate(quotation.created_at)}</TableCell>
                       <TableCell>{quotation.assigned_to}</TableCell>
                       <TableCell className="text-center">
-                        <Button
-                          onClick={() => handleViewQuotation(quotation)}
-                          variant="ghost"
-                          size="sm"
-                          className="h-8 w-8 p-0"
-                        >
-                          <Eye className="h-4 w-4" />
-                        </Button>
+                        <div className="flex items-center justify-center gap-1">
+                          <Button
+                            onClick={() => handleViewQuotation(quotation)}
+                            variant="ghost"
+                            size="sm"
+                            className="h-8 w-8 p-0"
+                            title="보기"
+                          >
+                            <Eye className="h-4 w-4" />
+                          </Button>
+                          <Button
+                            onClick={() => handleEditQuotation(quotation)}
+                            variant="ghost"
+                            size="sm"
+                            className="h-8 w-8 p-0"
+                            title="수정"
+                          >
+                            <Pencil className="h-4 w-4" />
+                          </Button>
+                        </div>
                       </TableCell>
                     </TableRow>
                   ))}
@@ -304,6 +330,31 @@ export default function QuotationsPage() {
           )}
         </DialogContent>
       </Dialog>
+
+      {/* 견적서 수정 다이얼로그 */}
+      <CreateQuotationDialog
+        open={showEditDialog}
+        onOpenChange={(open) => {
+          setShowEditDialog(open)
+          if (!open) setEditingQuotation(null)
+        }}
+        editQuotation={editingQuotation ? {
+          id: editingQuotation.id,
+          quotation_number: editingQuotation.quotation_number,
+          company: editingQuotation.company as "플루타" | "오코랩스",
+          title: editingQuotation.title,
+          valid_until: editingQuotation.valid_until,
+          notes: editingQuotation.notes,
+          items: editingQuotation.items.map((item, idx) => ({
+            id: `item-${idx}`,
+            name: item.name,
+            quantity: item.quantity,
+            unit_price: item.unit_price,
+            amount: item.amount,
+          })),
+        } : null}
+        onSuccess={handleEditSuccess}
+      />
     </div>
   )
 }
