@@ -33,7 +33,7 @@ const banners = [
 
 // 하단 배너 이미지
 const bottomBanners = [
-  { id: 1, image: "/images/ad-banner-1.png", alt: "광고 배너 1" },
+  { id: 1, image: "/images/banner-1.png", alt: "광고 배너 1" },
   { id: 2, image: "/images/ad-banner-2.png", alt: "광고 배너 2" },
 ]
 

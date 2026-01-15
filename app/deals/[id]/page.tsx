@@ -32,6 +32,9 @@ import {
   ArrowUpDown,
   ArrowUp,
   ArrowDown,
+  PanelLeft,
+  PanelRight,
+  Menu,
 } from "lucide-react"
 import Link from "next/link"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
@@ -49,6 +52,12 @@ import { CloseReasonDialog } from "@/components/close-reason-dialog"
 import { getCloseReasonText } from "@/lib/close-reasons"
 import { RecontactDialog } from "@/components/recontact-dialog"
 import { getRecontactReasonText } from "@/lib/recontact-reasons"
+import {
+  Sheet,
+  SheetContent,
+  SheetHeader,
+  SheetTitle,
+} from "@/components/ui/sheet"
 
 const sanitizeFileName = (fileName: string): string => {
   // 파일명과 확장자 분리
@@ -220,6 +229,10 @@ function DealDetailPageClient({ dealId }: { dealId: string }) {
   
   // 재접촉 모달 상태
   const [showRecontactDialog, setShowRecontactDialog] = useState(false)
+  
+  // 모바일 사이드바 Sheet 상태
+  const [leftSheetOpen, setLeftSheetOpen] = useState(false)
+  const [rightSheetOpen, setRightSheetOpen] = useState(false)
 
   const supabase = createBrowserClient() // supabase 클라이언트 한번만 생성
 
@@ -826,182 +839,528 @@ function DealDetailPageClient({ dealId }: { dealId: string }) {
     router.replace(newUrl, { scroll: false })
   }
 
+  // 왼쪽 사이드바 콘텐츠 (재사용)
+  const LeftSidebarContent = () => (
+    <>
+      <Link href={activeTab === "info" ? "/contacts" : "/deals"}>
+        <Button variant="ghost" size="sm" className="mb-6">
+          <ArrowLeft className="mr-2 h-4 w-4" />
+          {activeTab === "info" ? "연락처 목록" : "파이프라인 목록"}
+        </Button>
+      </Link>
+
+      <div className="mb-8 text-center">
+        <h1 className="text-2xl font-bold text-foreground">
+          {dealData.account?.company_name || "거래 정보 없음"}
+        </h1>
+      </div>
+
+      <div className="grid grid-cols-2 gap-2 mb-6">
+        <Button className="justify-start bg-transparent" variant="outline">
+          <Mail className="mr-2 h-4 w-4" />
+          이메일
+        </Button>
+        <Button className="justify-start bg-transparent" variant="outline">
+          <Phone className="mr-2 h-4 w-4" />
+          통화
+        </Button>
+        <Button className="justify-start bg-transparent" variant="outline">
+          <CalendarIcon className="mr-2 h-4 w-4" />
+          미팅
+        </Button>
+        <Button className="justify-start bg-transparent" variant="outline" disabled>
+          <FileText className="mr-2 h-4 w-4" />
+          견적서
+        </Button>
+      </div>
+
+      <Separator className="my-6" />
+
+      <div className="space-y-4">
+        <h3 className="font-semibold text-foreground">거래 정보</h3>
+
+        <div>
+          <label className="text-xs text-muted-foreground">니즈 축약</label>
+          <div className="mt-1">
+            <Popover>
+              <PopoverTrigger asChild>
+                <Button variant="outline" className="w-full justify-start text-left font-normal bg-transparent">
+                  {dealData.needs_summary ? dealData.needs_summary.split(",").join(", ") : "니즈를 선택하세요"}
+                </Button>
+              </PopoverTrigger>
+              <PopoverContent className="w-[300px] p-0" align="start">
+                <Command>
+                  <CommandInput placeholder="니즈 검색..." />
+                  <CommandList style={{ maxHeight: "300px", overflowY: "auto" }}>
+                    <CommandEmpty>니즈를 찾을 수 없습니다.</CommandEmpty>
+                    <CommandGroup>
+                      {needsOptions.map((option) => {
+                        const isSelected = dealData.needs_summary?.split(",").includes(option.value) || false
+                        return (
+                          <CommandItem
+                            key={option.value}
+                            onSelect={() => {
+                              const currentNeeds = dealData.needs_summary?.split(",").filter(Boolean) || []
+                              let newNeeds: string[]
+                              if (isSelected) {
+                                newNeeds = currentNeeds.filter((n) => n !== option.value)
+                              } else {
+                                newNeeds = [...currentNeeds, option.value]
+                              }
+                              handleUpdateDeal({ needs_summary: newNeeds.join(",") })
+                            }}
+                            className="cursor-pointer"
+                          >
+                            <input
+                              type="checkbox"
+                              checked={isSelected}
+                              onChange={() => {}}
+                              className="mr-2 w-4 h-4 rounded border-gray-300"
+                            />
+                            {option.label}
+                          </CommandItem>
+                        )
+                      })}
+                    </CommandGroup>
+                  </CommandList>
+                </Command>
+              </PopoverContent>
+            </Popover>
+          </div>
+        </div>
+
+        <div>
+          <label className="text-xs text-muted-foreground">유입 경로</label>
+          <div className="mt-1">
+            <SearchableSelect
+              value={dealData.inflow_source || ""}
+              onValueChange={(value) => handleUpdateDeal({ inflow_source: value })}
+              options={sourceOptions}
+              placeholder="유입 경로 선택..."
+              searchPlaceholder="유입 경로 검색..."
+              emptyText="결과 없음"
+            />
+          </div>
+        </div>
+
+        <div>
+          <label className="text-xs text-muted-foreground">문의 창구</label>
+          <div className="mt-1">
+            <SearchableSelect
+              value={dealData.inquiry_channel || ""}
+              onValueChange={(value) => handleUpdateDeal({ inquiry_channel: value })}
+              options={channelOptions}
+              placeholder="문의 창구 선택..."
+              searchPlaceholder="문의 창구 검색..."
+              emptyText="결과 없음"
+            />
+          </div>
+        </div>
+
+        <div>
+          <label className="text-xs text-muted-foreground">회사</label>
+          <select
+            className="w-full mt-1 px-3 py-2 text-sm border rounded-md bg-background"
+            value={dealData.company || ""}
+            onChange={(e) => {
+              const newCompany = e.target.value
+              handleUpdateDeal({ company: newCompany })
+            }}
+          >
+            <option value="">선택하세요</option>
+            <option value="플루타">🟣 플루타</option>
+            <option value="오코랩스">🟢 오코랩스</option>
+          </select>
+          {dealData.company && (
+            <div className="flex items-center gap-2 mt-2 p-2 bg-muted/50 rounded-md">
+              {dealData.company === "플루타" && (
+                <img src="/images/fruta-logo.png" alt="플루타" className="h-5 w-auto" />
+              )}
+              {dealData.company === "오코랩스" && (
+                <img src="/images/ocolabs-logo.png" alt="오코랩스" className="h-5 w-auto" />
+              )}
+              <span className="text-sm font-medium">{dealData.company}</span>
+            </div>
+          )}
+        </div>
+
+        {/* 첫 문의 날짜/시간 - 왼쪽 사이드바로 이동 */}
+        <div>
+          <label className="text-xs text-muted-foreground">첫 문의 날짜/시간</label>
+          <Input
+            type="datetime-local"
+            className="w-full mt-1"
+            value={
+              dealData.first_contact_date
+                ? dealData.first_contact_date.slice(0, 16)
+                : ""
+            }
+            onChange={(e) => {
+              if (e.target.value) {
+                const datetime = e.target.value.includes("T")
+                  ? e.target.value + ":00"
+                  : e.target.value + "T00:00:00"
+                handleUpdateDeal({ first_contact_date: datetime })
+              }
+            }}
+          />
+        </div>
+      </div>
+    </>
+  )
+
+  // 오른쪽 사이드바 콘텐츠 (재사용)
+  const RightSidebarContent = () => (
+    <>
+      <h3 className="font-semibold text-foreground mb-4">거래 기본 정보</h3>
+      <div className="space-y-4">
+        <div className="grid grid-cols-2 gap-4">
+          {/* 단계 + 담당자 (1줄에 반반) */}
+          <div>
+            <label className="text-xs text-muted-foreground">단계</label>
+            <select
+              className="w-full mt-1 px-3 py-2 text-sm border rounded-md"
+              value={dealData.stage || "S0_new_lead"}
+              onChange={(e) => {
+                const newStage = e.target.value
+                handleStageChange(newStage)
+              }}
+            >
+              <option value="S0_new_lead">S0_신규 유입</option>
+              <option value="S1_qualified">S1_유효 리드</option>
+              <option value="S2_consultation">S2_상담 완료</option>
+              <option value="S3_proposal">S3_제안 발송</option>
+              <option value="S4_decision">S4_결정 대기</option>
+              <option value="S5_complete">S5_계약완료</option>
+              <option value="S6_complete">S6_종료</option>
+              <option value="S7_recontact">S7_재접촉</option>
+            </select>
+          </div>
+          <div>
+            <label className="text-xs text-muted-foreground">담당자</label>
+            <select
+              className="w-full mt-1 px-3 py-2 text-sm border rounded-md"
+              value={dealData.assigned_to?.replace(/\s*(대표|과장|사원|팀장|부장|차장|이사|사장)$/g, '').trim() || "미정"}
+              onChange={(e) => {
+                const newAssignedTo = e.target.value
+                handleUpdateAssignedTo(newAssignedTo)
+              }}
+            >
+              <option value="미정">미정</option>
+              <option value="오일환">오일환</option>
+              <option value="박상혁">박상혁</option>
+              <option value="윤경호">윤경호</option>
+            </select>
+          </div>
+          
+          {/* 종료 사유 표시 (종료 단계일 때만) */}
+          {(dealData.stage === "S6_complete" || dealData.stage === "S6_closed") && dealData.close_reason && (
+            <div className="col-span-2">
+              <label className="text-xs text-muted-foreground">종료 사유</label>
+              <div className="mt-1 px-3 py-2 text-sm border rounded-md bg-muted">
+                {getCloseReasonText(dealData.close_reason)}
+              </div>
+            </div>
+          )}
+          
+          {/* 재접촉 사유 표시 (재접촉 단계일 때만) */}
+          {dealData.stage === "S7_recontact" && dealData.close_reason && (
+            <div className="col-span-2">
+              <label className="text-xs text-muted-foreground">재접촉 사유</label>
+              <div className="mt-1 px-3 py-2 text-sm border rounded-md bg-blue-50 dark:bg-blue-950 text-blue-800 dark:text-blue-200">
+                {getRecontactReasonText(dealData.close_reason)}
+              </div>
+            </div>
+          )}
+
+          {/* 등급 + 우선권 (1줄에 반반) */}
+          <div>
+            <label className="text-xs text-muted-foreground">등급</label>
+            <select
+              className="w-full mt-1 px-3 py-2 text-sm border rounded-md"
+              value={dealData.grade || ""}
+              onChange={(e) => {
+                const newGrade = e.target.value
+                handleUpdateDeal({ grade: newGrade })
+              }}
+            >
+              <option value="">선택하세요</option>
+              {gradeOptions.map((grade) => (
+                <option key={grade} value={grade}>
+                  {grade}
+                </option>
+              ))}
+            </select>
+          </div>
+          <div>
+            <label className="text-xs text-muted-foreground">우선권</label>
+            <select
+              className="w-full mt-1 px-3 py-2 text-sm border rounded-md bg-background"
+              value={dealData.priority || ""}
+              onChange={(e) => {
+                const newPriority = e.target.value || null // 빈 값이면 null로 저장
+                handleUpdateDeal({ priority: newPriority })
+              }}
+            >
+              <option value="">선택 안함</option>
+              <option value="P0">P0</option>
+              <option value="P1">P1</option>
+              <option value="P2">P2</option>
+              <option value="P3">P3</option>
+            </select>
+          </div>
+          <div className="col-span-2">
+            <label className="text-xs text-muted-foreground">거래 예상 금액</label>
+            <div className="mt-1 space-y-2">
+              <select
+                className="w-full px-3 py-2 text-sm border rounded-md bg-background"
+                value={
+                  [
+                    "500만원 이하",
+                    "500 ~ 1000만원",
+                    "1000 ~ 2000만원",
+                    "2000 ~ 3000만원",
+                    "3000만원 이상",
+                    "1억 이상",
+                    "미입력 / 내부 검토",
+                    "미확정",
+                  ].includes(dealData.amount_range || "")
+                    ? dealData.amount_range
+                    : ""
+                }
+                onChange={(e) => {
+                  const newAmount = e.target.value
+                  handleUpdateDeal({ amount_range: newAmount })
+                }}
+              >
+                <option value="">선택 또는 직접 입력</option>
+                <option value="500만원 이하">500만원 이하</option>
+                <option value="500 ~ 1000만원">500 ~ 1000만원</option>
+                <option value="1000 ~ 2000만원">1000 ~ 2000만원</option>
+                <option value="2000 ~ 3000만원">2000 ~ 3000만원</option>
+                <option value="3000만원 이상">3000만원 이상</option>
+                <option value="1억 이상">1억 이상</option>
+                <option value="미입력 / 내부 검토">미입력 / 내부 검토</option>
+                <option value="미확정">미확정</option>
+              </select>
+              <Input
+                type="text"
+                placeholder="직접 입력 (예: 1,500,000)"
+                className="w-full text-sm bg-background"
+                value={
+                  dealData.amount_range &&
+                  ![
+                    "500만원 이하",
+                    "500 ~ 1000만원",
+                    "1000 ~ 2000만원",
+                    "2000 ~ 3000만원",
+                    "3000만원 이상",
+                    "1억 이상",
+                    "미입력 / 내부 검토",
+                    "미확정",
+                  ].includes(dealData.amount_range)
+                    ? dealData.amount_range
+                    : ""
+                }
+                onChange={(e) => {
+                  const formatted = formatNumberWithCommas(e.target.value)
+                  setDealData((prev) => ({ ...prev, amount_range: formatted }))
+                }}
+                onBlur={(e) => {
+                  if (e.target.value) {
+                    handleUpdateDeal({ amount_range: e.target.value })
+                  }
+                }}
+              />
+            </div>
+          </div>
+          {/* S6_종료 단계일 때는 다음 연락일 비활성화 */}
+          <div className="col-span-2">
+            <label className="text-sm font-medium text-foreground">다음 연락일</label>
+            {/* S6_종료 단계일 때는 다음 연락일 비활성화 */}
+            <Popover open={nextContactDateOpen} onOpenChange={setNextContactDateOpen}>
+              <PopoverTrigger asChild>
+                <Button
+                  variant="outline"
+                  disabled={isClosedStage}
+                  className={cn(
+                    "w-full mt-1 h-10 justify-start text-left font-normal text-sm",
+                    !dealData.next_contact_date && "text-muted-foreground",
+                    isClosedStage && "opacity-50 cursor-not-allowed",
+                  )}
+                >
+                  <CalendarIcon className="mr-2 h-4 w-4" />
+                  {/* S6_종료 단계일 때는 다음 연락일 비활성화 */}
+                  {isClosedStage
+                    ? "종료된 거래"
+                    : dealData.next_contact_date
+                      ? format(parseLocalDate(dealData.next_contact_date), "PPP", { locale: ko })
+                      : "날짜를 선택하세요"}
+                </Button>
+              </PopoverTrigger>
+              {/* S6_종료 단계일 때는 다음 연락일 비활성화 */}
+              {!isClosedStage && (
+                <PopoverContent className="w-auto p-0" align="start">
+                  <CalendarComponent
+                    mode="single"
+                    selected={dealData.next_contact_date ? parseLocalDate(dealData.next_contact_date) : undefined}
+                    onSelect={(date) => {
+                      if (date) {
+                        const year = date.getFullYear()
+                        const month = String(date.getMonth() + 1).padStart(2, "0")
+                        const day = String(date.getDate()).padStart(2, "0")
+                        const formattedDate = `${year}-${month}-${day}`
+                        handleUpdateDeal({ next_contact_date: formattedDate })
+                        setNextContactDateOpen(false)
+                      }
+                    }}
+                    initialFocus
+                  />
+                </PopoverContent>
+              )}
+            </Popover>
+          </div>
+
+          {/* 메모 */}
+          <div className="col-span-2">
+            <label className="text-xs text-muted-foreground">메모</label>
+            <Textarea
+              className="w-full mt-1 min-h-[80px] text-sm"
+              placeholder="메모를 입력하세요..."
+              value={localNotes}
+              onChange={(e) => {
+                setLocalNotes(e.target.value)
+              }}
+              onBlur={(e) => {
+                if (e.target.value !== (dealData.account?.notes || "")) {
+                  handleUpdateAccount({ notes: e.target.value })
+                }
+              }}
+            />
+          </div>
+        </div>
+      </div>
+
+      {/* 견적서 섹션 */}
+      <div className="mt-6 pt-4 border-t">
+        <h4 className="text-sm font-semibold text-foreground mb-3 flex items-center gap-2">
+          <FileText className="h-4 w-4 text-purple-500" />
+          견적서
+          <Badge variant="secondary" className="ml-auto text-xs">
+            {activities.filter(a => a.quotation).length}
+          </Badge>
+        </h4>
+        <div className="space-y-2 max-h-[150px] overflow-y-auto">
+          {activities.filter(a => a.quotation).length === 0 ? (
+            <p className="text-xs text-muted-foreground text-center py-3">등록된 견적서가 없습니다</p>
+          ) : (
+            activities.filter(a => a.quotation).map((activity) => (
+              <div 
+                key={activity.quotation.id}
+                className="p-2 bg-purple-50 dark:bg-purple-950/30 border border-purple-200 dark:border-purple-800 rounded-md cursor-pointer hover:bg-purple-100 dark:hover:bg-purple-950/50 transition-colors"
+                onClick={() => {
+                  setSelectedQuotation(activity.quotation)
+                  setShowQuotationDetail(true)
+                }}
+              >
+                <p className="text-xs font-medium text-purple-900 dark:text-purple-100 truncate">
+                  {activity.quotation.quotation_number}
+                </p>
+                <p className="text-xs text-purple-700 dark:text-purple-300">
+                  ₩{activity.quotation.total_amount?.toLocaleString("ko-KR")}
+                </p>
+              </div>
+            ))
+          )}
+        </div>
+      </div>
+
+      {/* 첨부파일 섹션 */}
+      <div className="mt-4 pt-4 border-t">
+        <h4 className="text-sm font-semibold text-foreground mb-3 flex items-center gap-2">
+          <FileText className="h-4 w-4 text-blue-500" />
+          첨부파일
+          <Badge variant="secondary" className="ml-auto text-xs">
+            {activities.reduce((count, a) => count + (a.attachments?.length || 0), 0)}
+          </Badge>
+        </h4>
+        <div className="space-y-2 max-h-[150px] overflow-y-auto">
+          {activities.reduce((count, a) => count + (a.attachments?.length || 0), 0) === 0 ? (
+            <p className="text-xs text-muted-foreground text-center py-3">등록된 파일이 없습니다</p>
+          ) : (
+            activities.flatMap((activity) => 
+              (activity.attachments || []).map((att: any, idx: number) => (
+                <a
+                  key={`${activity.id}-${idx}`}
+                  href={att.url}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="flex items-center gap-2 p-2 bg-blue-50 dark:bg-blue-950/30 border border-blue-200 dark:border-blue-800 rounded-md hover:bg-blue-100 dark:hover:bg-blue-950/50 transition-colors"
+                >
+                  <FileText className="h-3 w-3 text-blue-500 flex-shrink-0" />
+                  <span className="text-xs text-blue-900 dark:text-blue-100 truncate flex-1">
+                    {att.name}
+                  </span>
+                </a>
+              ))
+            )
+          )}
+        </div>
+      </div>
+    </>
+  )
+
   return (
     <div className="flex h-screen bg-background">
       <CrmSidebar />
 
       <div className="flex flex-1 overflow-hidden">
-        <div className="w-80 border-r border-border bg-card overflow-y-auto">
+        {/* 왼쪽 사이드바 - PC에서만 표시 */}
+        <div className="hidden lg:block w-80 border-r border-border bg-card overflow-y-auto">
           <div className="p-6">
-            <Link href={activeTab === "info" ? "/contacts" : "/deals"}>
-              <Button variant="ghost" size="sm" className="mb-6">
-                <ArrowLeft className="mr-2 h-4 w-4" />
-                {activeTab === "info" ? "연락처 목록" : "파이프라인 목록"}
-              </Button>
-            </Link>
-
-            <div className="mb-8 text-center">
-              <h1 className="text-2xl font-bold text-foreground">
-                {dealData.account?.company_name || "거래 정보 없음"}
-              </h1>
-            </div>
-
-            <div className="grid grid-cols-2 gap-2 mb-6">
-              <Button className="justify-start bg-transparent" variant="outline">
-                <Mail className="mr-2 h-4 w-4" />
-                이메일
-              </Button>
-              <Button className="justify-start bg-transparent" variant="outline">
-                <Phone className="mr-2 h-4 w-4" />
-                통화
-              </Button>
-              <Button className="justify-start bg-transparent" variant="outline">
-                <CalendarIcon className="mr-2 h-4 w-4" />
-                미팅
-              </Button>
-              <Button className="justify-start bg-transparent" variant="outline" disabled>
-                <FileText className="mr-2 h-4 w-4" />
-                견적서
-              </Button>
-            </div>
-
-            <Separator className="my-6" />
-
-            <div className="space-y-4">
-              <h3 className="font-semibold text-foreground">거래 정보</h3>
-
-              <div>
-                <label className="text-xs text-muted-foreground">니즈 축약</label>
-                <div className="mt-1">
-                  <Popover>
-                    <PopoverTrigger asChild>
-                      <Button variant="outline" className="w-full justify-start text-left font-normal bg-transparent">
-                        {dealData.needs_summary ? dealData.needs_summary.split(",").join(", ") : "니즈를 선택하세요"}
-                      </Button>
-                    </PopoverTrigger>
-                    <PopoverContent className="w-[300px] p-0" align="start">
-                      <Command>
-                        <CommandInput placeholder="니즈 검색..." />
-                        <CommandList style={{ maxHeight: "300px", overflowY: "auto" }}>
-                          <CommandEmpty>니즈를 찾을 수 없습니다.</CommandEmpty>
-                          <CommandGroup>
-                            {needsOptions.map((option) => {
-                              const isSelected = dealData.needs_summary?.split(",").includes(option.value) || false
-                              return (
-                                <CommandItem
-                                  key={option.value}
-                                  onSelect={() => {
-                                    const currentNeeds = dealData.needs_summary?.split(",").filter(Boolean) || []
-                                    let newNeeds: string[]
-                                    if (isSelected) {
-                                      newNeeds = currentNeeds.filter((n) => n !== option.value)
-                                    } else {
-                                      newNeeds = [...currentNeeds, option.value]
-                                    }
-                                    handleUpdateDeal({ needs_summary: newNeeds.join(",") })
-                                  }}
-                                  className="cursor-pointer"
-                                >
-                                  <input
-                                    type="checkbox"
-                                    checked={isSelected}
-                                    onChange={() => {}}
-                                    className="mr-2 w-4 h-4 rounded border-gray-300"
-                                  />
-                                  {option.label}
-                                </CommandItem>
-                              )
-                            })}
-                          </CommandGroup>
-                        </CommandList>
-                      </Command>
-                    </PopoverContent>
-                  </Popover>
-                </div>
-              </div>
-
-              <div>
-                <label className="text-xs text-muted-foreground">유입 경로</label>
-                <div className="mt-1">
-                  <SearchableSelect
-                    value={dealData.inflow_source || ""}
-                    onValueChange={(value) => handleUpdateDeal({ inflow_source: value })}
-                    options={sourceOptions}
-                    placeholder="유입 경로 선택..."
-                    searchPlaceholder="유입 경로 검색..."
-                    emptyText="결과 없음"
-                  />
-                </div>
-              </div>
-
-              <div>
-                <label className="text-xs text-muted-foreground">문의 창구</label>
-                <div className="mt-1">
-                  <SearchableSelect
-                    value={dealData.inquiry_channel || ""}
-                    onValueChange={(value) => handleUpdateDeal({ inquiry_channel: value })}
-                    options={channelOptions}
-                    placeholder="문의 창구 선택..."
-                    searchPlaceholder="문의 창구 검색..."
-                    emptyText="결과 없음"
-                  />
-                </div>
-              </div>
-
-              <div>
-                <label className="text-xs text-muted-foreground">회사</label>
-                <select
-                  className="w-full mt-1 px-3 py-2 text-sm border rounded-md bg-background"
-                  value={dealData.company || ""}
-                  onChange={(e) => {
-                    const newCompany = e.target.value
-                    handleUpdateDeal({ company: newCompany })
-                  }}
-                >
-                  <option value="">선택하세요</option>
-                  <option value="플루타">🟣 플루타</option>
-                  <option value="오코랩스">🟢 오코랩스</option>
-                </select>
-                {dealData.company && (
-                  <div className="flex items-center gap-2 mt-2 p-2 bg-muted/50 rounded-md">
-                    {dealData.company === "플루타" && (
-                      <img src="/images/fruta-logo.png" alt="플루타" className="h-5 w-auto" />
-                    )}
-                    {dealData.company === "오코랩스" && (
-                      <img src="/images/ocolabs-logo.png" alt="오코랩스" className="h-5 w-auto" />
-                    )}
-                    <span className="text-sm font-medium">{dealData.company}</span>
-                  </div>
-                )}
-              </div>
-
-              {/* 첫 문의 날짜/시간 - 왼쪽 사이드바로 이동 */}
-              <div>
-                <label className="text-xs text-muted-foreground">첫 문의 날짜/시간</label>
-                <Input
-                  type="datetime-local"
-                  className="w-full mt-1"
-                  value={
-                    dealData.first_contact_date
-                      ? dealData.first_contact_date.slice(0, 16)
-                      : ""
-                  }
-                  onChange={(e) => {
-                    if (e.target.value) {
-                      const datetime = e.target.value.includes("T")
-                        ? e.target.value + ":00"
-                        : e.target.value + "T00:00:00"
-                      handleUpdateDeal({ first_contact_date: datetime })
-                    }
-                  }}
-                />
-              </div>
-            </div>
+            <LeftSidebarContent />
           </div>
         </div>
 
+        {/* 왼쪽 사이드바 Sheet - 모바일/태블릿 */}
+        <Sheet open={leftSheetOpen} onOpenChange={setLeftSheetOpen}>
+          <SheetContent side="left" className="w-80 p-0 overflow-y-auto">
+            <SheetHeader className="sr-only">
+              <SheetTitle>거래 정보</SheetTitle>
+            </SheetHeader>
+            <div className="p-6">
+              <LeftSidebarContent />
+            </div>
+          </SheetContent>
+        </Sheet>
+
         <main className="flex-1 overflow-auto">
           <div className="p-6">
+            {/* 모바일 헤더 - 사이드바 토글 버튼 */}
+            <div className="flex lg:hidden items-center justify-between mb-4 pb-4 border-b">
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setLeftSheetOpen(true)}
+                className="gap-2"
+              >
+                <PanelLeft className="h-4 w-4" />
+                <span className="hidden sm:inline">거래 정보</span>
+              </Button>
+              <h2 className="text-lg font-semibold truncate mx-4">
+                {dealData.account?.company_name || "거래"}
+              </h2>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setRightSheetOpen(true)}
+                className="gap-2"
+              >
+                <span className="hidden sm:inline">기본 정보</span>
+                <PanelRight className="h-4 w-4" />
+              </Button>
+            </div>
+
             <Tabs value={activeTab} onValueChange={handleTabChange} className="space-y-4">
               <div className="border-b px-6">
                 <TabsList className="h-12">
@@ -1713,305 +2072,24 @@ function DealDetailPageClient({ dealId }: { dealId: string }) {
           </div>
         </main>
 
-        <div className="w-80 border-l border-border bg-card overflow-y-auto">
+        {/* 오른쪽 사이드바 - PC에서만 표시 */}
+        <div className="hidden lg:block w-80 border-l border-border bg-card overflow-y-auto">
           <div className="p-6">
-            <h3 className="font-semibold text-foreground mb-4">거래 기본 정보</h3>
-            <div className="space-y-4">
-              <div className="grid grid-cols-2 gap-4">
-                {/* 단계 + 담당자 (1줄에 반반) */}
-                <div>
-                  <label className="text-xs text-muted-foreground">단계</label>
-                  <select
-                    className="w-full mt-1 px-3 py-2 text-sm border rounded-md"
-                    value={dealData.stage || "S0_new_lead"}
-                    onChange={(e) => {
-                      const newStage = e.target.value
-                      handleStageChange(newStage)
-                    }}
-                  >
-                    <option value="S0_new_lead">S0_신규 유입</option>
-                    <option value="S1_qualified">S1_유효 리드</option>
-                    <option value="S2_consultation">S2_상담 완료</option>
-                    <option value="S3_proposal">S3_제안 발송</option>
-                    <option value="S4_decision">S4_결정 대기</option>
-                    <option value="S5_complete">S5_계약완료</option>
-                    <option value="S6_complete">S6_종료</option>
-                    <option value="S7_recontact">S7_재접촉</option>
-                  </select>
-                </div>
-                <div>
-                  <label className="text-xs text-muted-foreground">담당자</label>
-                  <select
-                    className="w-full mt-1 px-3 py-2 text-sm border rounded-md"
-                    value={dealData.assigned_to?.replace(/\s*(대표|과장|사원|팀장|부장|차장|이사|사장)$/g, '').trim() || "미정"}
-                    onChange={(e) => {
-                      const newAssignedTo = e.target.value
-                      handleUpdateAssignedTo(newAssignedTo)
-                    }}
-                  >
-                    <option value="미정">미정</option>
-                    <option value="오일환">오일환</option>
-                    <option value="박상혁">박상혁</option>
-                    <option value="윤경호">윤경호</option>
-                  </select>
-                </div>
-                
-                {/* 종료 사유 표시 (종료 단계일 때만) */}
-                {(dealData.stage === "S6_complete" || dealData.stage === "S6_closed") && dealData.close_reason && (
-                  <div className="col-span-2">
-                    <label className="text-xs text-muted-foreground">종료 사유</label>
-                    <div className="mt-1 px-3 py-2 text-sm border rounded-md bg-muted">
-                      {getCloseReasonText(dealData.close_reason)}
-                    </div>
-                  </div>
-                )}
-                
-                {/* 재접촉 사유 표시 (재접촉 단계일 때만) */}
-                {dealData.stage === "S7_recontact" && dealData.close_reason && (
-                  <div className="col-span-2">
-                    <label className="text-xs text-muted-foreground">재접촉 사유</label>
-                    <div className="mt-1 px-3 py-2 text-sm border rounded-md bg-blue-50 dark:bg-blue-950 text-blue-800 dark:text-blue-200">
-                      {getRecontactReasonText(dealData.close_reason)}
-                    </div>
-                  </div>
-                )}
-
-                {/* 등급 + 우선권 (1줄에 반반) */}
-                <div>
-                  <label className="text-xs text-muted-foreground">등급</label>
-                  <select
-                    className="w-full mt-1 px-3 py-2 text-sm border rounded-md"
-                    value={dealData.grade || ""}
-                    onChange={(e) => {
-                      const newGrade = e.target.value
-                      handleUpdateDeal({ grade: newGrade })
-                    }}
-                  >
-                    <option value="">선택하세요</option>
-                    {gradeOptions.map((grade) => (
-                      <option key={grade} value={grade}>
-                        {grade}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-                <div>
-                  <label className="text-xs text-muted-foreground">우선권</label>
-                  <select
-                    className="w-full mt-1 px-3 py-2 text-sm border rounded-md bg-background"
-                    value={dealData.priority || ""}
-                    onChange={(e) => {
-                      const newPriority = e.target.value || null // 빈 값이면 null로 저장
-                      handleUpdateDeal({ priority: newPriority })
-                    }}
-                  >
-                    <option value="">선택 안함</option>
-                    <option value="P0">P0</option>
-                    <option value="P1">P1</option>
-                    <option value="P2">P2</option>
-                    <option value="P3">P3</option>
-                  </select>
-                </div>
-                <div className="col-span-2">
-                  <label className="text-xs text-muted-foreground">거래 예상 금액</label>
-                  <div className="mt-1 space-y-2">
-                    <select
-                      className="w-full px-3 py-2 text-sm border rounded-md bg-background"
-                      value={
-                        [
-                          "500만원 이하",
-                          "500 ~ 1000만원",
-                          "1000 ~ 2000만원",
-                          "2000 ~ 3000만원",
-                          "3000만원 이상",
-                          "1억 이상",
-                          "미입력 / 내부 검토",
-                          "미확정",
-                        ].includes(dealData.amount_range || "")
-                          ? dealData.amount_range
-                          : ""
-                      }
-                      onChange={(e) => {
-                        const newAmount = e.target.value
-                        handleUpdateDeal({ amount_range: newAmount })
-                      }}
-                    >
-                      <option value="">선택 또는 직접 입력</option>
-                      <option value="500만원 이하">500만원 이하</option>
-                      <option value="500 ~ 1000만원">500 ~ 1000만원</option>
-                      <option value="1000 ~ 2000만원">1000 ~ 2000만원</option>
-                      <option value="2000 ~ 3000만원">2000 ~ 3000만원</option>
-                      <option value="3000만원 이상">3000만원 이상</option>
-                      <option value="1억 이상">1억 이상</option>
-                      <option value="미입력 / 내부 검토">미입력 / 내부 검토</option>
-                      <option value="미확정">미확정</option>
-                    </select>
-                    <Input
-                      type="text"
-                      placeholder="직접 입력 (예: 1,500,000)"
-                      className="w-full text-sm bg-background"
-                      value={
-                        dealData.amount_range &&
-                        ![
-                          "500만원 이하",
-                          "500 ~ 1000만원",
-                          "1000 ~ 2000만원",
-                          "2000 ~ 3000만원",
-                          "3000만원 이상",
-                          "1억 이상",
-                          "미입력 / 내부 검토",
-                          "미확정",
-                        ].includes(dealData.amount_range)
-                          ? dealData.amount_range
-                          : ""
-                      }
-                      onChange={(e) => {
-                        const formatted = formatNumberWithCommas(e.target.value)
-                        setDealData((prev) => ({ ...prev, amount_range: formatted }))
-                      }}
-                      onBlur={(e) => {
-                        if (e.target.value) {
-                          handleUpdateDeal({ amount_range: e.target.value })
-                        }
-                      }}
-                    />
-                  </div>
-                </div>
-                {/* S6_종료 단계일 때는 다음 연락일 비활성화 */}
-                <div className="col-span-2">
-                  <label className="text-sm font-medium text-foreground">다음 연락일</label>
-                  {/* S6_종료 단계일 때는 다음 연락일 비활성화 */}
-                  <Popover open={nextContactDateOpen} onOpenChange={setNextContactDateOpen}>
-                    <PopoverTrigger asChild>
-                      <Button
-                        variant="outline"
-                        disabled={isClosedStage}
-                        className={cn(
-                          "w-full mt-1 h-10 justify-start text-left font-normal text-sm",
-                          !dealData.next_contact_date && "text-muted-foreground",
-                          isClosedStage && "opacity-50 cursor-not-allowed",
-                        )}
-                      >
-                        <CalendarIcon className="mr-2 h-4 w-4" />
-                        {/* S6_종료 단계일 때는 다음 연락일 비활성화 */}
-                        {isClosedStage
-                          ? "종료된 거래"
-                          : dealData.next_contact_date
-                            ? format(parseLocalDate(dealData.next_contact_date), "PPP", { locale: ko })
-                            : "날짜를 선택하세요"}
-                      </Button>
-                    </PopoverTrigger>
-                    {/* S6_종료 단계일 때는 다음 연락일 비활성화 */}
-                    {!isClosedStage && (
-                      <PopoverContent className="w-auto p-0" align="start">
-                        <CalendarComponent
-                          mode="single"
-                          selected={dealData.next_contact_date ? parseLocalDate(dealData.next_contact_date) : undefined}
-                          onSelect={(date) => {
-                            if (date) {
-                              const year = date.getFullYear()
-                              const month = String(date.getMonth() + 1).padStart(2, "0")
-                              const day = String(date.getDate()).padStart(2, "0")
-                              const formattedDate = `${year}-${month}-${day}`
-                              handleUpdateDeal({ next_contact_date: formattedDate })
-                              setNextContactDateOpen(false)
-                            }
-                          }}
-                          initialFocus
-                        />
-                      </PopoverContent>
-                    )}
-                  </Popover>
-                </div>
-
-                {/* 메모 */}
-                <div className="col-span-2">
-                  <label className="text-xs text-muted-foreground">메모</label>
-                  <Textarea
-                    className="w-full mt-1 min-h-[80px] text-sm"
-                    placeholder="메모를 입력하세요..."
-                    value={localNotes}
-                    onChange={(e) => {
-                      setLocalNotes(e.target.value)
-                    }}
-                    onBlur={(e) => {
-                      if (e.target.value !== (dealData.account?.notes || "")) {
-                        handleUpdateAccount({ notes: e.target.value })
-                      }
-                    }}
-                  />
-                </div>
-              </div>
-            </div>
-
-            {/* 견적서 섹션 */}
-            <div className="mt-6 pt-4 border-t">
-              <h4 className="text-sm font-semibold text-foreground mb-3 flex items-center gap-2">
-                <FileText className="h-4 w-4 text-purple-500" />
-                견적서
-                <Badge variant="secondary" className="ml-auto text-xs">
-                  {activities.filter(a => a.quotation).length}
-                </Badge>
-              </h4>
-              <div className="space-y-2 max-h-[150px] overflow-y-auto">
-                {activities.filter(a => a.quotation).length === 0 ? (
-                  <p className="text-xs text-muted-foreground text-center py-3">등록된 견적서가 없습니다</p>
-                ) : (
-                  activities.filter(a => a.quotation).map((activity) => (
-                    <div 
-                      key={activity.quotation.id}
-                      className="p-2 bg-purple-50 dark:bg-purple-950/30 border border-purple-200 dark:border-purple-800 rounded-md cursor-pointer hover:bg-purple-100 dark:hover:bg-purple-950/50 transition-colors"
-                      onClick={() => {
-                        setSelectedQuotation(activity.quotation)
-                        setShowQuotationDetail(true)
-                      }}
-                    >
-                      <p className="text-xs font-medium text-purple-900 dark:text-purple-100 truncate">
-                        {activity.quotation.quotation_number}
-                      </p>
-                      <p className="text-xs text-purple-700 dark:text-purple-300">
-                        ₩{activity.quotation.total_amount?.toLocaleString("ko-KR")}
-                      </p>
-                    </div>
-                  ))
-                )}
-              </div>
-            </div>
-
-            {/* 첨부파일 섹션 */}
-            <div className="mt-4 pt-4 border-t">
-              <h4 className="text-sm font-semibold text-foreground mb-3 flex items-center gap-2">
-                <FileText className="h-4 w-4 text-blue-500" />
-                첨부파일
-                <Badge variant="secondary" className="ml-auto text-xs">
-                  {activities.reduce((count, a) => count + (a.attachments?.length || 0), 0)}
-                </Badge>
-              </h4>
-              <div className="space-y-2 max-h-[150px] overflow-y-auto">
-                {activities.reduce((count, a) => count + (a.attachments?.length || 0), 0) === 0 ? (
-                  <p className="text-xs text-muted-foreground text-center py-3">등록된 파일이 없습니다</p>
-                ) : (
-                  activities.flatMap((activity) => 
-                    (activity.attachments || []).map((att: any, idx: number) => (
-                      <a
-                        key={`${activity.id}-${idx}`}
-                        href={att.url}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="flex items-center gap-2 p-2 bg-blue-50 dark:bg-blue-950/30 border border-blue-200 dark:border-blue-800 rounded-md hover:bg-blue-100 dark:hover:bg-blue-950/50 transition-colors"
-                      >
-                        <FileText className="h-3 w-3 text-blue-500 flex-shrink-0" />
-                        <span className="text-xs text-blue-900 dark:text-blue-100 truncate flex-1">
-                          {att.name}
-                        </span>
-                      </a>
-                    ))
-                  )
-                )}
-              </div>
-            </div>
+            <RightSidebarContent />
           </div>
         </div>
+
+        {/* 오른쪽 사이드바 Sheet - 모바일/태블릿 */}
+        <Sheet open={rightSheetOpen} onOpenChange={setRightSheetOpen}>
+          <SheetContent side="right" className="w-80 p-0 overflow-y-auto">
+            <SheetHeader className="sr-only">
+              <SheetTitle>거래 기본 정보</SheetTitle>
+            </SheetHeader>
+            <div className="p-6">
+              <RightSidebarContent />
+            </div>
+          </SheetContent>
+        </Sheet>
       </div>
       <CreateQuotationDialog
         open={showQuotationDialog}
