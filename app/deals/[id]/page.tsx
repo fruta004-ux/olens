@@ -1315,8 +1315,8 @@ function DealDetailPageClient({ dealId }: { dealId: string }) {
       <CrmSidebar />
 
       <div className="flex flex-1 overflow-hidden">
-        {/* 왼쪽 사이드바 - PC에서만 표시 */}
-        <div className="hidden lg:block w-80 border-r border-border bg-card overflow-y-auto">
+        {/* 왼쪽 사이드바 - PC에서만 표시 (1280px 이상) */}
+        <div className="hidden xl:block w-80 border-r border-border bg-card overflow-y-auto">
           <div className="p-6">
             <LeftSidebarContent />
           </div>
@@ -1335,9 +1335,9 @@ function DealDetailPageClient({ dealId }: { dealId: string }) {
         </Sheet>
 
         <main className="flex-1 overflow-auto">
-          <div className="p-6">
-            {/* 모바일 헤더 - 사이드바 토글 버튼 */}
-            <div className="flex lg:hidden items-center justify-between mb-4 pb-4 border-b">
+          {/* 모바일 헤더 - 고정 상단 바 (1280px 미만) */}
+          <div className="fixed xl:hidden top-0 left-48 right-0 z-40 bg-background/95 backdrop-blur-sm border-b px-4 py-3">
+            <div className="flex items-center justify-between max-w-full">
               <Button
                 variant="outline"
                 size="sm"
@@ -1347,7 +1347,7 @@ function DealDetailPageClient({ dealId }: { dealId: string }) {
                 <PanelLeft className="h-4 w-4" />
                 <span className="hidden sm:inline">거래 정보</span>
               </Button>
-              <h2 className="text-lg font-semibold truncate mx-4">
+              <h2 className="text-lg font-semibold truncate mx-4 flex-1 text-center">
                 {dealData.account?.company_name || "거래"}
               </h2>
               <Button
@@ -1360,7 +1360,12 @@ function DealDetailPageClient({ dealId }: { dealId: string }) {
                 <PanelRight className="h-4 w-4" />
               </Button>
             </div>
+          </div>
 
+          {/* 모바일에서 고정 헤더 공간 확보 */}
+          <div className="xl:hidden h-14" />
+
+          <div className="p-6">
             <Tabs value={activeTab} onValueChange={handleTabChange} className="space-y-4">
               <div className="border-b px-6">
                 <TabsList className="h-12">
@@ -2072,8 +2077,8 @@ function DealDetailPageClient({ dealId }: { dealId: string }) {
           </div>
         </main>
 
-        {/* 오른쪽 사이드바 - PC에서만 표시 */}
-        <div className="hidden lg:block w-80 border-l border-border bg-card overflow-y-auto">
+        {/* 오른쪽 사이드바 - PC에서만 표시 (1280px 이상) */}
+        <div className="hidden xl:block w-80 border-l border-border bg-card overflow-y-auto">
           <div className="p-6">
             <RightSidebarContent />
           </div>
