@@ -237,6 +237,7 @@ export default function DealsPage() {
       S5_complete: "S5_계약완료",
       S6_closed: "S6_종료", // 옛날 값
       S6_complete: "S6_종료",
+      S7_recontact: "S7_재접촉",
     }
     return stageMap[stage] || stage
   }
@@ -255,7 +256,7 @@ export default function DealsPage() {
       ].includes(stage)
     )
       return "inProgress"
-    if (["S5_contract", "S5_complete", "S6_closed", "S6_complete"].includes(stage)) return "done"
+    if (["S5_contract", "S5_complete", "S6_closed", "S6_complete", "S7_recontact"].includes(stage)) return "done"
     return "todo"
   }
 
@@ -373,7 +374,7 @@ export default function DealsPage() {
         return {
           id: deal.id,
           firstContact: deal.first_contact_date ? formatDateToYYYYMMDD(deal.first_contact_date) : "-",
-          name: deal.deal_name || deal.account?.company_name || "-",
+          name: deal.account?.company_name || deal.deal_name || "-",
           needsSummary: deal.needs_summary || "-",
           stage: deal.stage || "S0_new_lead",
           stageDisplay: getStageDisplay(deal.stage),
@@ -1208,13 +1209,19 @@ const renderCell = (columnId: string, deal: any, nextContactStatus: any) => {
     case "lastActivity":
       return <span className="text-sm text-muted-foreground">{deal.lastActivity}</span>
     case "nextContact":
+      const isRecontact = deal.stage === "S7_recontact"
       return (
-        <div className={cn("inline-flex items-center text-sm", nextContactStatus.className)}>
+        <div className={cn("inline-flex items-center text-sm gap-1", nextContactStatus.className)}>
           {nextContactStatus.icon}
           {nextContactStatus.text}
           {nextContactStatus.badge && (
             <Badge className={cn("text-xs py-0 h-5", nextContactStatus.badgeClassName)}>
               {nextContactStatus.badge}
+            </Badge>
+          )}
+          {isRecontact && (
+            <Badge className="text-xs py-0 h-5 bg-blue-500 text-white ml-1">
+              재접촉
             </Badge>
           )}
         </div>

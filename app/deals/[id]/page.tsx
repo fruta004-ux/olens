@@ -47,6 +47,8 @@ import { CreateQuotationDialog } from "@/components/create-quotation-dialog"
 import { QuotationViewDialog } from "@/components/quotation-view-dialog"
 import { CloseReasonDialog } from "@/components/close-reason-dialog"
 import { getCloseReasonText } from "@/lib/close-reasons"
+import { RecontactDialog } from "@/components/recontact-dialog"
+import { getRecontactReasonText } from "@/lib/recontact-reasons"
 
 const sanitizeFileName = (fileName: string): string => {
   // 파일명과 확장자 분리
@@ -77,6 +79,7 @@ const getStageDisplay = (stage: string) => {
     S5_complete: "S5_계약완료",
     S6_closed: "S6_종료",
     S6_complete: "S6_종료",
+    S7_recontact: "S7_재접촉",
   }
   return stageMap[stage] || stage
 }
@@ -214,6 +217,9 @@ function DealDetailPageClient({ dealId }: { dealId: string }) {
   // 종료 사유 모달 상태
   const [showCloseReasonDialog, setShowCloseReasonDialog] = useState(false)
   const [pendingStageChange, setPendingStageChange] = useState<string | null>(null)
+  
+  // 재접촉 모달 상태
+  const [showRecontactDialog, setShowRecontactDialog] = useState(false)
 
   const supabase = createBrowserClient() // supabase 클라이언트 한번만 생성
 
@@ -414,6 +420,10 @@ function DealDetailPageClient({ dealId }: { dealId: string }) {
       // 종료 단계로 변경 시 모달 열기
       setPendingStageChange(newStage)
       setShowCloseReasonDialog(true)
+    } else if (newStage === "S7_recontact") {
+      // 재접촉 단계로 변경 시 모달 열기
+      setPendingStageChange(newStage)
+      setShowRecontactDialog(true)
     } else {
       // 다른 단계는 바로 변경
       handleUpdateDeal({ stage: newStage })
@@ -426,6 +436,18 @@ function DealDetailPageClient({ dealId }: { dealId: string }) {
       await handleUpdateDeal({ 
         stage: pendingStageChange, 
         close_reason: reasonCode 
+      })
+      setPendingStageChange(null)
+    }
+  }
+
+  // 재접촉 확정 핸들러
+  const handleRecontactConfirm = async (reasonCode: string, recontactDate: string) => {
+    if (pendingStageChange) {
+      await handleUpdateDeal({ 
+        stage: pendingStageChange, 
+        close_reason: reasonCode,
+        next_contact_date: recontactDate
       })
       setPendingStageChange(null)
     }
@@ -1714,6 +1736,7 @@ function DealDetailPageClient({ dealId }: { dealId: string }) {
                     <option value="S4_decision">S4_결정 대기</option>
                     <option value="S5_complete">S5_계약완료</option>
                     <option value="S6_complete">S6_종료</option>
+                    <option value="S7_recontact">S7_재접촉</option>
                   </select>
                 </div>
                 <div>
@@ -1739,6 +1762,16 @@ function DealDetailPageClient({ dealId }: { dealId: string }) {
                     <label className="text-xs text-muted-foreground">종료 사유</label>
                     <div className="mt-1 px-3 py-2 text-sm border rounded-md bg-muted">
                       {getCloseReasonText(dealData.close_reason)}
+                    </div>
+                  </div>
+                )}
+                
+                {/* 재접촉 사유 표시 (재접촉 단계일 때만) */}
+                {dealData.stage === "S7_recontact" && dealData.close_reason && (
+                  <div className="col-span-2">
+                    <label className="text-xs text-muted-foreground">재접촉 사유</label>
+                    <div className="mt-1 px-3 py-2 text-sm border rounded-md bg-blue-50 dark:bg-blue-950 text-blue-800 dark:text-blue-200">
+                      {getRecontactReasonText(dealData.close_reason)}
                     </div>
                   </div>
                 )}
@@ -2008,6 +2041,19 @@ function DealDetailPageClient({ dealId }: { dealId: string }) {
           }
         }}
         onConfirm={handleCloseReasonConfirm}
+        dealName={dealData.deal_name}
+      />
+      
+      {/* 재접촉 설정 다이얼로그 */}
+      <RecontactDialog
+        open={showRecontactDialog}
+        onOpenChange={(open) => {
+          setShowRecontactDialog(open)
+          if (!open) {
+            setPendingStageChange(null)
+          }
+        }}
+        onConfirm={handleRecontactConfirm}
         dealName={dealData.deal_name}
       />
     </div>

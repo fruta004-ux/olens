@@ -35,5 +35,17 @@ SELECT id, 'feature', '✏️ 견적서 수정 기능 추가 - 견적서 관리 
 FROM public.patch_notes WHERE version = '1.9';
 
 INSERT INTO public.patch_note_changes (patch_note_id, type, description, sort_order)
-SELECT id, 'fix', '🔧 플로팅 피드백 버튼 클릭 영역 문제 수정', 8
+SELECT id, 'feature', '🔄 S7_재접촉 단계 추가 - 재접촉 예정일/사유 설정 가능', 8
+FROM public.patch_notes WHERE version = '1.9';
+
+INSERT INTO public.patch_note_changes (patch_note_id, type, description, sort_order)
+SELECT id, 'feature', '📋 영업 리포트에 "재접촉 대기" 탭 추가 - 재접촉 예정 딜 목록 확인', 9
+FROM public.patch_notes WHERE version = '1.9';
+
+INSERT INTO public.patch_note_changes (patch_note_id, type, description, sort_order)
+SELECT id, 'improvement', '🏷️ 영업현황 다음 연락일에 재접촉 배지 표시', 10
+FROM public.patch_notes WHERE version = '1.9';
+
+INSERT INTO public.patch_note_changes (patch_note_id, type, description, sort_order)
+SELECT id, 'fix', '🔧 플로팅 피드백 버튼 클릭 영역 문제 수정', 11
 FROM public.patch_notes WHERE version = '1.9';
