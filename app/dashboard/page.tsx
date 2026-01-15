@@ -122,18 +122,24 @@ function formatWon(amount: number): string {
 interface StageInfo {
   key: string;
   label: string;
-  minRate: number;
-  maxRate: number;
+  definition: string;
+  targetMinRate: number;
+  targetMaxRate: number;
 }
 
+// S0~S4: 핵심 파이프라인 (합산 = 100%)
 const STAGE_CONFIG: StageInfo[] = [
-  { key: "S0", label: "S0_신규 유입", minRate: 8, maxRate: 12 },
-  { key: "S1", label: "S1_유효 리드", minRate: 18, maxRate: 22 },
-  { key: "S2", label: "S2_상담 완료", minRate: 15, maxRate: 18 },
-  { key: "S3", label: "S3_제안 발송", minRate: 12, maxRate: 15 },
-  { key: "S4", label: "S4_결정 대기", minRate: 8, maxRate: 12 },
-  { key: "S5", label: "S5_계약완료", minRate: 5, maxRate: 8 },
-  { key: "S6", label: "S6_종료", minRate: 15, maxRate: 20 },
+  { key: "S0", label: "S0_신규 유입", definition: "마케팅/아웃바운드 인입", targetMinRate: 13, targetMaxRate: 15 },
+  { key: "S1", label: "S1_유효 리드", definition: "자격 검증(SQL) 완료", targetMinRate: 20, targetMaxRate: 22 },
+  { key: "S2", label: "S2_상담 완료", definition: "미팅 및 니즈 파악 완료", targetMinRate: 16, targetMaxRate: 18 },
+  { key: "S3", label: "S3_제안 발송", definition: "맞춤형 제안서 전달", targetMinRate: 13, targetMaxRate: 15 },
+  { key: "S4", label: "S4_결정 대기", definition: "내부 검토 및 최종 협상", targetMinRate: 28, targetMaxRate: 30 },
+];
+
+// S5, S6: 별도 표기 (전체 대비 비율)
+const EXTRA_STAGES = [
+  { key: "S5", label: "S5_계약완료", definition: "최종 클로징" },
+  { key: "S6", label: "S6_종료", definition: "영업 종료" },
 ];
 
 const STAGE_KEY_MAP: Record<string, string[]> = {
@@ -166,7 +172,8 @@ export default function DashboardPage() {
   const [editingFeedback, setEditingFeedback] = useState<string>("");
   const [draftFeedbacks, setDraftFeedbacks] = useState<Record<string, string>>({});
   const [isSaving, setIsSaving] = useState(false);
-  const [totalCount, setTotalCount] = useState(0);
+  const [totalCount, setTotalCount] = useState(0); // S0~S4 합계
+  const [allDealsCount, setAllDealsCount] = useState(0); // S0~S6 전체 합계
   
   const stageRefs = useRef<Record<string, HTMLDivElement | null>>({});
   const supabase = createClient();
@@ -759,19 +766,32 @@ export default function DashboardPage() {
 
       const counts: Record<string, number> = {};
       const dealsByStage: Record<string, Deal[]> = {};
-      let total = 0;
+      let coreTotal = 0; // S0~S4 합계
+      let allTotal = 0; // S0~S6 전체 합계
       
+      // S0~S4 핵심 파이프라인
       STAGE_CONFIG.forEach(stage => {
         const stageKeys = STAGE_KEY_MAP[stage.key] || [];
         const stageDeals = deals?.filter(d => stageKeys.includes(d.stage)) || [];
         counts[stage.key] = stageDeals.length;
         dealsByStage[stage.key] = stageDeals;
-        total += stageDeals.length;
+        coreTotal += stageDeals.length;
       });
+      
+      // S5, S6 별도 집계
+      EXTRA_STAGES.forEach(stage => {
+        const stageKeys = STAGE_KEY_MAP[stage.key] || [];
+        const stageDeals = deals?.filter(d => stageKeys.includes(d.stage)) || [];
+        counts[stage.key] = stageDeals.length;
+        dealsByStage[stage.key] = stageDeals;
+      });
+      
+      allTotal = coreTotal + (counts["S5"] || 0) + (counts["S6"] || 0);
       
       setStageCounts(counts);
       setStageDeals(dealsByStage);
-      setTotalCount(total);
+      setTotalCount(coreTotal); // S0~S4만
+      setAllDealsCount(allTotal); // 전체
 
       try {
         const { data: feedbackData, error: feedbackError } = await supabase
@@ -781,7 +801,7 @@ export default function DashboardPage() {
         
         if (!feedbackError) {
           const historyMap: Record<string, FeedbackHistory[]> = {};
-          STAGE_CONFIG.forEach(stage => {
+          [...STAGE_CONFIG, ...EXTRA_STAGES].forEach(stage => {
             historyMap[stage.key] = feedbackData?.filter(f => f.stage === stage.key).slice(0, 3) || [];
           });
           setFeedbackHistories(historyMap);
@@ -840,6 +860,7 @@ export default function DashboardPage() {
     }
   };
 
+  // S0~S5 전체 합계 대비 비율 계산 (합산 = 100%)
   const getRate = (stageKey: string): number => {
     if (totalCount === 0) return 0;
     return (stageCounts[stageKey] || 0) / totalCount * 100;
@@ -850,10 +871,10 @@ export default function DashboardPage() {
     const config = STAGE_CONFIG.find(s => s.key === stageKey);
     if (!config) return { status: "normal", message: "정보 없음" };
 
-    if (rate < config.minRate) {
-      return { status: "low", message: `적정 대비 -${(config.minRate - rate).toFixed(1)}% 부족` };
-    } else if (rate > config.maxRate) {
-      return { status: "high", message: `적정 대비 +${(rate - config.maxRate).toFixed(1)}% 초과` };
+    if (rate < config.targetMinRate) {
+      return { status: "low", message: `목표 대비 -${(config.targetMinRate - rate).toFixed(1)}% 부족` };
+    } else if (rate > config.targetMaxRate) {
+      return { status: "high", message: `목표 대비 +${(rate - config.targetMaxRate).toFixed(1)}% 초과` };
     }
     return { status: "normal", message: "적정 범위 내" };
   };
@@ -873,14 +894,16 @@ export default function DashboardPage() {
     const rate = getRate(stageKey);
     const config = STAGE_CONFIG.find(s => s.key === stageKey);
     if (!config) return 0;
-    return Math.min((rate / (config.maxRate * 1.5)) * 100, 100);
+    // 각 단계별 적정 범위 기준으로 표시 (최대 50% 기준)
+    const maxDisplay = 50;
+    return Math.min((rate / maxDisplay) * 100, 100);
   };
 
   const getRangePosition = (stageKey: string): { left: number; width: number } => {
     const config = STAGE_CONFIG.find(s => s.key === stageKey);
     if (!config) return { left: 0, width: 0 };
-    const maxDisplay = config.maxRate * 1.5;
-    return { left: (config.minRate / maxDisplay) * 100, width: ((config.maxRate - config.minRate) / maxDisplay) * 100 };
+    const maxDisplay = 50;
+    return { left: (config.targetMinRate / maxDisplay) * 100, width: ((config.targetMaxRate - config.targetMinRate) / maxDisplay) * 100 };
   };
 
   const toggleStageExpand = (stageKey: string) => {
@@ -914,10 +937,11 @@ export default function DashboardPage() {
                       <div className="flex items-center gap-3">
                         <span className="font-semibold text-lg">{stage.label}</span>
                         <Badge variant="secondary" className="text-base px-3 py-1">{count}건</Badge>
+                        <span className="text-xs text-muted-foreground">{stage.definition}</span>
                       </div>
                       <div className="flex items-center gap-2">
                         <span className={cn("font-bold text-xl", style.text)}>{rate.toFixed(1)}%</span>
-                        <span className="text-sm text-muted-foreground">/ {stage.minRate}~{stage.maxRate}%</span>
+                        <span className="text-sm text-muted-foreground">/ 목표 {stage.targetMinRate}~{stage.targetMaxRate}%</span>
                       </div>
                     </div>
 
@@ -990,6 +1014,79 @@ export default function DashboardPage() {
             </div>
           );
         })}
+
+        {/* S5, S6 별도 표기 (전체 대비 비율) */}
+        <Card className="mt-4 border-dashed">
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm text-muted-foreground flex items-center gap-2">
+              <PieChart className="h-4 w-4" />
+              완료/종료 단계 (전체 대비 비율)
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="pt-0">
+            <div className="flex gap-6">
+              {EXTRA_STAGES.map((stage) => {
+                const count = stageCounts[stage.key] || 0;
+                const rate = allDealsCount > 0 ? (count / allDealsCount) * 100 : 0;
+                const deals = stageDeals[stage.key] || [];
+                const isExpanded = expandedStage === stage.key;
+                
+                return (
+                  <div key={stage.key} className="flex-1">
+                    <div 
+                      className="flex items-center justify-between p-3 rounded-lg bg-gray-50 hover:bg-gray-100 cursor-pointer transition-colors"
+                      onClick={() => toggleStageExpand(stage.key)}
+                    >
+                      <div className="flex items-center gap-2">
+                        <span className="font-medium">{stage.label}</span>
+                        <Badge variant="outline" className="text-xs">{count}건</Badge>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <span className="font-semibold text-lg">{rate.toFixed(1)}%</span>
+                        <span className="text-xs text-muted-foreground">(전체 {allDealsCount}건 대비)</span>
+                        {isExpanded ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
+                      </div>
+                    </div>
+                    
+                    {isExpanded && deals.length > 0 && (
+                      <Card className="mt-2 border-l-4 border-l-gray-400">
+                        <CardContent className="p-0">
+                          <Table>
+                            <TableHeader>
+                              <TableRow className="bg-gray-50">
+                                <TableHead className="w-[140px]">상호명</TableHead>
+                                <TableHead>니즈 축약</TableHead>
+                                <TableHead className="w-[120px] text-right">예상 금액</TableHead>
+                                <TableHead className="w-[40px]"></TableHead>
+                              </TableRow>
+                            </TableHeader>
+                            <TableBody>
+                              {deals.slice(0, 5).map((deal) => (
+                                <TableRow key={deal.id} onClick={() => router.push(`/deals/${deal.id}`)} className="cursor-pointer hover:bg-gray-100 transition-colors">
+                                  <TableCell className="font-medium">{deal.deal_name || "이름 없음"}</TableCell>
+                                  <TableCell className="text-sm text-muted-foreground truncate max-w-[200px]">{deal.needs_summary || "-"}</TableCell>
+                                  <TableCell className="text-right text-sm text-muted-foreground">{formatAmountRange(deal.amount_range)}</TableCell>
+                                  <TableCell><ExternalLink className="h-4 w-4 text-muted-foreground" /></TableCell>
+                                </TableRow>
+                              ))}
+                              {deals.length > 5 && (
+                                <TableRow>
+                                  <TableCell colSpan={4} className="text-center text-muted-foreground text-sm py-2">
+                                    +{deals.length - 5}건 더 있음
+                                  </TableCell>
+                                </TableRow>
+                              )}
+                            </TableBody>
+                          </Table>
+                        </CardContent>
+                      </Card>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          </CardContent>
+        </Card>
       </div>
 
       {/* 오른쪽: 피드백 메모 */}

@@ -6,7 +6,7 @@ import { CrmHeader } from "@/components/crm-header"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Badge } from "@/components/ui/badge"
-import { Calendar, TrendingUp, Users, Filter, ChevronLeft, ChevronRight, CalendarIcon, X } from "lucide-react"
+import { Calendar, TrendingUp, Users, Filter, ChevronLeft, ChevronRight, CalendarIcon, X, Building2 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
@@ -26,6 +26,7 @@ type Deal = {
   needs_summary: string | null
   assigned_to: string | null
   amount_range: string | null
+  company: string | null
 }
 
 type CalendarDay = {
@@ -39,6 +40,9 @@ export default function StatisticsPage() {
   const [loading, setLoading] = useState(true)
   const [activeTab, setActiveTab] = useState("calendar")
   const [currentDate, setCurrentDate] = useState(new Date())
+  
+  // 회사 필터
+  const [selectedCompany, setSelectedCompany] = useState<string>("all")
   
   // 날짜 범위 필터
   const [startDate, setStartDate] = useState<Date | undefined>(undefined)
@@ -64,7 +68,8 @@ export default function StatisticsPage() {
           inflow_source,
           needs_summary,
           assigned_to,
-          amount_range
+          amount_range,
+          company
         `)
         .order("first_contact_date", { ascending: false })
 
@@ -81,8 +86,15 @@ export default function StatisticsPage() {
     }
   }
 
+  // 회사 필터 적용된 거래 목록
+  const companyFilteredDeals = allDeals.filter(deal => {
+    if (selectedCompany === "all") return true
+    if (selectedCompany === "none") return !deal.company
+    return deal.company === selectedCompany
+  })
+
   // 날짜 범위에 따라 필터된 거래 목록
-  const deals = allDeals.filter(deal => {
+  const deals = companyFilteredDeals.filter(deal => {
     if (!deal.first_contact_date) return false
     
     const dealDate = new Date(deal.first_contact_date)
@@ -104,12 +116,19 @@ export default function StatisticsPage() {
   })
 
   // 날짜 필터가 적용되지 않은 경우 전체 표시 (first_contact_date가 없는 것도 포함)
-  const dealsForStats = (startDate || endDate) ? deals : allDeals
+  const dealsForStats = (startDate || endDate) ? deals : companyFilteredDeals
 
   // 날짜 범위 초기화
   const clearDateFilter = () => {
     setStartDate(undefined)
     setEndDate(undefined)
+  }
+
+  // 전체 필터 초기화
+  const clearAllFilters = () => {
+    setStartDate(undefined)
+    setEndDate(undefined)
+    setSelectedCompany("all")
   }
 
   // 빠른 날짜 범위 설정
@@ -164,7 +183,7 @@ export default function StatisticsPage() {
     
     while (current <= endDateCal) {
       const dateStr = current.toISOString().split("T")[0]
-      const dayDeals = allDeals.filter(deal => {
+      const dayDeals = companyFilteredDeals.filter(deal => {
         if (!deal.first_contact_date) return false
         const dealDate = deal.first_contact_date.split("T")[0]
         return dealDate === dateStr
@@ -263,7 +282,7 @@ export default function StatisticsPage() {
   const weekDays = ["일", "월", "화", "수", "목", "금", "토"]
 
   // 현재 월의 총 문의 수
-  const currentMonthDeals = allDeals.filter(deal => {
+  const currentMonthDeals = companyFilteredDeals.filter(deal => {
     if (!deal.first_contact_date) return false
     const date = new Date(deal.first_contact_date)
     return date.getFullYear() === currentDate.getFullYear() && 
@@ -272,6 +291,15 @@ export default function StatisticsPage() {
 
   // 필터 적용 여부
   const isFiltered = startDate || endDate
+  const isCompanyFiltered = selectedCompany !== "all"
+  const hasAnyFilter = isFiltered || isCompanyFiltered
+
+  // 회사별 딜 수 계산
+  const companyStats = {
+    플루타: allDeals.filter(d => d.company === "플루타").length,
+    오코랩스: allDeals.filter(d => d.company === "오코랩스").length,
+    미지정: allDeals.filter(d => !d.company).length,
+  }
 
   if (loading) {
     return (
@@ -307,9 +335,49 @@ export default function StatisticsPage() {
             </p>
           </div>
 
-          {/* 날짜 범위 필터 */}
+          {/* 필터 */}
           <Card className="mb-6">
-            <CardContent className="p-4">
+            <CardContent className="p-4 space-y-4">
+              {/* 회사 필터 */}
+              <div className="flex flex-wrap items-center gap-4">
+                <div className="flex items-center gap-2">
+                  <Label className="text-sm font-medium whitespace-nowrap">회사 선택</Label>
+                </div>
+                <div className="flex items-center gap-2">
+                  <Button
+                    variant={selectedCompany === "all" ? "default" : "outline"}
+                    size="sm"
+                    onClick={() => setSelectedCompany("all")}
+                  >
+                    전체
+                  </Button>
+                  <Button
+                    variant={selectedCompany === "플루타" ? "default" : "outline"}
+                    size="sm"
+                    onClick={() => setSelectedCompany("플루타")}
+                    className={selectedCompany === "플루타" ? "bg-purple-600 hover:bg-purple-700" : ""}
+                  >
+                    🟣 플루타
+                  </Button>
+                  <Button
+                    variant={selectedCompany === "오코랩스" ? "default" : "outline"}
+                    size="sm"
+                    onClick={() => setSelectedCompany("오코랩스")}
+                    className={selectedCompany === "오코랩스" ? "bg-green-600 hover:bg-green-700" : ""}
+                  >
+                    🟢 오코랩스
+                  </Button>
+                  <Button
+                    variant={selectedCompany === "none" ? "default" : "outline"}
+                    size="sm"
+                    onClick={() => setSelectedCompany("none")}
+                  >
+                    미지정
+                  </Button>
+                </div>
+              </div>
+
+              {/* 날짜 범위 필터 */}
               <div className="flex flex-wrap items-center gap-4">
                 <div className="flex items-center gap-2">
                   <Label className="text-sm font-medium whitespace-nowrap">기간 설정</Label>
@@ -401,40 +469,96 @@ export default function StatisticsPage() {
                 {isFiltered && (
                   <Button variant="ghost" size="sm" onClick={clearDateFilter} className="text-muted-foreground">
                     <X className="h-4 w-4 mr-1" />
-                    초기화
+                    기간 초기화
                   </Button>
                 )}
               </div>
               
               {/* 필터 적용 결과 표시 */}
-              {isFiltered && (
-                <div className="mt-3 flex items-center gap-2">
-                  <Badge variant="secondary" className="text-sm">
-                    {startDate && format(startDate, "yyyy.MM.dd", { locale: ko })}
-                    {startDate && endDate && " ~ "}
-                    {endDate && format(endDate, "yyyy.MM.dd", { locale: ko })}
-                  </Badge>
+              {hasAnyFilter && (
+                <div className="flex items-center gap-2 flex-wrap">
+                  {isCompanyFiltered && (
+                    <Badge 
+                      variant="secondary" 
+                      className={cn(
+                        "text-sm",
+                        selectedCompany === "플루타" && "bg-purple-100 text-purple-700",
+                        selectedCompany === "오코랩스" && "bg-green-100 text-green-700"
+                      )}
+                    >
+                      {selectedCompany === "none" ? "미지정" : selectedCompany}
+                    </Badge>
+                  )}
+                  {isFiltered && (
+                    <Badge variant="secondary" className="text-sm">
+                      {startDate && format(startDate, "yyyy.MM.dd", { locale: ko })}
+                      {startDate && endDate && " ~ "}
+                      {endDate && format(endDate, "yyyy.MM.dd", { locale: ko })}
+                    </Badge>
+                  )}
                   <span className="text-sm text-muted-foreground">
                     총 <span className="font-semibold text-foreground">{dealsForStats.length}건</span>의 거래
                   </span>
+                  <Button variant="ghost" size="sm" onClick={clearAllFilters} className="text-muted-foreground">
+                    <X className="h-4 w-4 mr-1" />
+                    전체 초기화
+                  </Button>
                 </div>
               )}
             </CardContent>
           </Card>
 
           {/* 요약 카드 */}
-          <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4 mb-6">
             <Card>
               <CardContent className="p-4">
                 <div className="flex items-center gap-3">
-                  <div className="p-2 bg-purple-100 rounded-lg">
-                    <Users className="h-5 w-5 text-primary" />
+                  <div className="p-2 bg-gray-100 rounded-lg">
+                    <Users className="h-5 w-5 text-gray-600" />
                   </div>
                   <div>
                     <p className="text-sm text-muted-foreground">
-                      {isFiltered ? "필터된 거래" : "전체 거래"}
+                      {hasAnyFilter ? "필터된 거래" : "전체 거래"}
                     </p>
                     <p className="text-2xl font-bold">{dealsForStats.length}건</p>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+            <Card 
+              className={cn(
+                "cursor-pointer transition-all",
+                selectedCompany === "플루타" && "ring-2 ring-purple-500"
+              )}
+              onClick={() => setSelectedCompany(selectedCompany === "플루타" ? "all" : "플루타")}
+            >
+              <CardContent className="p-4">
+                <div className="flex items-center gap-3">
+                  <div className="p-2 bg-purple-100 rounded-lg">
+                    <Building2 className="h-5 w-5 text-purple-600" />
+                  </div>
+                  <div>
+                    <p className="text-sm text-muted-foreground">🟣 플루타</p>
+                    <p className="text-2xl font-bold">{companyStats.플루타}건</p>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+            <Card 
+              className={cn(
+                "cursor-pointer transition-all",
+                selectedCompany === "오코랩스" && "ring-2 ring-green-500"
+              )}
+              onClick={() => setSelectedCompany(selectedCompany === "오코랩스" ? "all" : "오코랩스")}
+            >
+              <CardContent className="p-4">
+                <div className="flex items-center gap-3">
+                  <div className="p-2 bg-green-100 rounded-lg">
+                    <Building2 className="h-5 w-5 text-green-600" />
+                  </div>
+                  <div>
+                    <p className="text-sm text-muted-foreground">🟢 오코랩스</p>
+                    <p className="text-2xl font-bold">{companyStats.오코랩스}건</p>
                   </div>
                 </div>
               </CardContent>
@@ -442,8 +566,8 @@ export default function StatisticsPage() {
             <Card>
               <CardContent className="p-4">
                 <div className="flex items-center gap-3">
-                  <div className="p-2 bg-green-100 rounded-lg">
-                    <Calendar className="h-5 w-5 text-green-600" />
+                  <div className="p-2 bg-blue-100 rounded-lg">
+                    <Calendar className="h-5 w-5 text-blue-600" />
                   </div>
                   <div>
                     <p className="text-sm text-muted-foreground">이번 달 문의</p>
@@ -455,25 +579,12 @@ export default function StatisticsPage() {
             <Card>
               <CardContent className="p-4">
                 <div className="flex items-center gap-3">
-                  <div className="p-2 bg-purple-100 rounded-lg">
-                    <TrendingUp className="h-5 w-5 text-purple-600" />
-                  </div>
-                  <div>
-                    <p className="text-sm text-muted-foreground">유입 경로 수</p>
-                    <p className="text-2xl font-bold">{inflowStats.length}개</p>
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
-            <Card>
-              <CardContent className="p-4">
-                <div className="flex items-center gap-3">
                   <div className="p-2 bg-orange-100 rounded-lg">
                     <Filter className="h-5 w-5 text-orange-600" />
                   </div>
                   <div>
-                    <p className="text-sm text-muted-foreground">니즈 카테고리</p>
-                    <p className="text-2xl font-bold">{needsStats.length}개</p>
+                    <p className="text-sm text-muted-foreground">미지정 거래</p>
+                    <p className="text-2xl font-bold text-muted-foreground">{companyStats.미지정}건</p>
                   </div>
                 </div>
               </CardContent>
