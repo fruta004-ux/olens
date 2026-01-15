@@ -22,12 +22,21 @@ import {
   BookOpen,
   ExternalLink,
   StickyNote,
+  Menu,
+  X,
 } from "lucide-react"
 import { useState } from "react"
 import { Badge } from "@/components/ui/badge"
+import { Button } from "@/components/ui/button"
 import { PatchNotesDialog } from "@/components/patch-notes-dialog"
 import { usePatchNotes } from "@/lib/use-patch-notes"
 import { useHelpSettings } from "@/lib/use-help-settings"
+import {
+  Sheet,
+  SheetContent,
+  SheetHeader,
+  SheetTitle,
+} from "@/components/ui/sheet"
 
 const processStages = [
   { id: 0, name: "목표·기준 설정", enabled: true }, // 활성화
@@ -82,6 +91,7 @@ export function CrmSidebar() {
   const [expandedStage, setExpandedStage] = useState<number | null>(null)
   const [expandedSubMenu, setExpandedSubMenu] = useState<string | null>(null)
   const [patchNotesOpen, setPatchNotesOpen] = useState(false)
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false)
   const { currentVersion } = usePatchNotes()
   const { markPatchNotesAsSeen, checkHasNewPatchNotes } = useHelpSettings()
   
@@ -97,303 +107,360 @@ export function CrmSidebar() {
     markPatchNotesAsSeen(currentVersion)
   }
 
-  return (
+  // 사이드바 내부 콘텐츠 (재사용)
+  const SidebarContent = () => (
     <>
-      <div className="fixed left-0 top-2 z-50 flex h-screen w-48 flex-col border-r border-border bg-card">
-        {/* 로고 - 클릭시 홈으로 */}
-        <Link href="/" className="flex h-14 items-center justify-center px-2 hover:opacity-80 transition-opacity">
-          <Image
-            src="/images/olens-logo.png"
-            alt="OLENS logo"
-            width={80}
-            height={28}
-            className="h-auto w-[80px]"
-          />
-        </Link>
+      {/* 로고 - 클릭시 홈으로 */}
+      <Link href="/" className="flex h-14 items-center justify-center px-2 hover:opacity-80 transition-opacity" onClick={() => setMobileMenuOpen(false)}>
+        <Image
+          src="/images/olens-logo.png"
+          alt="OLENS logo"
+          width={80}
+          height={28}
+          className="h-auto w-[80px]"
+        />
+      </Link>
 
-        <nav className="flex-1 overflow-y-auto py-1">
-          <div className="space-y-0.5 px-1.5">
-            {processStages.map((stage) => {
-              const isExpanded = expandedStage === stage.id
-              const hasSubMenu = stage.id === 0 || stage.id === 1 || stage.id === 2 || stage.id === 6 || stage.id === 8
+      <nav className="flex-1 overflow-y-auto py-1">
+        <div className="space-y-0.5 px-1.5">
+          {processStages.map((stage) => {
+            const isExpanded = expandedStage === stage.id
+            const hasSubMenu = stage.id === 0 || stage.id === 1 || stage.id === 2 || stage.id === 6 || stage.id === 8
 
-              return (
-                <div key={stage.id}>
-                  {/* 단계 버튼 */}
-                  <button
-                    onClick={() => toggleStage(stage.id, stage.enabled)}
-                    disabled={!stage.enabled}
+            return (
+              <div key={stage.id}>
+                {/* 단계 버튼 */}
+                <button
+                  onClick={() => toggleStage(stage.id, stage.enabled)}
+                  disabled={!stage.enabled}
+                  className={cn(
+                    "group relative w-full flex items-center gap-2 rounded-lg px-2 py-2 text-xs font-medium transition-all",
+                    stage.enabled
+                      ? isExpanded
+                        ? "bg-gradient-to-r from-primary to-primary/80 text-white shadow-md"
+                        : "text-foreground hover:bg-secondary"
+                      : "text-muted-foreground cursor-not-allowed opacity-60",
+                  )}
+                >
+                  {/* 단계 번호 */}
+                  <div
                     className={cn(
-                      "group relative w-full flex items-center gap-2 rounded-lg px-2 py-2 text-xs font-medium transition-all",
+                      "flex h-5 w-5 flex-shrink-0 items-center justify-center rounded text-[10px] font-bold",
                       stage.enabled
                         ? isExpanded
-                          ? "bg-gradient-to-r from-primary to-primary/80 text-white shadow-md"
-                          : "text-foreground hover:bg-secondary"
-                        : "text-muted-foreground cursor-not-allowed opacity-60",
+                          ? "bg-white/20 text-white"
+                          : "bg-secondary text-foreground"
+                        : "bg-muted text-muted-foreground",
                     )}
                   >
-                    {/* 단계 번호 */}
-                    <div
-                      className={cn(
-                        "flex h-5 w-5 flex-shrink-0 items-center justify-center rounded text-[10px] font-bold",
-                        stage.enabled
-                          ? isExpanded
-                            ? "bg-white/20 text-white"
-                            : "bg-secondary text-foreground"
-                          : "bg-muted text-muted-foreground",
-                      )}
-                    >
-                      {stage.id}
-                    </div>
+                    {stage.id}
+                  </div>
 
-                    {/* 단계 이름 */}
-                    <span className="flex-1 text-left">{stage.name}</span>
+                  {/* 단계 이름 */}
+                  <span className="flex-1 text-left">{stage.name}</span>
 
-                    {/* 우측 아이콘 */}
-                    {!stage.enabled ? (
-                      <Lock className="h-3 w-3 flex-shrink-0" />
-                    ) : hasSubMenu ? (
-                      isExpanded ? (
-                        <ChevronDown className="h-3 w-3 flex-shrink-0" />
-                      ) : (
-                        <ChevronRight className="h-3 w-3 flex-shrink-0" />
-                      )
-                    ) : null}
-                  </button>
+                  {/* 우측 아이콘 */}
+                  {!stage.enabled ? (
+                    <Lock className="h-3 w-3 flex-shrink-0" />
+                  ) : hasSubMenu ? (
+                    isExpanded ? (
+                      <ChevronDown className="h-3 w-3 flex-shrink-0" />
+                    ) : (
+                      <ChevronRight className="h-3 w-3 flex-shrink-0" />
+                    )
+                  ) : null}
+                </button>
 
-                  {stage.id === 0 && isExpanded && (
-                    <div className="ml-7 mt-1 space-y-0.5">
-                      {stage0SubMenus.map((item) => (
-                        <a
+                {stage.id === 0 && isExpanded && (
+                  <div className="ml-7 mt-1 space-y-0.5">
+                    {stage0SubMenus.map((item) => (
+                      <a
+                        key={item.name}
+                        href={item.href}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="flex items-center gap-2 rounded-md px-2 py-1.5 text-xs transition-colors text-muted-foreground hover:bg-secondary hover:text-foreground"
+                        onClick={() => setMobileMenuOpen(false)}
+                      >
+                        <item.icon className="h-3.5 w-3.5 flex-shrink-0" />
+                        <span>{item.name}</span>
+                      </a>
+                    ))}
+                  </div>
+                )}
+
+                {stage.id === 1 && isExpanded && (
+                  <div className="ml-7 mt-1 space-y-0.5">
+                    {stage1SubMenus.map((item) => {
+                      const isActive = pathname === item.href
+                      return (
+                        <Link
                           key={item.name}
                           href={item.href}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="flex items-center gap-2 rounded-md px-2 py-1.5 text-xs transition-colors text-muted-foreground hover:bg-secondary hover:text-foreground"
+                          onClick={() => setMobileMenuOpen(false)}
+                          className={cn(
+                            "flex items-center gap-2 rounded-md px-2 py-1.5 text-xs transition-colors",
+                            isActive
+                              ? "bg-primary/10 text-primary font-medium"
+                              : "text-muted-foreground hover:bg-secondary hover:text-foreground",
+                          )}
                         >
                           <item.icon className="h-3.5 w-3.5 flex-shrink-0" />
                           <span>{item.name}</span>
-                        </a>
-                      ))}
-                    </div>
-                  )}
+                        </Link>
+                      )
+                    })}
+                  </div>
+                )}
 
-                  {stage.id === 1 && isExpanded && (
-                    <div className="ml-7 mt-1 space-y-0.5">
-                      {stage1SubMenus.map((item) => {
-                        const isActive = pathname === item.href
+                {stage.id === 2 && isExpanded && (
+                  <div className="ml-7 mt-1 space-y-0.5">
+                    {stage2SubMenus.map((item) => {
+                      // 하위 메뉴가 있는 경우 (영업 현황)
+                      if ('subItems' in item && item.subItems) {
+                        const isAnySubActive = item.subItems.some(sub => pathname === sub.href)
+                        const isSubMenuExpanded = expandedSubMenu === item.name
                         return (
-                          <Link
-                            key={item.name}
-                            href={item.href}
-                            className={cn(
-                              "flex items-center gap-2 rounded-md px-2 py-1.5 text-xs transition-colors",
-                              isActive
-                                ? "bg-primary/10 text-primary font-medium"
-                                : "text-muted-foreground hover:bg-secondary hover:text-foreground",
-                            )}
-                          >
-                            <item.icon className="h-3.5 w-3.5 flex-shrink-0" />
-                            <span>{item.name}</span>
-                          </Link>
-                        )
-                      })}
-                    </div>
-                  )}
-
-                  {stage.id === 2 && isExpanded && (
-                    <div className="ml-7 mt-1 space-y-0.5">
-                      {stage2SubMenus.map((item) => {
-                        // 하위 메뉴가 있는 경우 (영업 현황)
-                        if ('subItems' in item && item.subItems) {
-                          const isAnySubActive = item.subItems.some(sub => pathname === sub.href)
-                          const isSubMenuExpanded = expandedSubMenu === item.name
-                          return (
-                            <div key={item.name} className="space-y-0.5">
-                              <button
-                                onClick={() => setExpandedSubMenu(isSubMenuExpanded ? null : item.name)}
-                                className={cn(
-                                  "w-full flex items-center gap-2 rounded-md px-2 py-1.5 text-xs transition-colors hover:bg-secondary",
-                                  isAnySubActive
-                                    ? "text-primary font-medium"
-                                    : "text-muted-foreground",
-                                )}
-                              >
-                                <item.icon className="h-3.5 w-3.5 flex-shrink-0" />
-                                <span className="flex-1 text-left">{item.name}</span>
-                                {isSubMenuExpanded ? (
-                                  <ChevronDown className="h-3 w-3 flex-shrink-0" />
-                                ) : (
-                                  <ChevronRight className="h-3 w-3 flex-shrink-0" />
-                                )}
-                              </button>
-                              {isSubMenuExpanded && (
-                                <div className="ml-5 space-y-0.5">
-                                  {item.subItems.map((subItem) => {
-                                    const isSubActive = pathname === subItem.href
-                                    return (
-                                      <Link
-                                        key={subItem.name}
-                                        href={subItem.href}
-                                        className={cn(
-                                          "flex items-center gap-2 rounded-md px-2 py-1 text-xs transition-colors",
-                                          isSubActive
-                                            ? "bg-primary/10 text-primary font-medium"
-                                            : "text-muted-foreground hover:bg-secondary hover:text-foreground",
-                                        )}
-                                      >
-                                        <span>• {subItem.name}</span>
-                                      </Link>
-                                    )
-                                  })}
-                                </div>
+                          <div key={item.name} className="space-y-0.5">
+                            <button
+                              onClick={() => setExpandedSubMenu(isSubMenuExpanded ? null : item.name)}
+                              className={cn(
+                                "w-full flex items-center gap-2 rounded-md px-2 py-1.5 text-xs transition-colors hover:bg-secondary",
+                                isAnySubActive
+                                  ? "text-primary font-medium"
+                                  : "text-muted-foreground",
                               )}
-                            </div>
-                          )
-                        }
-                        
-                        // 일반 메뉴
-                        const isActive = pathname === (item as any).href
-                        if (item.disabled) {
-                          return (
-                            <div
-                              key={item.name}
-                              className="flex items-center gap-2 rounded-md px-2 py-1.5 text-xs text-muted-foreground opacity-60 cursor-not-allowed"
                             >
                               <item.icon className="h-3.5 w-3.5 flex-shrink-0" />
-                              <span>{item.name}</span>
-                              <Lock className="h-2.5 w-2.5 ml-auto flex-shrink-0" />
-                            </div>
-                          )
-                        }
-                        return (
-                          <Link
-                            key={item.name}
-                            href={(item as any).href}
-                            className={cn(
-                              "flex items-center gap-2 rounded-md px-2 py-1.5 text-xs transition-colors",
-                              isActive
-                                ? "bg-primary/10 text-primary font-medium"
-                                : "text-muted-foreground hover:bg-secondary hover:text-foreground",
+                              <span className="flex-1 text-left">{item.name}</span>
+                              {isSubMenuExpanded ? (
+                                <ChevronDown className="h-3 w-3 flex-shrink-0" />
+                              ) : (
+                                <ChevronRight className="h-3 w-3 flex-shrink-0" />
+                              )}
+                            </button>
+                            {isSubMenuExpanded && (
+                              <div className="ml-5 space-y-0.5">
+                                {item.subItems.map((subItem) => {
+                                  const isSubActive = pathname === subItem.href
+                                  return (
+                                    <Link
+                                      key={subItem.name}
+                                      href={subItem.href}
+                                      onClick={() => setMobileMenuOpen(false)}
+                                      className={cn(
+                                        "flex items-center gap-2 rounded-md px-2 py-1 text-xs transition-colors",
+                                        isSubActive
+                                          ? "bg-primary/10 text-primary font-medium"
+                                          : "text-muted-foreground hover:bg-secondary hover:text-foreground",
+                                      )}
+                                    >
+                                      <span>• {subItem.name}</span>
+                                    </Link>
+                                  )
+                                })}
+                              </div>
                             )}
+                          </div>
+                        )
+                      }
+                      
+                      // 일반 메뉴
+                      const isActive = pathname === (item as any).href
+                      if (item.disabled) {
+                        return (
+                          <div
+                            key={item.name}
+                            className="flex items-center gap-2 rounded-md px-2 py-1.5 text-xs text-muted-foreground opacity-60 cursor-not-allowed"
                           >
                             <item.icon className="h-3.5 w-3.5 flex-shrink-0" />
                             <span>{item.name}</span>
-                          </Link>
+                            <Lock className="h-2.5 w-2.5 ml-auto flex-shrink-0" />
+                          </div>
                         )
-                      })}
-                    </div>
-                  )}
+                      }
+                      return (
+                        <Link
+                          key={item.name}
+                          href={(item as any).href}
+                          onClick={() => setMobileMenuOpen(false)}
+                          className={cn(
+                            "flex items-center gap-2 rounded-md px-2 py-1.5 text-xs transition-colors",
+                            isActive
+                              ? "bg-primary/10 text-primary font-medium"
+                              : "text-muted-foreground hover:bg-secondary hover:text-foreground",
+                          )}
+                        >
+                          <item.icon className="h-3.5 w-3.5 flex-shrink-0" />
+                          <span>{item.name}</span>
+                        </Link>
+                      )
+                    })}
+                  </div>
+                )}
 
-                  {stage.id === 6 && isExpanded && (
-                    <div className="ml-7 mt-1 space-y-0.5">
-                      {stage6SubMenus.map((item) => {
-                        const isActive = pathname === item.href
+                {stage.id === 6 && isExpanded && (
+                  <div className="ml-7 mt-1 space-y-0.5">
+                    {stage6SubMenus.map((item) => {
+                      const isActive = pathname === item.href
+                      return (
+                        <Link
+                          key={item.name}
+                          href={item.href}
+                          onClick={() => setMobileMenuOpen(false)}
+                          className={cn(
+                            "flex items-center gap-2 rounded-md px-2 py-1.5 text-xs transition-colors",
+                            isActive
+                              ? "bg-primary/10 text-primary font-medium"
+                              : "text-muted-foreground hover:bg-secondary hover:text-foreground",
+                          )}
+                        >
+                          <item.icon className="h-3.5 w-3.5 flex-shrink-0" />
+                          <span>{item.name}</span>
+                        </Link>
+                      )
+                    })}
+                  </div>
+                )}
+
+                {stage.id === 8 && isExpanded && (
+                  <div className="ml-7 mt-1 space-y-0.5">
+                    {stage8SubMenus.map((item) => {
+                      if (item.disabled) {
                         return (
-                          <Link
+                          <div
+                            key={item.name}
+                            className="flex items-center gap-2 rounded-md px-2 py-1.5 text-xs text-muted-foreground opacity-60 cursor-not-allowed"
+                          >
+                            <item.icon className="h-3.5 w-3.5 flex-shrink-0" />
+                            <span>{item.name}</span>
+                            <Lock className="h-2.5 w-2.5 ml-auto flex-shrink-0" />
+                          </div>
+                        )
+                      }
+                      if (item.external) {
+                        return (
+                          <a
                             key={item.name}
                             href={item.href}
-                            className={cn(
-                              "flex items-center gap-2 rounded-md px-2 py-1.5 text-xs transition-colors",
-                              isActive
-                                ? "bg-primary/10 text-primary font-medium"
-                                : "text-muted-foreground hover:bg-secondary hover:text-foreground",
-                            )}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="flex items-center gap-2 rounded-md px-2 py-1.5 text-xs transition-colors text-muted-foreground hover:bg-secondary hover:text-foreground"
+                            onClick={() => setMobileMenuOpen(false)}
                           >
                             <item.icon className="h-3.5 w-3.5 flex-shrink-0" />
-                            <span>{item.name}</span>
-                          </Link>
+                            <span className="flex-1">{item.name}</span>
+                            <ExternalLink className="h-2.5 w-2.5 flex-shrink-0 opacity-50" />
+                          </a>
                         )
-                      })}
-                    </div>
-                  )}
+                      }
+                      // 메모장 등 일반 내부 링크
+                      const isActive = pathname === item.href
+                      return (
+                        <Link
+                          key={item.name}
+                          href={item.href}
+                          onClick={() => setMobileMenuOpen(false)}
+                          className={cn(
+                            "flex items-center gap-2 rounded-md px-2 py-1.5 text-xs transition-colors",
+                            isActive
+                              ? "bg-primary/10 text-primary font-medium"
+                              : "text-muted-foreground hover:bg-secondary hover:text-foreground",
+                          )}
+                        >
+                          <item.icon className="h-3.5 w-3.5 flex-shrink-0" />
+                          <span>{item.name}</span>
+                        </Link>
+                      )
+                    })}
+                  </div>
+                )}
+              </div>
+            )
+          })}
+        </div>
+      </nav>
 
-                  {stage.id === 8 && isExpanded && (
-                    <div className="ml-7 mt-1 space-y-0.5">
-                      {stage8SubMenus.map((item) => {
-                        if (item.disabled) {
-                          return (
-                            <div
-                              key={item.name}
-                              className="flex items-center gap-2 rounded-md px-2 py-1.5 text-xs text-muted-foreground opacity-60 cursor-not-allowed"
-                            >
-                              <item.icon className="h-3.5 w-3.5 flex-shrink-0" />
-                              <span>{item.name}</span>
-                              <Lock className="h-2.5 w-2.5 ml-auto flex-shrink-0" />
-                            </div>
-                          )
-                        }
-                        if (item.external) {
-                          return (
-                            <a
-                              key={item.name}
-                              href={item.href}
-                              target="_blank"
-                              rel="noopener noreferrer"
-                              className="flex items-center gap-2 rounded-md px-2 py-1.5 text-xs transition-colors text-muted-foreground hover:bg-secondary hover:text-foreground"
-                            >
-                              <item.icon className="h-3.5 w-3.5 flex-shrink-0" />
-                              <span className="flex-1">{item.name}</span>
-                              <ExternalLink className="h-2.5 w-2.5 flex-shrink-0 opacity-50" />
-                            </a>
-                          )
-                        }
-                        return null
-                      })}
-                    </div>
-                  )}
-                </div>
-              )
-            })}
-          </div>
-        </nav>
-
-        <div className="border-t border-border p-2 flex items-center gap-1">
-          {/* 왼쪽: 관리자, 설정 */}
-          <div className="flex-1 space-y-0.5">
-            <Link
-              href="/admin"
-              className="flex items-center gap-2 rounded-lg px-2 py-1.5 text-xs font-medium text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
-            >
-              <Shield className="h-3.5 w-3.5 flex-shrink-0" />
-              <span>관리자</span>
-            </Link>
-            <Link
-              href="/settings"
-              className="flex items-center gap-2 rounded-lg px-2 py-1.5 text-xs font-medium text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
-            >
-              <Settings className="h-3.5 w-3.5 flex-shrink-0" />
-              <span>설정</span>
-            </Link>
-          </div>
-          
-          {/* 오른쪽: 패치노트 */}
-          <div className="relative">
-            <button
-              onClick={handleOpenPatchNotes}
-              className="flex flex-col items-center justify-center gap-0.5 rounded-lg px-2 py-1.5 text-xs font-medium text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground border border-border"
-            >
-              <span className="text-[10px]">패치노트</span>
+      <div className="border-t border-border p-2 flex items-center gap-1">
+        {/* 왼쪽: 관리자, 설정 */}
+        <div className="flex-1 space-y-0.5">
+          <Link
+            href="/admin"
+            onClick={() => setMobileMenuOpen(false)}
+            className="flex items-center gap-2 rounded-lg px-2 py-1.5 text-xs font-medium text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
+          >
+            <Shield className="h-3.5 w-3.5 flex-shrink-0" />
+            <span>관리자</span>
+          </Link>
+          <Link
+            href="/settings"
+            onClick={() => setMobileMenuOpen(false)}
+            className="flex items-center gap-2 rounded-lg px-2 py-1.5 text-xs font-medium text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
+          >
+            <Settings className="h-3.5 w-3.5 flex-shrink-0" />
+            <span>설정</span>
+          </Link>
+        </div>
+        
+        {/* 오른쪽: 패치노트 */}
+        <div className="relative">
+          <button
+            onClick={handleOpenPatchNotes}
+            className="flex flex-col items-center justify-center gap-0.5 rounded-lg px-2 py-1.5 text-xs font-medium text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground border border-border"
+          >
+            <span className="text-[10px]">패치노트</span>
             <Badge variant="secondary" className="text-[10px] px-1 py-0">
               v{currentVersion}
             </Badge>
-            </button>
-            
-            {/* 새 패치노트 알림 말풍선 */}
-            {hasNewPatchNotes && (
-              <div className="absolute -top-12 right-0 z-50 animate-bounce">
-                <div className="relative bg-primary text-primary-foreground text-[10px] px-2 py-1 rounded-lg shadow-lg whitespace-nowrap">
-                  새 패치노트가 있어요! 🎉
-                  {/* 말풍선 꼬리 */}
-                  <div className="absolute -bottom-1.5 right-4 w-3 h-3 bg-primary transform rotate-45" />
-                </div>
+          </button>
+          
+          {/* 새 패치노트 알림 말풍선 */}
+          {hasNewPatchNotes && (
+            <div className="absolute -top-12 right-0 z-50 animate-bounce">
+              <div className="relative bg-primary text-primary-foreground text-[10px] px-2 py-1 rounded-lg shadow-lg whitespace-nowrap">
+                새 패치노트가 있어요! 🎉
+                {/* 말풍선 꼬리 */}
+                <div className="absolute -bottom-1.5 right-4 w-3 h-3 bg-primary transform rotate-45" />
               </div>
-            )}
-          </div>
+            </div>
+          )}
         </div>
       </div>
+    </>
+  )
 
-      <div className="w-48" />
+  return (
+    <>
+      {/* 모바일 햄버거 메뉴 버튼 - 고정 상단 왼쪽 (xl 미만) */}
+      <Button
+        variant="outline"
+        size="icon"
+        className="fixed xl:hidden left-4 top-4 z-50 h-10 w-10 bg-background/95 backdrop-blur-sm shadow-md"
+        onClick={() => setMobileMenuOpen(true)}
+      >
+        <Menu className="h-5 w-5" />
+        <span className="sr-only">메뉴 열기</span>
+      </Button>
+
+      {/* 모바일 사이드바 Sheet (xl 미만) */}
+      <Sheet open={mobileMenuOpen} onOpenChange={setMobileMenuOpen}>
+        <SheetContent side="left" className="w-48 p-0">
+          <SheetHeader className="sr-only">
+            <SheetTitle>메뉴</SheetTitle>
+          </SheetHeader>
+          <div className="flex h-full flex-col">
+            <SidebarContent />
+          </div>
+        </SheetContent>
+      </Sheet>
+
+      {/* PC 사이드바 (xl 이상) */}
+      <div className="hidden xl:flex fixed left-0 top-2 z-50 h-screen w-48 flex-col border-r border-border bg-card">
+        <SidebarContent />
+      </div>
+
+      {/* PC에서 사이드바 공간 확보 */}
+      <div className="hidden xl:block w-48" />
       
       {/* 패치노트 다이얼로그 */}
       <PatchNotesDialog open={patchNotesOpen} onOpenChange={setPatchNotesOpen} />

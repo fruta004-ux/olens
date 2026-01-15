@@ -279,7 +279,7 @@ export default function StatisticsPage() {
         <CrmSidebar />
         <div className="flex flex-1 flex-col overflow-hidden">
           <CrmHeader />
-          <main className="flex-1 overflow-y-auto p-6">
+          <main className="flex-1 overflow-y-auto p-2 xl:p-6">
             <div className="flex items-center justify-center h-full">
               <div className="text-center">
                 <div className="inline-block h-8 w-8 animate-spin rounded-full border-4 border-solid border-current border-r-transparent"></div>
@@ -299,7 +299,7 @@ export default function StatisticsPage() {
       <div className="flex flex-1 flex-col overflow-hidden">
         <CrmHeader />
 
-        <main className="flex-1 overflow-y-auto p-6">
+        <main className="flex-1 overflow-y-auto p-2 xl:p-6">
           <div className="mb-6">
             <h1 className="text-3xl font-bold text-foreground">통계</h1>
             <p className="mt-1 text-sm text-muted-foreground">

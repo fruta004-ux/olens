@@ -1061,7 +1061,7 @@ export default function DashboardPage() {
         {/* 헤더 - 여백 없이 */}
         <PageHeader icon={LayoutDashboard} title="대시보드" className="shrink-0" />
 
-        <div className="flex-1 p-6 space-y-6">
+        <div className="flex-1 p-2 xl:p-6 space-y-4 xl:space-y-6">
           {/* 탭 */}
           <Tabs value={activeTab} onValueChange={setActiveTab}>
             <TabsList className="grid w-full max-w-md grid-cols-2">

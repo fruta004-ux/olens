@@ -127,7 +127,7 @@ export default function RetrospectivePage() {
     <div className="flex h-screen bg-background">
       <CrmSidebar />
       <div className="flex-1 overflow-auto">
-        <div className="p-8">
+        <div className="p-4 xl:p-8">
           {/* 헤더 */}
           <div className="flex items-center justify-between mb-8">
             <div>

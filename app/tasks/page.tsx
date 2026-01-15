@@ -246,7 +246,7 @@ export default function TasksPage() {
         <CrmSidebar />
         <div className="flex flex-1 flex-col overflow-hidden">
           <CrmHeader />
-          <main className="flex-1 overflow-y-auto p-6">
+          <main className="flex-1 overflow-y-auto p-2 xl:p-6">
             <div className="flex items-center justify-center h-full">
               <p className="text-muted-foreground">작업 로딩 중...</p>
             </div>

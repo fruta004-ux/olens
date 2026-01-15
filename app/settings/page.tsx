@@ -18,7 +18,7 @@ export default function SettingsPage() {
     <div className="flex h-screen bg-background">
       <CrmSidebar />
       <div className="flex-1 overflow-auto">
-        <div className="p-8 max-w-2xl">
+        <div className="p-4 xl:p-8 max-w-2xl">
           {/* 헤더 */}
           <div className="mb-8">
             <h1 className="text-3xl font-bold text-foreground">⚙️ 설정</h1>

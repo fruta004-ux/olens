@@ -694,21 +694,21 @@ export default function DealsPage() {
       <div className="flex flex-1 flex-col overflow-hidden">
         <CrmHeader />
 
-        <main className="flex-1 overflow-y-auto p-6">
-          <div className="border-b bg-background p-6">
-            <div className="mb-6 flex items-center justify-between">
+        <main className="flex-1 overflow-y-auto p-2 xl:p-6">
+          <div className="border-b bg-background p-4 xl:p-6">
+            <div className="mb-4 xl:mb-6 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
               <div>
-                <h1 className="text-3xl font-bold">영업 현황</h1>
-                <p className="text-muted-foreground">진행 중인 영업 현황을 관리하세요</p>
+                <h1 className="text-2xl xl:text-3xl font-bold">영업 현황</h1>
+                <p className="text-sm text-muted-foreground">진행 중인 영업 현황을 관리하세요</p>
               </div>
-              <Button onClick={() => setIsAddDealOpen(true)}>
+              <Button onClick={() => setIsAddDealOpen(true)} className="w-full sm:w-auto">
                 <Plus className="mr-2 h-4 w-4" />
                 거래 추가
               </Button>
             </div>
 
-            <div className="flex items-center gap-4">
-              <div className="relative flex-1">
+            <div className="flex flex-col xl:flex-row items-stretch xl:items-center gap-3 xl:gap-4">
+              <div className="relative flex-1 min-w-0">
                 <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
                 <Input
                   placeholder="거래 검색..."
@@ -717,6 +717,8 @@ export default function DealsPage() {
                   className="pl-9"
                 />
               </div>
+              
+              <div className="flex flex-wrap items-center gap-2 xl:gap-4">
 
               <Popover open={isContactFilterOpen} onOpenChange={setIsContactFilterOpen}>
                 <PopoverTrigger asChild>
@@ -992,13 +994,14 @@ export default function DealsPage() {
                   필터 초기화
                 </Button>
               )}
+              </div>
             </div>
           </div>
 
           <Card>
             <CardContent className="p-0">
-              <div className="rounded-lg border bg-card p-6">
-                <Table>
+              <div className="rounded-lg border bg-card p-2 xl:p-6 overflow-x-auto">
+                <Table className="min-w-[900px]">
                   <TableHeader>
                     <TableRow>
                       {columnOrder.map((column) => (

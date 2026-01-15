@@ -19,7 +19,7 @@ export default function PatchNotesPage() {
     <div className="flex h-screen bg-background">
       <CrmSidebar />
       <div className="flex-1 overflow-auto">
-        <div className="p-8 max-w-4xl mx-auto">
+        <div className="p-4 xl:p-8 max-w-4xl mx-auto">
           {/* 헤더 */}
           <div className="mb-8">
             <Link href="/deals">

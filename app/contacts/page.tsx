@@ -253,7 +253,7 @@ export default function ContactsPage() {
       <div className="flex flex-1 flex-col overflow-hidden">
         <CrmHeader />
 
-        <main className="flex-1 overflow-y-auto p-6">
+        <main className="flex-1 overflow-y-auto p-2 xl:p-6">
           <div className="mb-6">
             <h1 className="text-3xl font-bold text-foreground">연락처</h1>
             <p className="mt-1 text-sm text-muted-foreground">고객 및 잠재 고객 정보를 관리하세요</p>

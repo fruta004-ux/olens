@@ -693,7 +693,7 @@ export default function ClientsPage() {
       <div className="flex flex-1 flex-col overflow-hidden">
         <CrmHeader />
 
-        <main className="flex-1 overflow-y-auto p-6">
+        <main className="flex-1 overflow-y-auto p-2 xl:p-6">
           <div className="border-b bg-background p-6">
             <div className="mb-6 flex items-center justify-between">
               <div>

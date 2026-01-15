@@ -132,7 +132,7 @@ export default function QuotationsPage() {
         <CrmSidebar />
         <div className="flex flex-1 flex-col overflow-hidden">
           <CrmHeader />
-          <main className="flex-1 overflow-y-auto p-6">
+          <main className="flex-1 overflow-y-auto p-2 xl:p-6">
             <div className="text-center text-muted-foreground">로딩 중...</div>
           </main>
         </div>
@@ -147,7 +147,7 @@ export default function QuotationsPage() {
       <div className="flex flex-1 flex-col overflow-hidden">
         <CrmHeader />
 
-        <main className="flex-1 overflow-y-auto p-6">
+        <main className="flex-1 overflow-y-auto p-2 xl:p-6">
           <div className="mb-6 flex items-center justify-between">
             <div>
               <h1 className="text-3xl font-bold text-foreground">견적서 관리</h1>

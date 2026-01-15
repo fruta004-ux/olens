@@ -1336,7 +1336,7 @@ function DealDetailPageClient({ dealId }: { dealId: string }) {
 
         <main className="flex-1 overflow-auto">
           {/* 모바일 헤더 - 고정 상단 바 (1280px 미만) */}
-          <div className="fixed xl:hidden top-0 left-48 right-0 z-40 bg-background/95 backdrop-blur-sm border-b px-4 py-3">
+          <div className="fixed xl:hidden top-0 left-14 right-0 z-40 bg-background/95 backdrop-blur-sm border-b px-4 py-3">
             <div className="flex items-center justify-between max-w-full">
               <Button
                 variant="outline"

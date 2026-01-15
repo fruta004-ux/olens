@@ -136,7 +136,7 @@ export default function MemosPage() {
       <div className="flex-1 ml-48">
         <PageHeader icon={StickyNote} title="메모장" />
 
-        <main className="p-6">
+        <main className="p-2 xl:p-6">
           {/* 상단 액션 바 */}
           <div className="flex items-center justify-between mb-6">
             <div className="relative w-80">

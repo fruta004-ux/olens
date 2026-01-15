@@ -122,7 +122,7 @@ export default function HomePage() {
         <PageHeader icon={Home} title="홈" className="shrink-0" />
         
         {/* 메인 컨텐츠 */}
-        <div className="flex-1 flex flex-col gap-6 px-12 py-6">
+        <div className="flex-1 flex flex-col gap-4 xl:gap-6 px-4 xl:px-12 py-4 xl:py-6">
           
           {/* 1행: 배너 + 환영/바로가기 */}
           <div className="grid grid-cols-1 lg:grid-cols-5 gap-5">

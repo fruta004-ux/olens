@@ -71,10 +71,25 @@ export function getCloseReasonByCode(code: string): CloseReason | undefined {
   return CLOSE_REASONS.find(r => r.code === code)
 }
 
-// 코드로 종료 사유 텍스트 가져오기
-export function getCloseReasonText(code: string): string {
-  const reason = getCloseReasonByCode(code)
-  return reason ? `${reason.code} ${reason.reason}` : code || '-'
+// 코드로 종료 사유 텍스트 가져오기 (다중 코드 지원)
+export function getCloseReasonText(codes: string): string {
+  if (!codes) return '-'
+  
+  // 쉼표로 구분된 다중 코드 처리
+  const codeList = codes.split(',').map(c => c.trim()).filter(Boolean)
+  
+  if (codeList.length === 0) return '-'
+  
+  if (codeList.length === 1) {
+    const reason = getCloseReasonByCode(codeList[0])
+    return reason ? `${reason.code} ${reason.reason}` : codeList[0]
+  }
+  
+  // 다중 코드인 경우
+  return codeList.map(code => {
+    const reason = getCloseReasonByCode(code)
+    return reason ? `${reason.code} ${reason.reason}` : code
+  }).join(' / ')
 }
 
 // 카테고리 색상 가져오기

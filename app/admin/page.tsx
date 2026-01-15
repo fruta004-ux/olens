@@ -438,7 +438,7 @@ export default function AdminPage() {
       <CrmSidebar />
       <div className="flex flex-1 flex-col overflow-hidden">
         <CrmHeader />
-        <main className="flex-1 overflow-auto p-8">
+        <main className="flex-1 overflow-auto p-4 xl:p-8">
           <div className="mb-6">
             <div className="flex items-center gap-3 mb-2">
               <Shield className="h-8 w-8 text-primary" />

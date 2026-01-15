@@ -10,7 +10,9 @@ import {
 } from "@/components/ui/dialog"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
+import { Checkbox } from "@/components/ui/checkbox"
 import { cn } from "@/lib/utils"
+import { X } from "lucide-react"
 import {
   CLOSE_REASONS_BY_CATEGORY,
   CLOSE_REASON_CATEGORIES,
@@ -30,20 +32,33 @@ export function CloseReasonDialog({
   onConfirm,
   dealName,
 }: CloseReasonDialogProps) {
-  const [selectedReason, setSelectedReason] = useState<string | null>(null)
+  const [selectedReasons, setSelectedReasons] = useState<string[]>([])
   const [expandedCategory, setExpandedCategory] = useState<string | null>(null)
 
+  const toggleReason = (code: string) => {
+    setSelectedReasons(prev => 
+      prev.includes(code) 
+        ? prev.filter(c => c !== code)
+        : [...prev, code]
+    )
+  }
+
+  const removeReason = (code: string) => {
+    setSelectedReasons(prev => prev.filter(c => c !== code))
+  }
+
   const handleConfirm = () => {
-    if (selectedReason) {
-      onConfirm(selectedReason)
-      setSelectedReason(null)
+    if (selectedReasons.length > 0) {
+      // 쉼표로 구분된 문자열로 전달
+      onConfirm(selectedReasons.join(','))
+      setSelectedReasons([])
       setExpandedCategory(null)
       onOpenChange(false)
     }
   }
 
   const handleCancel = () => {
-    setSelectedReason(null)
+    setSelectedReasons([])
     setExpandedCategory(null)
     onOpenChange(false)
   }
@@ -72,7 +87,7 @@ export function CloseReasonDialog({
           {categories.map(([categoryKey, category]) => {
             const reasons = CLOSE_REASONS_BY_CATEGORY[categoryKey] || []
             const isExpanded = expandedCategory === categoryKey
-            const hasSelectedInCategory = reasons.some(r => r.code === selectedReason)
+            const selectedCountInCategory = reasons.filter(r => selectedReasons.includes(r.code)).length
 
             return (
               <div key={categoryKey} className="border rounded-lg overflow-hidden">
@@ -83,7 +98,7 @@ export function CloseReasonDialog({
                   className={cn(
                     "w-full flex items-center justify-between px-4 py-3 text-left transition-colors",
                     isExpanded ? "bg-muted" : "hover:bg-muted/50",
-                    hasSelectedInCategory && "bg-primary/10"
+                    selectedCountInCategory > 0 && "bg-primary/10"
                   )}
                 >
                   <div className="flex items-center gap-3">
@@ -94,6 +109,11 @@ export function CloseReasonDialog({
                     <span className="text-muted-foreground text-sm">
                       ({category.name})
                     </span>
+                    {selectedCountInCategory > 0 && (
+                      <Badge variant="default" className="text-xs">
+                        {selectedCountInCategory}개 선택
+                      </Badge>
+                    )}
                   </div>
                   <div className="flex items-center gap-2">
                     <span className="text-sm text-muted-foreground">
@@ -122,24 +142,34 @@ export function CloseReasonDialog({
                 {isExpanded && (
                   <div className="border-t bg-background">
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-1 p-2">
-                      {reasons.map((reason: CloseReason) => (
-                        <button
-                          key={reason.code}
-                          type="button"
-                          onClick={() => setSelectedReason(reason.code)}
-                          className={cn(
-                            "flex items-center gap-2 px-3 py-2 rounded-md text-left text-sm transition-colors",
-                            selectedReason === reason.code
-                              ? "bg-primary text-primary-foreground"
-                              : "hover:bg-muted"
-                          )}
-                        >
-                          <span className="font-mono text-xs opacity-70">
-                            {reason.code}
-                          </span>
-                          <span>{reason.reason}</span>
-                        </button>
-                      ))}
+                      {reasons.map((reason: CloseReason) => {
+                        const isSelected = selectedReasons.includes(reason.code)
+                        return (
+                          <button
+                            key={reason.code}
+                            type="button"
+                            onClick={() => toggleReason(reason.code)}
+                            className={cn(
+                              "flex items-center gap-2 px-3 py-2 rounded-md text-left text-sm transition-colors",
+                              isSelected
+                                ? "bg-primary text-primary-foreground"
+                                : "hover:bg-muted"
+                            )}
+                          >
+                            <Checkbox 
+                              checked={isSelected} 
+                              className={cn(
+                                "pointer-events-none",
+                                isSelected && "border-primary-foreground data-[state=checked]:bg-primary-foreground data-[state=checked]:text-primary"
+                              )}
+                            />
+                            <span className="font-mono text-xs opacity-70">
+                              {reason.code}
+                            </span>
+                            <span>{reason.reason}</span>
+                          </button>
+                        )
+                      })}
                     </div>
                   </div>
                 )}
@@ -150,16 +180,49 @@ export function CloseReasonDialog({
 
         {/* 선택된 사유 표시 및 버튼 */}
         <div className="border-t pt-4 space-y-3">
-          {selectedReason && (
-            <div className="flex items-center gap-2 px-3 py-2 bg-muted rounded-md">
-              <span className="text-sm text-muted-foreground">선택된 사유:</span>
-              <Badge variant="secondary" className="font-mono">
-                {selectedReason}
-              </Badge>
-              <span className="text-sm font-medium">
-                {CLOSE_REASONS_BY_CATEGORY[selectedReason[0] as keyof typeof CLOSE_REASONS_BY_CATEGORY]
-                  ?.find(r => r.code === selectedReason)?.reason}
-              </span>
+          {selectedReasons.length > 0 && (
+            <div className="px-3 py-2 bg-muted rounded-md space-y-2">
+              <div className="flex items-center justify-between">
+                <span className="text-sm text-muted-foreground">
+                  선택된 사유 ({selectedReasons.length}개):
+                </span>
+                <Button 
+                  variant="ghost" 
+                  size="sm" 
+                  onClick={() => setSelectedReasons([])}
+                  className="h-6 px-2 text-xs"
+                >
+                  전체 해제
+                </Button>
+              </div>
+              <div className="flex flex-wrap gap-1">
+                {selectedReasons.map(code => {
+                  const reason = CLOSE_REASONS_BY_CATEGORY[code[0] as keyof typeof CLOSE_REASONS_BY_CATEGORY]
+                    ?.find(r => r.code === code)
+                  return (
+                    <Badge 
+                      key={code} 
+                      variant="secondary" 
+                      className="font-mono flex items-center gap-1 pr-1"
+                    >
+                      {code}
+                      <span className="font-sans text-xs opacity-70">
+                        {reason?.reason}
+                      </span>
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          removeReason(code)
+                        }}
+                        className="ml-1 hover:bg-muted-foreground/20 rounded-full p-0.5"
+                      >
+                        <X className="h-3 w-3" />
+                      </button>
+                    </Badge>
+                  )
+                })}
+              </div>
             </div>
           )}
 
@@ -167,8 +230,8 @@ export function CloseReasonDialog({
             <Button variant="outline" onClick={handleCancel}>
               취소
             </Button>
-            <Button onClick={handleConfirm} disabled={!selectedReason}>
-              종료 처리
+            <Button onClick={handleConfirm} disabled={selectedReasons.length === 0}>
+              종료 처리 ({selectedReasons.length}개)
             </Button>
           </div>
         </div>
