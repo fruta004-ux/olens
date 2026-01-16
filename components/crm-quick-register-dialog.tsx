@@ -271,14 +271,21 @@ export function CrmQuickRegisterDialog({ open, onOpenChange }: CrmQuickRegisterD
         if (ampmTimeMatch) {
           // 오전/오후 형식 처리
           hour = Number.parseInt(ampmTimeMatch[2])
-          if (ampmTimeMatch[1] === "오후" && hour !== 12) hour += 12
-          if (ampmTimeMatch[1] === "오전" && hour === 12) hour = 0
+          // 시간이 12 이하일 때만 오전/오후 변환 (이미 24시간 형식이면 무시)
+          if (hour <= 12) {
+            if (ampmTimeMatch[1] === "오후" && hour !== 12) hour += 12
+            if (ampmTimeMatch[1] === "오전" && hour === 12) hour = 0
+          }
           minute = Number.parseInt(ampmTimeMatch[3])
         } else if (hourTimeMatch) {
           // 24시간 형식 처리
           hour = Number.parseInt(hourTimeMatch[1])
           minute = Number.parseInt(hourTimeMatch[2])
         }
+
+        // 시간 유효성 검증 (0-23시, 0-59분)
+        if (hour > 23) hour = 23
+        if (minute > 59) minute = 59
 
         const hourStr = String(hour).padStart(2, "0")
         const minuteStr = String(minute).padStart(2, "0")
@@ -457,9 +464,11 @@ ${formData.content || "내용 없음"}
       alert("CRM에 등록되었습니다!")
       onOpenChange(false)
       router.push(`/deals/${newDeal.id}`)
-    } catch (error) {
+    } catch (error: any) {
       console.error("CRM 등록 실패:", error)
-      alert("등록 중 오류가 발생했습니다.")
+      console.error("에러 메시지:", error?.message)
+      console.error("에러 상세:", JSON.stringify(error, null, 2))
+      alert(`등록 중 오류가 발생했습니다: ${error?.message || "알 수 없는 오류"}`)
     } finally {
       setIsSubmitting(false)
     }
