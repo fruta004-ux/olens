@@ -25,7 +25,7 @@ import {
   Menu,
   X,
 } from "lucide-react"
-import { useState } from "react"
+import { useState, memo, useCallback } from "react"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { PatchNotesDialog } from "@/components/patch-notes-dialog"
@@ -86,7 +86,7 @@ const stage8SubMenus = [
   { name: "메모장", href: "/memos", icon: StickyNote, disabled: false },
 ]
 
-export function CrmSidebar() {
+function CrmSidebarComponent() {
   const pathname = usePathname()
   const [expandedStage, setExpandedStage] = useState<number | null>(null)
   const [expandedSubMenu, setExpandedSubMenu] = useState<string | null>(null)
@@ -97,21 +97,29 @@ export function CrmSidebar() {
   
   const hasNewPatchNotes = checkHasNewPatchNotes(currentVersion)
 
-  const toggleStage = (stageId: number, enabled: boolean) => {
+  const toggleStage = useCallback((stageId: number, enabled: boolean) => {
     if (!enabled) return
-    setExpandedStage(expandedStage === stageId ? null : stageId)
-  }
+    setExpandedStage(prev => prev === stageId ? null : stageId)
+  }, [])
 
-  const handleOpenPatchNotes = () => {
+  const handleOpenPatchNotes = useCallback(() => {
     setPatchNotesOpen(true)
     markPatchNotesAsSeen(currentVersion)
-  }
+  }, [currentVersion, markPatchNotesAsSeen])
 
-  // 사이드바 내부 콘텐츠 (재사용)
-  const SidebarContent = () => (
+  const closeMobileMenu = useCallback(() => {
+    setMobileMenuOpen(false)
+  }, [])
+
+  const toggleSubMenu = useCallback((name: string) => {
+    setExpandedSubMenu(prev => prev === name ? null : name)
+  }, [])
+
+  // 사이드바 내부 콘텐츠
+  const sidebarContent = (
     <>
       {/* 로고 - 클릭시 홈으로 */}
-      <Link href="/" className="flex h-14 items-center justify-center px-2 hover:opacity-80 transition-opacity" onClick={() => setMobileMenuOpen(false)}>
+      <Link href="/" className="flex h-14 items-center justify-center px-2 hover:opacity-80 transition-opacity" onClick={closeMobileMenu}>
         <Image
           src="/images/olens-logo.png"
           alt="OLENS logo"
@@ -180,7 +188,7 @@ export function CrmSidebar() {
                         target="_blank"
                         rel="noopener noreferrer"
                         className="flex items-center gap-2 rounded-md px-2 py-1.5 text-xs transition-colors text-muted-foreground hover:bg-secondary hover:text-foreground"
-                        onClick={() => setMobileMenuOpen(false)}
+                        onClick={closeMobileMenu}
                       >
                         <item.icon className="h-3.5 w-3.5 flex-shrink-0" />
                         <span>{item.name}</span>
@@ -197,7 +205,7 @@ export function CrmSidebar() {
                         <Link
                           key={item.name}
                           href={item.href}
-                          onClick={() => setMobileMenuOpen(false)}
+                          onClick={closeMobileMenu}
                           className={cn(
                             "flex items-center gap-2 rounded-md px-2 py-1.5 text-xs transition-colors",
                             isActive
@@ -223,7 +231,7 @@ export function CrmSidebar() {
                         return (
                           <div key={item.name} className="space-y-0.5">
                             <button
-                              onClick={() => setExpandedSubMenu(isSubMenuExpanded ? null : item.name)}
+                              onClick={() => toggleSubMenu(item.name)}
                               className={cn(
                                 "w-full flex items-center gap-2 rounded-md px-2 py-1.5 text-xs transition-colors hover:bg-secondary",
                                 isAnySubActive
@@ -247,7 +255,7 @@ export function CrmSidebar() {
                                     <Link
                                       key={subItem.name}
                                       href={subItem.href}
-                                      onClick={() => setMobileMenuOpen(false)}
+                                      onClick={closeMobileMenu}
                                       className={cn(
                                         "flex items-center gap-2 rounded-md px-2 py-1 text-xs transition-colors",
                                         isSubActive
@@ -283,7 +291,7 @@ export function CrmSidebar() {
                         <Link
                           key={item.name}
                           href={(item as any).href}
-                          onClick={() => setMobileMenuOpen(false)}
+                          onClick={closeMobileMenu}
                           className={cn(
                             "flex items-center gap-2 rounded-md px-2 py-1.5 text-xs transition-colors",
                             isActive
@@ -307,7 +315,7 @@ export function CrmSidebar() {
                         <Link
                           key={item.name}
                           href={item.href}
-                          onClick={() => setMobileMenuOpen(false)}
+                          onClick={closeMobileMenu}
                           className={cn(
                             "flex items-center gap-2 rounded-md px-2 py-1.5 text-xs transition-colors",
                             isActive
@@ -346,7 +354,7 @@ export function CrmSidebar() {
                             target="_blank"
                             rel="noopener noreferrer"
                             className="flex items-center gap-2 rounded-md px-2 py-1.5 text-xs transition-colors text-muted-foreground hover:bg-secondary hover:text-foreground"
-                            onClick={() => setMobileMenuOpen(false)}
+                            onClick={closeMobileMenu}
                           >
                             <item.icon className="h-3.5 w-3.5 flex-shrink-0" />
                             <span className="flex-1">{item.name}</span>
@@ -360,7 +368,7 @@ export function CrmSidebar() {
                         <Link
                           key={item.name}
                           href={item.href}
-                          onClick={() => setMobileMenuOpen(false)}
+                          onClick={closeMobileMenu}
                           className={cn(
                             "flex items-center gap-2 rounded-md px-2 py-1.5 text-xs transition-colors",
                             isActive
@@ -386,7 +394,7 @@ export function CrmSidebar() {
         <div className="flex-1 space-y-0.5">
           <Link
             href="/admin"
-            onClick={() => setMobileMenuOpen(false)}
+            onClick={closeMobileMenu}
             className="flex items-center gap-2 rounded-lg px-2 py-1.5 text-xs font-medium text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
           >
             <Shield className="h-3.5 w-3.5 flex-shrink-0" />
@@ -394,7 +402,7 @@ export function CrmSidebar() {
           </Link>
           <Link
             href="/settings"
-            onClick={() => setMobileMenuOpen(false)}
+            onClick={closeMobileMenu}
             className="flex items-center gap-2 rounded-lg px-2 py-1.5 text-xs font-medium text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
           >
             <Settings className="h-3.5 w-3.5 flex-shrink-0" />
@@ -449,14 +457,14 @@ export function CrmSidebar() {
             <SheetTitle>메뉴</SheetTitle>
           </SheetHeader>
           <div className="flex h-full flex-col">
-            <SidebarContent />
+            {sidebarContent}
           </div>
         </SheetContent>
       </Sheet>
 
       {/* PC 사이드바 (xl 이상) */}
       <div className="hidden xl:flex fixed left-0 top-2 z-50 h-screen w-48 flex-col border-r border-border bg-card">
-        <SidebarContent />
+        {sidebarContent}
       </div>
 
       {/* PC에서 사이드바 공간 확보 */}
@@ -468,4 +476,9 @@ export function CrmSidebar() {
   )
 }
 
+// memo로 감싸서 불필요한 리렌더링 방지
+const CrmSidebar = memo(CrmSidebarComponent)
+CrmSidebar.displayName = "CrmSidebar"
+
+export { CrmSidebar }
 export default CrmSidebar
