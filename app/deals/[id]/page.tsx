@@ -159,6 +159,56 @@ const EditableInput = ({
   )
 }
 
+// EditableField를 컴포넌트 외부로 이동 (포커스 손실 방지)
+const EditableField = React.memo(({
+  label,
+  field,
+  value,
+  multiline = false,
+  isAccountField = false,
+  editingField,
+  onStartEdit,
+  onSave,
+}: {
+  label: string
+  field: string
+  value: string | undefined | null
+  multiline?: boolean
+  isAccountField?: boolean
+  editingField: string | undefined
+  onStartEdit: (field: string) => void
+  onSave: (field: string, value: string, isAccountField: boolean) => void
+}) => {
+  const isEditing = editingField === field
+  const currentValue = value || ""
+
+  const handleSave = React.useCallback(
+    (newValue: string) => {
+      onSave(field, newValue, isAccountField)
+    },
+    [field, isAccountField, onSave],
+  )
+
+  return (
+    <div>
+      <Label className="text-xs text-muted-foreground">{label}</Label>
+      {isEditing ? (
+        <div className="mt-1">
+          <EditableInput defaultValue={currentValue} onSave={handleSave} multiline={multiline} autoFocus={true} />
+        </div>
+      ) : (
+        <p
+          className="text-sm font-medium text-foreground mt-1 cursor-pointer hover:bg-accent/50 rounded px-2 py-1 -mx-2"
+          onClick={() => onStartEdit(field)}
+        >
+          {currentValue || "클릭하여 입력"}
+        </p>
+      )}
+    </div>
+  )
+})
+EditableField.displayName = "EditableField"
+
 const formatNumberWithCommas = (value: string): string => {
   const numberOnly = value.replace(/[^0-9]/g, "")
   if (!numberOnly) return ""
@@ -510,52 +560,19 @@ function DealDetailPageClient({ dealId }: { dealId: string }) {
     }
   }
 
-  const EditableField = ({
-    label,
-    field,
-    value,
-    multiline = false,
-    isAccountField = false, // accounts 테이블 필드인지 구분
-  }: {
-    label: string
-    field: string
-    value: string | undefined | null
-    multiline?: boolean
-    isAccountField?: boolean // accounts 테이블 필드인지 구분
-  }) => {
-    const isEditing = dealData.editingField === field
-    const currentValue = value || ""
+  // EditableField 관련 콜백 함수들
+  const handleStartEdit = useCallback((field: string) => {
+    setDealData((prev) => ({ ...prev, editingField: field }))
+  }, [])
 
-    const handleSave = useCallback(
-      (newValue: string) => {
-        if (isAccountField) {
-          handleUpdateAccount({ [field]: newValue })
-        } else {
-          handleUpdateDeal({ [field]: newValue })
-        }
-        setDealData((prev) => ({ ...prev, editingField: undefined }))
-      },
-      [field, isAccountField],
-    )
-
-    return (
-      <div>
-        <Label className="text-xs text-muted-foreground">{label}</Label>
-        {isEditing ? (
-          <div className="mt-1">
-            <EditableInput defaultValue={currentValue} onSave={handleSave} multiline={multiline} autoFocus={true} />
-          </div>
-        ) : (
-          <p
-            className="text-sm font-medium text-foreground mt-1 cursor-pointer hover:bg-accent/50 rounded px-2 py-1 -mx-2"
-            onClick={() => setDealData((prev) => ({ ...prev, editingField: field }))}
-          >
-            {currentValue || "클릭하여 입력"}
-          </p>
-        )}
-      </div>
-    )
-  }
+  const handleEditableSave = useCallback((field: string, value: string, isAccountField: boolean) => {
+    if (isAccountField) {
+      handleUpdateAccount({ [field]: value })
+    } else {
+      handleUpdateDeal({ [field]: value })
+    }
+    setDealData((prev) => ({ ...prev, editingField: undefined }))
+  }, [handleUpdateAccount, handleUpdateDeal])
 
   const uploadAttachments = async (files: File[]) => {
     const uploadedAttachments = []
@@ -839,8 +856,8 @@ function DealDetailPageClient({ dealId }: { dealId: string }) {
     router.replace(newUrl, { scroll: false })
   }
 
-  // 왼쪽 사이드바 콘텐츠 (재사용)
-  const LeftSidebarContent = () => (
+  // 왼쪽 사이드바 콘텐츠 (JSX 변수로 변경 - 포커스 손실 방지)
+  const leftSidebarContent = (
     <>
       <Link href={activeTab === "info" ? "/contacts" : "/deals"}>
         <Button variant="ghost" size="sm" className="mb-6">
@@ -1009,8 +1026,8 @@ function DealDetailPageClient({ dealId }: { dealId: string }) {
     </>
   )
 
-  // 오른쪽 사이드바 콘텐츠 (재사용)
-  const RightSidebarContent = () => (
+  // 오른쪽 사이드바 콘텐츠 (JSX 변수로 변경 - 포커스 손실 방지)
+  const rightSidebarContent = (
     <>
       <h3 className="font-semibold text-foreground mb-4">거래 기본 정보</h3>
       <div className="space-y-4">
@@ -1318,7 +1335,7 @@ function DealDetailPageClient({ dealId }: { dealId: string }) {
         {/* 왼쪽 사이드바 - PC에서만 표시 (1280px 이상) */}
         <div className="hidden xl:block w-80 border-r border-border bg-card overflow-y-auto">
           <div className="p-6">
-            <LeftSidebarContent />
+            {leftSidebarContent}
           </div>
         </div>
 
@@ -1329,7 +1346,7 @@ function DealDetailPageClient({ dealId }: { dealId: string }) {
               <SheetTitle>거래 정보</SheetTitle>
             </SheetHeader>
             <div className="p-6">
-              <LeftSidebarContent />
+              {leftSidebarContent}
             </div>
           </SheetContent>
         </Sheet>
@@ -1394,6 +1411,9 @@ function DealDetailPageClient({ dealId }: { dealId: string }) {
                             field="company_name"
                             value={dealData.account?.company_name || ""}
                             isAccountField={true}
+                            editingField={dealData.editingField}
+                            onStartEdit={handleStartEdit}
+                            onSave={handleEditableSave}
                           />
                         </div>
                         <div className="col-span-2">
@@ -1402,6 +1422,9 @@ function DealDetailPageClient({ dealId }: { dealId: string }) {
                             field="business_number"
                             value={dealData.account?.business_number || ""}
                             isAccountField={true}
+                            editingField={dealData.editingField}
+                            onStartEdit={handleStartEdit}
+                            onSave={handleEditableSave}
                           />
                         </div>
                         <div className="col-span-2">
@@ -1410,6 +1433,9 @@ function DealDetailPageClient({ dealId }: { dealId: string }) {
                             field="industry"
                             value={dealData.account?.industry || ""}
                             isAccountField={true}
+                            editingField={dealData.editingField}
+                            onStartEdit={handleStartEdit}
+                            onSave={handleEditableSave}
                           />
                         </div>
                         <div>
@@ -1418,6 +1444,9 @@ function DealDetailPageClient({ dealId }: { dealId: string }) {
                             field="email"
                             value={dealData.account?.email || ""}
                             isAccountField={true}
+                            editingField={dealData.editingField}
+                            onStartEdit={handleStartEdit}
+                            onSave={handleEditableSave}
                           />
                         </div>
                         <div>
@@ -1426,6 +1455,9 @@ function DealDetailPageClient({ dealId }: { dealId: string }) {
                             field="phone"
                             value={dealData.account?.phone || ""}
                             isAccountField={true}
+                            editingField={dealData.editingField}
+                            onStartEdit={handleStartEdit}
+                            onSave={handleEditableSave}
                           />
                         </div>
                         <div>
@@ -1434,6 +1466,9 @@ function DealDetailPageClient({ dealId }: { dealId: string }) {
                             field="address"
                             value={dealData.account?.address || ""}
                             isAccountField={true}
+                            editingField={dealData.editingField}
+                            onStartEdit={handleStartEdit}
+                            onSave={handleEditableSave}
                           />
                         </div>
                         <div>
@@ -1442,6 +1477,9 @@ function DealDetailPageClient({ dealId }: { dealId: string }) {
                             field="website"
                             value={dealData.account?.website || ""}
                             isAccountField={true}
+                            editingField={dealData.editingField}
+                            onStartEdit={handleStartEdit}
+                            onSave={handleEditableSave}
                           />
                         </div>
                         <div className="col-span-2">
@@ -1451,6 +1489,9 @@ function DealDetailPageClient({ dealId }: { dealId: string }) {
                             value={dealData.account?.notes || ""}
                             multiline
                             isAccountField={true}
+                            editingField={dealData.editingField}
+                            onStartEdit={handleStartEdit}
+                            onSave={handleEditableSave}
                           />
                         </div>
                       </div>
@@ -2080,7 +2121,7 @@ function DealDetailPageClient({ dealId }: { dealId: string }) {
         {/* 오른쪽 사이드바 - PC에서만 표시 (1280px 이상) */}
         <div className="hidden xl:block w-80 border-l border-border bg-card overflow-y-auto">
           <div className="p-6">
-            <RightSidebarContent />
+            {rightSidebarContent}
           </div>
         </div>
 
@@ -2091,7 +2132,7 @@ function DealDetailPageClient({ dealId }: { dealId: string }) {
               <SheetTitle>거래 기본 정보</SheetTitle>
             </SheetHeader>
             <div className="p-6">
-              <RightSidebarContent />
+              {rightSidebarContent}
             </div>
           </SheetContent>
         </Sheet>
