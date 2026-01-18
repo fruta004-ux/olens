@@ -49,17 +49,31 @@ const PRICING_GUIDE = `
 - 브랜드 아이덴티티: 100~300만원
 `
 
+const INTERNAL_COST_GUIDE = `
+## 내부 인력 단가 기준 (월 기준)
+- 기획/PM: 333만원/월
+- UI/UX 설계: 333만원/월
+- 프론트엔드 개발: 333만원/월
+- 백엔드 개발: 333만원/월
+- QA/안정화: 333만원/월
+- 기타 공용: 333만원/월
+`
+
 const SYSTEM_PROMPT = `당신은 웹/앱 개발 프로젝트의 견적을 작성하는 전문가입니다.
 고객의 요구사항을 분석하여 적절한 견적 항목과 금액을 산정해주세요.
+또한 내부 원가 분석을 위해 인력/공수 산정도 함께 제공해주세요.
 
 ${PRICING_GUIDE}
+
+${INTERNAL_COST_GUIDE}
 
 ## 규칙
 1. 고객의 요구사항을 정확히 파악하고, 누락된 부분은 일반적인 기준으로 추정
 2. 각 항목의 금액은 위 단가표를 참고하되, 복잡도에 따라 조정
 3. 견적 항목은 구체적이고 명확하게 작성
 4. 고객이 이해하기 쉬운 용어 사용
-5. 반드시 JSON 형식으로만 응답
+5. 내부 원가 분석은 실제 투입될 인력과 공수를 현실적으로 산정
+6. 반드시 JSON 형식으로만 응답
 
 ## 응답 형식 (반드시 이 JSON 형식으로만 응답)
 {
@@ -77,7 +91,21 @@ ${PRICING_GUIDE}
     "subject": "이메일 제목",
     "body": "이메일 본문 (견적서 첨부 안내 포함)"
   },
-  "assumptions": ["추정한 사항 목록"]
+  "assumptions": ["추정한 사항 목록"],
+  "internal_cost": {
+    "resources": [
+      {
+        "role": "역할명 (예: 기획/PM, UI/UX 설계, 프론트엔드 개발, 백엔드 개발, QA/안정화)",
+        "headcount": "투입 인력 (예: 1명, 포함, 공용)",
+        "duration": 공수(숫자, 개월 단위, 예: 0.8),
+        "monthly_rate": 월단가(숫자, 예: 3330000),
+        "total_cost": 원가(숫자, duration * monthly_rate)
+      }
+    ],
+    "total_duration": "총 예상 기간 (예: 5.5개월)",
+    "total_internal_cost": 총내부원가(숫자),
+    "profit_margin": "예상 마진율 (예: 30%)"
+  }
 }
 `
 
@@ -159,6 +187,18 @@ ${additionalContext || "없음"}
     }
 
     const data = await response.json()
+    
+    // 토큰 사용량 출력
+    const usageMetadata = data.usageMetadata
+    if (usageMetadata) {
+      console.log("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+      console.log("📊 Gemini API 토큰 사용량")
+      console.log("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+      console.log(`  입력 토큰: ${usageMetadata.promptTokenCount?.toLocaleString() || 0}`)
+      console.log(`  출력 토큰: ${usageMetadata.candidatesTokenCount?.toLocaleString() || 0}`)
+      console.log(`  총 토큰: ${usageMetadata.totalTokenCount?.toLocaleString() || 0}`)
+      console.log("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+    }
     
     // Gemini 응답에서 텍스트 추출
     const generatedText = data.candidates?.[0]?.content?.parts?.[0]?.text

@@ -2221,25 +2221,25 @@ function DealDetailPageClient({ dealId }: { dealId: string }) {
                   </Card>
                 </TabsContent>
 
-                {/* AI 견적 탭 */}
+                {/* AI 견적 탭 - 세로 레이아웃 */}
                 <TabsContent value="ai-quotation" className="space-y-6">
-                  <div className="grid lg:grid-cols-2 gap-6">
-                    {/* 입력 폼 */}
-                    <Card>
-                      <CardHeader>
-                        <CardTitle className="flex items-center gap-2">
-                          <Sparkles className="h-5 w-5 text-violet-500" />
-                          AI 견적서 생성
-                        </CardTitle>
-                        <p className="text-sm text-muted-foreground">
-                          프로젝트 요구사항을 입력하면 AI가 견적서와 이메일 템플릿을 자동 생성합니다.
-                        </p>
-                      </CardHeader>
-                      <CardContent className="space-y-4">
-                        <div className="p-3 rounded-lg bg-muted/50 text-sm">
-                          <strong>고객 정보:</strong> {dealData.account?.company_name || "미정"} / {dealData.account?.contacts?.[0]?.name || "담당자 미정"}
-                        </div>
+                  {/* 입력 폼 */}
+                  <Card>
+                    <CardHeader>
+                      <CardTitle className="flex items-center gap-2">
+                        <Sparkles className="h-5 w-5 text-violet-500" />
+                        AI 견적서 생성
+                      </CardTitle>
+                      <p className="text-sm text-muted-foreground">
+                        프로젝트 요구사항을 입력하면 AI가 견적서, 이메일 템플릿, 내부 원가 분석을 자동 생성합니다.
+                      </p>
+                    </CardHeader>
+                    <CardContent className="space-y-4">
+                      <div className="p-3 rounded-lg bg-muted/50 text-sm">
+                        <strong>고객 정보:</strong> {dealData.account?.company_name || "미정"} / {dealData.account?.contacts?.[0]?.name || "담당자 미정"}
+                      </div>
 
+                      <div className="grid md:grid-cols-2 gap-4">
                         <div className="space-y-2">
                           <Label htmlFor="ai-requirements">
                             프로젝트 요구사항 <span className="text-destructive">*</span>
@@ -2249,7 +2249,7 @@ function DealDetailPageClient({ dealId }: { dealId: string }) {
                             placeholder="예: 회사 홍보 웹사이트 제작. 회사소개, 서비스 소개, 포트폴리오, 문의하기 페이지 필요. 관리자 페이지에서 포트폴리오 업로드 가능해야 함. 반응형 필수."
                             value={aiRequirements}
                             onChange={(e) => setAiRequirements(e.target.value)}
-                            rows={5}
+                            rows={4}
                           />
                         </div>
 
@@ -2260,179 +2260,249 @@ function DealDetailPageClient({ dealId }: { dealId: string }) {
                             placeholder="예: 기존 홈페이지 리뉴얼, 3개월 내 런칭 희망, 유지보수 계약 포함"
                             value={aiAdditionalContext}
                             onChange={(e) => setAiAdditionalContext(e.target.value)}
-                            rows={2}
+                            rows={4}
                           />
                         </div>
+                      </div>
 
-                        {aiError && (
-                          <div className="p-3 rounded-lg bg-destructive/10 text-destructive flex items-center gap-2 text-sm">
-                            <AlertCircle className="w-4 h-4" />
-                            {aiError}
-                          </div>
-                        )}
-
-                        <Button
-                          onClick={handleGenerateAIQuotation}
-                          disabled={aiLoading || !aiRequirements.trim()}
-                          className="w-full bg-gradient-to-r from-violet-500 to-purple-600 hover:from-violet-600 hover:to-purple-700"
-                        >
-                          {aiLoading ? (
-                            <>
-                              <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                              AI가 분석 중...
-                            </>
-                          ) : (
-                            <>
-                              <Sparkles className="w-4 h-4 mr-2" />
-                              견적서 생성
-                            </>
-                          )}
-                        </Button>
-                      </CardContent>
-                    </Card>
-
-                    {/* 결과 영역 */}
-                    <div className="space-y-4">
-                      {!aiResult && !aiLoading && (
-                        <Card className="h-full flex items-center justify-center min-h-[300px]">
-                          <div className="text-center text-muted-foreground p-8">
-                            <Sparkles className="w-12 h-12 mx-auto mb-4 opacity-30" />
-                            <p>요구사항을 입력하고</p>
-                            <p>견적서 생성 버튼을 클릭하세요.</p>
-                          </div>
-                        </Card>
-                      )}
-
-                      {aiLoading && (
-                        <Card className="h-full flex items-center justify-center min-h-[300px]">
-                          <div className="text-center p-8">
-                            <Loader2 className="w-12 h-12 mx-auto mb-4 animate-spin text-violet-500" />
-                            <p className="font-medium">AI가 견적을 분석하고 있습니다...</p>
-                            <p className="text-sm text-muted-foreground mt-2">10~30초 정도 소요됩니다.</p>
-                          </div>
-                        </Card>
-                      )}
-
-                      {aiResult && (
-                        <div className="space-y-4">
-                          {/* 견적서 결과 */}
-                          <Card>
-                            <CardHeader className="pb-3">
-                              <div className="flex items-center justify-between">
-                                <CardTitle className="text-lg">{aiResult.title}</CardTitle>
-                                <div className="flex gap-2">
-                                  <Button variant="outline" size="sm" onClick={() => copyToClipboard(getQuotationText(), "quotation")}>
-                                    {copiedQuotation ? <Check className="w-4 h-4 mr-1" /> : <Copy className="w-4 h-4 mr-1" />}
-                                    {copiedQuotation ? "복사됨" : "복사"}
-                                  </Button>
-                                  <Button variant="outline" size="sm" onClick={handleGenerateAIQuotation}>
-                                    <RefreshCw className="w-4 h-4 mr-1" />
-                                    재생성
-                                  </Button>
-                                </div>
-                              </div>
-                            </CardHeader>
-                            <CardContent className="space-y-4">
-                              {/* 견적 항목 테이블 */}
-                              <div className="border rounded-lg overflow-hidden">
-                                <table className="w-full text-sm">
-                                  <thead className="bg-muted">
-                                    <tr>
-                                      <th className="text-left p-3 font-medium">항목</th>
-                                      <th className="text-right p-3 font-medium w-16">수량</th>
-                                      <th className="text-right p-3 font-medium w-24">단가</th>
-                                      <th className="text-right p-3 font-medium w-24">금액</th>
-                                    </tr>
-                                  </thead>
-                                  <tbody>
-                                    {aiResult.items.map((item: any, index: number) => (
-                                      <tr key={index} className="border-t">
-                                        <td className="p-3">
-                                          <div className="font-medium">{item.name}</div>
-                                          {item.description && (
-                                            <div className="text-xs text-muted-foreground mt-1">{item.description}</div>
-                                          )}
-                                        </td>
-                                        <td className="text-right p-3">{item.quantity}</td>
-                                        <td className="text-right p-3">₩{formatNumber(item.unit_price)}</td>
-                                        <td className="text-right p-3 font-medium">₩{formatNumber(item.quantity * item.unit_price)}</td>
-                                      </tr>
-                                    ))}
-                                  </tbody>
-                                </table>
-                              </div>
-
-                              {/* 금액 합계 */}
-                              <div className="border rounded-lg p-4 space-y-2 bg-muted/30">
-                                <div className="flex justify-between text-sm">
-                                  <span>공급가액</span>
-                                  <span>₩{formatNumber(calculateAITotals().supply)}</span>
-                                </div>
-                                <div className="flex justify-between text-sm">
-                                  <span>부가세 (10%)</span>
-                                  <span>₩{formatNumber(calculateAITotals().tax)}</span>
-                                </div>
-                                <div className="flex justify-between font-bold text-lg border-t pt-2">
-                                  <span>총 견적금액</span>
-                                  <span className="text-primary">₩{formatNumber(calculateAITotals().total)}</span>
-                                </div>
-                              </div>
-
-                              {/* 추정 사항 */}
-                              {aiResult.assumptions && aiResult.assumptions.length > 0 && (
-                                <div className="p-3 rounded-lg bg-amber-500/10 border border-amber-500/20 text-sm">
-                                  <div className="flex items-center gap-2 font-medium text-amber-700 dark:text-amber-400 mb-2">
-                                    <AlertCircle className="w-4 h-4" />
-                                    AI 추정 사항
-                                  </div>
-                                  <ul className="list-disc list-inside space-y-1 text-muted-foreground">
-                                    {aiResult.assumptions.map((a: string, i: number) => <li key={i}>{a}</li>)}
-                                  </ul>
-                                </div>
-                              )}
-
-                              {/* 실제 견적서 생성 버튼 */}
-                              <Button
-                                onClick={() => setShowQuotationDialog(true)}
-                                className="w-full"
-                              >
-                                <FileText className="w-4 h-4 mr-2" />
-                                이 내용으로 실제 견적서 생성하기
-                              </Button>
-                            </CardContent>
-                          </Card>
-
-                          {/* 이메일 템플릿 */}
-                          {aiResult.email_template && (
-                            <Card>
-                              <CardHeader className="pb-3">
-                                <div className="flex items-center justify-between">
-                                  <CardTitle className="text-lg flex items-center gap-2">
-                                    <Mail className="w-5 h-5" />
-                                    이메일 템플릿
-                                  </CardTitle>
-                                  <Button variant="outline" size="sm" onClick={() => copyToClipboard(getEmailText(), "email")}>
-                                    {copiedEmail ? <Check className="w-4 h-4 mr-1" /> : <Copy className="w-4 h-4 mr-1" />}
-                                    {copiedEmail ? "복사됨" : "복사"}
-                                  </Button>
-                                </div>
-                              </CardHeader>
-                              <CardContent className="space-y-3">
-                                <div>
-                                  <Label className="text-xs text-muted-foreground">제목</Label>
-                                  <Input value={aiResult.email_template.subject} readOnly className="bg-muted mt-1" />
-                                </div>
-                                <div>
-                                  <Label className="text-xs text-muted-foreground">본문</Label>
-                                  <Textarea value={aiResult.email_template.body} readOnly className="bg-muted mt-1 min-h-[150px]" />
-                                </div>
-                              </CardContent>
-                            </Card>
-                          )}
+                      {aiError && (
+                        <div className="p-3 rounded-lg bg-destructive/10 text-destructive flex items-center gap-2 text-sm">
+                          <AlertCircle className="w-4 h-4" />
+                          {aiError}
                         </div>
                       )}
-                    </div>
-                  </div>
+
+                      <Button
+                        onClick={handleGenerateAIQuotation}
+                        disabled={aiLoading || !aiRequirements.trim()}
+                        className="w-full md:w-auto bg-gradient-to-r from-violet-500 to-purple-600 hover:from-violet-600 hover:to-purple-700"
+                        size="lg"
+                      >
+                        {aiLoading ? (
+                          <>
+                            <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                            AI가 분석 중...
+                          </>
+                        ) : (
+                          <>
+                            <Sparkles className="w-4 h-4 mr-2" />
+                            견적서 생성
+                          </>
+                        )}
+                      </Button>
+                    </CardContent>
+                  </Card>
+
+                  {/* 로딩 상태 */}
+                  {aiLoading && (
+                    <Card className="flex items-center justify-center min-h-[200px]">
+                      <div className="text-center p-8">
+                        <Loader2 className="w-12 h-12 mx-auto mb-4 animate-spin text-violet-500" />
+                        <p className="font-medium">AI가 견적을 분석하고 있습니다...</p>
+                        <p className="text-sm text-muted-foreground mt-2">10~30초 정도 소요됩니다.</p>
+                      </div>
+                    </Card>
+                  )}
+
+                  {/* 결과 영역 */}
+                  {aiResult && (
+                    <>
+                      {/* 견적서 결과 */}
+                      <Card>
+                        <CardHeader className="pb-3">
+                          <div className="flex items-center justify-between flex-wrap gap-2">
+                            <CardTitle className="text-xl">{aiResult.title}</CardTitle>
+                            <div className="flex gap-2">
+                              <Button variant="outline" size="sm" onClick={() => copyToClipboard(getQuotationText(), "quotation")}>
+                                {copiedQuotation ? <Check className="w-4 h-4 mr-1" /> : <Copy className="w-4 h-4 mr-1" />}
+                                {copiedQuotation ? "복사됨" : "복사"}
+                              </Button>
+                              <Button variant="outline" size="sm" onClick={handleGenerateAIQuotation}>
+                                <RefreshCw className="w-4 h-4 mr-1" />
+                                재생성
+                              </Button>
+                            </div>
+                          </div>
+                        </CardHeader>
+                        <CardContent className="space-y-4">
+                          {/* 견적 항목 테이블 */}
+                          <div className="border rounded-lg overflow-x-auto">
+                            <table className="w-full text-sm min-w-[500px]">
+                              <thead className="bg-muted">
+                                <tr>
+                                  <th className="text-left p-3 font-medium">항목</th>
+                                  <th className="text-right p-3 font-medium w-20">수량</th>
+                                  <th className="text-right p-3 font-medium w-32">단가</th>
+                                  <th className="text-right p-3 font-medium w-32">금액</th>
+                                </tr>
+                              </thead>
+                              <tbody>
+                                {aiResult.items.map((item: any, index: number) => (
+                                  <tr key={index} className="border-t">
+                                    <td className="p-3">
+                                      <div className="font-medium">{item.name}</div>
+                                      {item.description && (
+                                        <div className="text-xs text-muted-foreground mt-1">{item.description}</div>
+                                      )}
+                                    </td>
+                                    <td className="text-right p-3">{item.quantity}</td>
+                                    <td className="text-right p-3">₩{formatNumber(item.unit_price)}</td>
+                                    <td className="text-right p-3 font-medium">₩{formatNumber(item.quantity * item.unit_price)}</td>
+                                  </tr>
+                                ))}
+                              </tbody>
+                            </table>
+                          </div>
+
+                          {/* 금액 합계 */}
+                          <div className="border rounded-lg p-4 space-y-2 bg-muted/30 max-w-md ml-auto">
+                            <div className="flex justify-between text-sm">
+                              <span>공급가액</span>
+                              <span>₩{formatNumber(calculateAITotals().supply)}</span>
+                            </div>
+                            <div className="flex justify-between text-sm">
+                              <span>부가세 (10%)</span>
+                              <span>₩{formatNumber(calculateAITotals().tax)}</span>
+                            </div>
+                            <div className="flex justify-between font-bold text-lg border-t pt-2">
+                              <span>총 견적금액</span>
+                              <span className="text-primary">₩{formatNumber(calculateAITotals().total)}</span>
+                            </div>
+                          </div>
+
+                          {/* 추정 사항 */}
+                          {aiResult.assumptions && aiResult.assumptions.length > 0 && (
+                            <div className="p-3 rounded-lg bg-amber-500/10 border border-amber-500/20 text-sm">
+                              <div className="flex items-center gap-2 font-medium text-amber-700 dark:text-amber-400 mb-2">
+                                <AlertCircle className="w-4 h-4" />
+                                AI 추정 사항
+                              </div>
+                              <ul className="list-disc list-inside space-y-1 text-muted-foreground">
+                                {aiResult.assumptions.map((a: string, i: number) => <li key={i}>{a}</li>)}
+                              </ul>
+                            </div>
+                          )}
+
+                          {/* 실제 견적서 생성 버튼 */}
+                          <Button
+                            onClick={() => setShowQuotationDialog(true)}
+                            className="w-full md:w-auto"
+                            size="lg"
+                          >
+                            <FileText className="w-4 h-4 mr-2" />
+                            이 내용으로 실제 견적서 생성하기
+                          </Button>
+                        </CardContent>
+                      </Card>
+
+                      {/* 내부용 인력·공수 산정 (실제 견적서에는 포함 안됨) */}
+                      {aiResult.internal_cost && (
+                        <Card className="border-2 border-dashed border-orange-300 dark:border-orange-700 bg-orange-50/50 dark:bg-orange-950/20">
+                          <CardHeader className="pb-3">
+                            <div className="flex items-center gap-2">
+                              <Badge variant="outline" className="bg-orange-100 text-orange-700 dark:bg-orange-900 dark:text-orange-300 border-orange-300">
+                                내부용
+                              </Badge>
+                              <CardTitle className="text-lg">인력·공수 산정</CardTitle>
+                            </div>
+                            <p className="text-xs text-muted-foreground">
+                              ※ 이 정보는 내부 검토용이며 실제 견적서에는 포함되지 않습니다.
+                            </p>
+                          </CardHeader>
+                          <CardContent className="space-y-4">
+                            {/* 인력 투입 테이블 */}
+                            <div className="border rounded-lg overflow-x-auto bg-white dark:bg-background">
+                              <table className="w-full text-sm min-w-[600px]">
+                                <thead className="bg-muted">
+                                  <tr>
+                                    <th className="text-left p-3 font-medium">구분</th>
+                                    <th className="text-center p-3 font-medium w-24">투입 인력</th>
+                                    <th className="text-right p-3 font-medium w-24">예상 공수</th>
+                                    <th className="text-right p-3 font-medium w-28">내부 단가(월)</th>
+                                    <th className="text-right p-3 font-medium w-28">내부 원가</th>
+                                  </tr>
+                                </thead>
+                                <tbody>
+                                  {aiResult.internal_cost.resources?.map((resource: any, index: number) => (
+                                    <tr key={index} className="border-t">
+                                      <td className="p-3 font-medium">{resource.role}</td>
+                                      <td className="text-center p-3">{resource.headcount}</td>
+                                      <td className="text-right p-3">{resource.duration}개월</td>
+                                      <td className="text-right p-3">{formatNumber(resource.monthly_rate / 10000)}만</td>
+                                      <td className="text-right p-3 font-medium">{formatNumber(resource.total_cost / 10000)}만</td>
+                                    </tr>
+                                  ))}
+                                </tbody>
+                                <tfoot className="bg-muted/50 font-bold">
+                                  <tr className="border-t-2">
+                                    <td className="p-3">합계</td>
+                                    <td className="text-center p-3">-</td>
+                                    <td className="text-right p-3">{aiResult.internal_cost.total_duration}</td>
+                                    <td className="text-right p-3">-</td>
+                                    <td className="text-right p-3 text-orange-600 dark:text-orange-400">
+                                      약 {formatNumber(aiResult.internal_cost.total_internal_cost / 10000)}만 원
+                                    </td>
+                                  </tr>
+                                </tfoot>
+                              </table>
+                            </div>
+
+                            {/* 수익성 분석 */}
+                            <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                              <div className="p-3 rounded-lg bg-white dark:bg-background border">
+                                <div className="text-xs text-muted-foreground">총 견적금액</div>
+                                <div className="text-lg font-bold text-primary">₩{formatNumber(calculateAITotals().total)}</div>
+                              </div>
+                              <div className="p-3 rounded-lg bg-white dark:bg-background border">
+                                <div className="text-xs text-muted-foreground">내부 원가</div>
+                                <div className="text-lg font-bold text-orange-600 dark:text-orange-400">
+                                  ₩{formatNumber(aiResult.internal_cost.total_internal_cost)}
+                                </div>
+                              </div>
+                              <div className="p-3 rounded-lg bg-white dark:bg-background border">
+                                <div className="text-xs text-muted-foreground">예상 이익</div>
+                                <div className="text-lg font-bold text-green-600 dark:text-green-400">
+                                  ₩{formatNumber(calculateAITotals().supply - aiResult.internal_cost.total_internal_cost)}
+                                </div>
+                              </div>
+                              <div className="p-3 rounded-lg bg-white dark:bg-background border">
+                                <div className="text-xs text-muted-foreground">예상 마진율</div>
+                                <div className="text-lg font-bold">{aiResult.internal_cost.profit_margin}</div>
+                              </div>
+                            </div>
+                          </CardContent>
+                        </Card>
+                      )}
+
+                      {/* 이메일 템플릿 */}
+                      {aiResult.email_template && (
+                        <Card>
+                          <CardHeader className="pb-3">
+                            <div className="flex items-center justify-between flex-wrap gap-2">
+                              <CardTitle className="text-lg flex items-center gap-2">
+                                <Mail className="w-5 h-5" />
+                                이메일 템플릿
+                              </CardTitle>
+                              <Button variant="outline" size="sm" onClick={() => copyToClipboard(getEmailText(), "email")}>
+                                {copiedEmail ? <Check className="w-4 h-4 mr-1" /> : <Copy className="w-4 h-4 mr-1" />}
+                                {copiedEmail ? "복사됨" : "복사"}
+                              </Button>
+                            </div>
+                          </CardHeader>
+                          <CardContent className="space-y-3">
+                            <div>
+                              <Label className="text-xs text-muted-foreground">제목</Label>
+                              <Input value={aiResult.email_template.subject} readOnly className="bg-muted mt-1" />
+                            </div>
+                            <div>
+                              <Label className="text-xs text-muted-foreground">본문</Label>
+                              <Textarea value={aiResult.email_template.body} readOnly className="bg-muted mt-1 min-h-[150px]" />
+                            </div>
+                          </CardContent>
+                        </Card>
+                      )}
+                    </>
+                  )}
                 </TabsContent>
               </div>
             </Tabs>
