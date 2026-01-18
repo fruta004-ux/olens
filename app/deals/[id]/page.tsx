@@ -35,6 +35,12 @@ import {
   PanelLeft,
   PanelRight,
   Menu,
+  Sparkles,
+  Loader2,
+  Copy,
+  Check,
+  RefreshCw,
+  AlertCircle,
 } from "lucide-react"
 import Link from "next/link"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
@@ -283,6 +289,15 @@ function DealDetailPageClient({ dealId }: { dealId: string }) {
   // 모바일 사이드바 Sheet 상태
   const [leftSheetOpen, setLeftSheetOpen] = useState(false)
   const [rightSheetOpen, setRightSheetOpen] = useState(false)
+
+  // AI 견적 관련 상태
+  const [aiRequirements, setAiRequirements] = useState("")
+  const [aiAdditionalContext, setAiAdditionalContext] = useState("")
+  const [aiLoading, setAiLoading] = useState(false)
+  const [aiError, setAiError] = useState<string | null>(null)
+  const [aiResult, setAiResult] = useState<any>(null)
+  const [copiedQuotation, setCopiedQuotation] = useState(false)
+  const [copiedEmail, setCopiedEmail] = useState(false)
 
   const supabase = createBrowserClient() // supabase 클라이언트 한번만 생성
 
@@ -856,6 +871,91 @@ function DealDetailPageClient({ dealId }: { dealId: string }) {
     router.replace(newUrl, { scroll: false })
   }
 
+  // AI 견적 생성 함수
+  const handleGenerateAIQuotation = async () => {
+    if (!aiRequirements.trim()) {
+      setAiError("프로젝트 요구사항을 입력해주세요.")
+      return
+    }
+
+    setAiLoading(true)
+    setAiError(null)
+    setAiResult(null)
+
+    try {
+      const customerInfo = `회사명: ${dealData.account?.company_name || "미정"}, 담당자: ${dealData.account?.contacts?.[0]?.name || "미정"}`
+      
+      const response = await fetch("/api/generate-quotation", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          customerInfo,
+          requirements: aiRequirements,
+          additionalContext: aiAdditionalContext,
+        }),
+      })
+
+      const data = await response.json()
+      if (!response.ok) throw new Error(data.error || "견적 생성에 실패했습니다.")
+      setAiResult(data.data)
+    } catch (err: any) {
+      setAiError(err.message || "알 수 없는 오류가 발생했습니다.")
+    } finally {
+      setAiLoading(false)
+    }
+  }
+
+  const formatNumber = (num: number): string => num.toLocaleString("ko-KR")
+
+  const copyToClipboard = async (text: string, type: "quotation" | "email") => {
+    try {
+      await navigator.clipboard.writeText(text)
+      if (type === "quotation") {
+        setCopiedQuotation(true)
+        setTimeout(() => setCopiedQuotation(false), 2000)
+      } else {
+        setCopiedEmail(true)
+        setTimeout(() => setCopiedEmail(false), 2000)
+      }
+    } catch (err) {
+      console.error("복사 실패:", err)
+    }
+  }
+
+  const getQuotationText = () => {
+    if (!aiResult) return ""
+    const supplyAmount = aiResult.items.reduce((sum: number, item: any) => sum + item.quantity * item.unit_price, 0)
+    const taxAmount = Math.round(supplyAmount * 0.1)
+    const totalAmount = supplyAmount + taxAmount
+
+    let text = `${aiResult.title}\n\n`
+    text += "━━━━━━━━━━━━━━━━━━━━━━━━━━\n견적 항목\n━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
+    
+    aiResult.items.forEach((item: any, index: number) => {
+      text += `${index + 1}. ${item.name}\n`
+      text += `   수량: ${item.quantity}개 × 단가: ₩${formatNumber(item.unit_price)}\n`
+      text += `   금액: ₩${formatNumber(item.quantity * item.unit_price)}\n`
+      if (item.description) text += `   설명: ${item.description}\n`
+      text += "\n"
+    })
+
+    text += `━━━━━━━━━━━━━━━━━━━━━━━━━━\n공급가액: ₩${formatNumber(supplyAmount)}\n부가세 (10%): ₩${formatNumber(taxAmount)}\n총 견적금액: ₩${formatNumber(totalAmount)}\n━━━━━━━━━━━━━━━━━━━━━━━━━━\n`
+    if (aiResult.notes) text += `\n비고:\n${aiResult.notes}\n`
+    return text
+  }
+
+  const getEmailText = () => {
+    if (!aiResult?.email_template) return ""
+    return `제목: ${aiResult.email_template.subject}\n\n${aiResult.email_template.body}`
+  }
+
+  const calculateAITotals = () => {
+    if (!aiResult) return { supply: 0, tax: 0, total: 0 }
+    const supply = aiResult.items.reduce((sum: number, item: any) => sum + item.quantity * item.unit_price, 0)
+    const tax = Math.round(supply * 0.1)
+    return { supply, tax, total: supply + tax }
+  }
+
   // 왼쪽 사이드바 콘텐츠 (JSX 변수로 변경 - 포커스 손실 방지)
   const leftSidebarContent = (
     <>
@@ -1393,6 +1493,13 @@ function DealDetailPageClient({ dealId }: { dealId: string }) {
                   <TabsTrigger value="info" className="gap-2">
                     <FileText className="h-4 w-4" />
                     정보
+                  </TabsTrigger>
+                  <TabsTrigger value="ai-quotation" className="gap-2">
+                    <Sparkles className="h-4 w-4" />
+                    AI 견적
+                    <Badge variant="secondary" className="ml-1 text-[10px] px-1 py-0 bg-violet-500/20 text-violet-500">
+                      Beta
+                    </Badge>
                   </TabsTrigger>
                 </TabsList>
               </div>
@@ -2113,6 +2220,220 @@ function DealDetailPageClient({ dealId }: { dealId: string }) {
                     </CardContent>
                   </Card>
                 </TabsContent>
+
+                {/* AI 견적 탭 */}
+                <TabsContent value="ai-quotation" className="space-y-6">
+                  <div className="grid lg:grid-cols-2 gap-6">
+                    {/* 입력 폼 */}
+                    <Card>
+                      <CardHeader>
+                        <CardTitle className="flex items-center gap-2">
+                          <Sparkles className="h-5 w-5 text-violet-500" />
+                          AI 견적서 생성
+                        </CardTitle>
+                        <p className="text-sm text-muted-foreground">
+                          프로젝트 요구사항을 입력하면 AI가 견적서와 이메일 템플릿을 자동 생성합니다.
+                        </p>
+                      </CardHeader>
+                      <CardContent className="space-y-4">
+                        <div className="p-3 rounded-lg bg-muted/50 text-sm">
+                          <strong>고객 정보:</strong> {dealData.account?.company_name || "미정"} / {dealData.account?.contacts?.[0]?.name || "담당자 미정"}
+                        </div>
+
+                        <div className="space-y-2">
+                          <Label htmlFor="ai-requirements">
+                            프로젝트 요구사항 <span className="text-destructive">*</span>
+                          </Label>
+                          <Textarea
+                            id="ai-requirements"
+                            placeholder="예: 회사 홍보 웹사이트 제작. 회사소개, 서비스 소개, 포트폴리오, 문의하기 페이지 필요. 관리자 페이지에서 포트폴리오 업로드 가능해야 함. 반응형 필수."
+                            value={aiRequirements}
+                            onChange={(e) => setAiRequirements(e.target.value)}
+                            rows={5}
+                          />
+                        </div>
+
+                        <div className="space-y-2">
+                          <Label htmlFor="ai-context">추가 정보 (선택)</Label>
+                          <Textarea
+                            id="ai-context"
+                            placeholder="예: 기존 홈페이지 리뉴얼, 3개월 내 런칭 희망, 유지보수 계약 포함"
+                            value={aiAdditionalContext}
+                            onChange={(e) => setAiAdditionalContext(e.target.value)}
+                            rows={2}
+                          />
+                        </div>
+
+                        {aiError && (
+                          <div className="p-3 rounded-lg bg-destructive/10 text-destructive flex items-center gap-2 text-sm">
+                            <AlertCircle className="w-4 h-4" />
+                            {aiError}
+                          </div>
+                        )}
+
+                        <Button
+                          onClick={handleGenerateAIQuotation}
+                          disabled={aiLoading || !aiRequirements.trim()}
+                          className="w-full bg-gradient-to-r from-violet-500 to-purple-600 hover:from-violet-600 hover:to-purple-700"
+                        >
+                          {aiLoading ? (
+                            <>
+                              <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                              AI가 분석 중...
+                            </>
+                          ) : (
+                            <>
+                              <Sparkles className="w-4 h-4 mr-2" />
+                              견적서 생성
+                            </>
+                          )}
+                        </Button>
+                      </CardContent>
+                    </Card>
+
+                    {/* 결과 영역 */}
+                    <div className="space-y-4">
+                      {!aiResult && !aiLoading && (
+                        <Card className="h-full flex items-center justify-center min-h-[300px]">
+                          <div className="text-center text-muted-foreground p-8">
+                            <Sparkles className="w-12 h-12 mx-auto mb-4 opacity-30" />
+                            <p>요구사항을 입력하고</p>
+                            <p>견적서 생성 버튼을 클릭하세요.</p>
+                          </div>
+                        </Card>
+                      )}
+
+                      {aiLoading && (
+                        <Card className="h-full flex items-center justify-center min-h-[300px]">
+                          <div className="text-center p-8">
+                            <Loader2 className="w-12 h-12 mx-auto mb-4 animate-spin text-violet-500" />
+                            <p className="font-medium">AI가 견적을 분석하고 있습니다...</p>
+                            <p className="text-sm text-muted-foreground mt-2">10~30초 정도 소요됩니다.</p>
+                          </div>
+                        </Card>
+                      )}
+
+                      {aiResult && (
+                        <div className="space-y-4">
+                          {/* 견적서 결과 */}
+                          <Card>
+                            <CardHeader className="pb-3">
+                              <div className="flex items-center justify-between">
+                                <CardTitle className="text-lg">{aiResult.title}</CardTitle>
+                                <div className="flex gap-2">
+                                  <Button variant="outline" size="sm" onClick={() => copyToClipboard(getQuotationText(), "quotation")}>
+                                    {copiedQuotation ? <Check className="w-4 h-4 mr-1" /> : <Copy className="w-4 h-4 mr-1" />}
+                                    {copiedQuotation ? "복사됨" : "복사"}
+                                  </Button>
+                                  <Button variant="outline" size="sm" onClick={handleGenerateAIQuotation}>
+                                    <RefreshCw className="w-4 h-4 mr-1" />
+                                    재생성
+                                  </Button>
+                                </div>
+                              </div>
+                            </CardHeader>
+                            <CardContent className="space-y-4">
+                              {/* 견적 항목 테이블 */}
+                              <div className="border rounded-lg overflow-hidden">
+                                <table className="w-full text-sm">
+                                  <thead className="bg-muted">
+                                    <tr>
+                                      <th className="text-left p-3 font-medium">항목</th>
+                                      <th className="text-right p-3 font-medium w-16">수량</th>
+                                      <th className="text-right p-3 font-medium w-24">단가</th>
+                                      <th className="text-right p-3 font-medium w-24">금액</th>
+                                    </tr>
+                                  </thead>
+                                  <tbody>
+                                    {aiResult.items.map((item: any, index: number) => (
+                                      <tr key={index} className="border-t">
+                                        <td className="p-3">
+                                          <div className="font-medium">{item.name}</div>
+                                          {item.description && (
+                                            <div className="text-xs text-muted-foreground mt-1">{item.description}</div>
+                                          )}
+                                        </td>
+                                        <td className="text-right p-3">{item.quantity}</td>
+                                        <td className="text-right p-3">₩{formatNumber(item.unit_price)}</td>
+                                        <td className="text-right p-3 font-medium">₩{formatNumber(item.quantity * item.unit_price)}</td>
+                                      </tr>
+                                    ))}
+                                  </tbody>
+                                </table>
+                              </div>
+
+                              {/* 금액 합계 */}
+                              <div className="border rounded-lg p-4 space-y-2 bg-muted/30">
+                                <div className="flex justify-between text-sm">
+                                  <span>공급가액</span>
+                                  <span>₩{formatNumber(calculateAITotals().supply)}</span>
+                                </div>
+                                <div className="flex justify-between text-sm">
+                                  <span>부가세 (10%)</span>
+                                  <span>₩{formatNumber(calculateAITotals().tax)}</span>
+                                </div>
+                                <div className="flex justify-between font-bold text-lg border-t pt-2">
+                                  <span>총 견적금액</span>
+                                  <span className="text-primary">₩{formatNumber(calculateAITotals().total)}</span>
+                                </div>
+                              </div>
+
+                              {/* 추정 사항 */}
+                              {aiResult.assumptions && aiResult.assumptions.length > 0 && (
+                                <div className="p-3 rounded-lg bg-amber-500/10 border border-amber-500/20 text-sm">
+                                  <div className="flex items-center gap-2 font-medium text-amber-700 dark:text-amber-400 mb-2">
+                                    <AlertCircle className="w-4 h-4" />
+                                    AI 추정 사항
+                                  </div>
+                                  <ul className="list-disc list-inside space-y-1 text-muted-foreground">
+                                    {aiResult.assumptions.map((a: string, i: number) => <li key={i}>{a}</li>)}
+                                  </ul>
+                                </div>
+                              )}
+
+                              {/* 실제 견적서 생성 버튼 */}
+                              <Button
+                                onClick={() => setShowQuotationDialog(true)}
+                                className="w-full"
+                              >
+                                <FileText className="w-4 h-4 mr-2" />
+                                이 내용으로 실제 견적서 생성하기
+                              </Button>
+                            </CardContent>
+                          </Card>
+
+                          {/* 이메일 템플릿 */}
+                          {aiResult.email_template && (
+                            <Card>
+                              <CardHeader className="pb-3">
+                                <div className="flex items-center justify-between">
+                                  <CardTitle className="text-lg flex items-center gap-2">
+                                    <Mail className="w-5 h-5" />
+                                    이메일 템플릿
+                                  </CardTitle>
+                                  <Button variant="outline" size="sm" onClick={() => copyToClipboard(getEmailText(), "email")}>
+                                    {copiedEmail ? <Check className="w-4 h-4 mr-1" /> : <Copy className="w-4 h-4 mr-1" />}
+                                    {copiedEmail ? "복사됨" : "복사"}
+                                  </Button>
+                                </div>
+                              </CardHeader>
+                              <CardContent className="space-y-3">
+                                <div>
+                                  <Label className="text-xs text-muted-foreground">제목</Label>
+                                  <Input value={aiResult.email_template.subject} readOnly className="bg-muted mt-1" />
+                                </div>
+                                <div>
+                                  <Label className="text-xs text-muted-foreground">본문</Label>
+                                  <Textarea value={aiResult.email_template.body} readOnly className="bg-muted mt-1 min-h-[150px]" />
+                                </div>
+                              </CardContent>
+                            </Card>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                </TabsContent>
               </div>
             </Tabs>
           </div>
@@ -2139,10 +2460,35 @@ function DealDetailPageClient({ dealId }: { dealId: string }) {
       </div>
       <CreateQuotationDialog
         open={showQuotationDialog}
-        onOpenChange={setShowQuotationDialog}
+        onOpenChange={(open) => {
+          setShowQuotationDialog(open)
+          if (!open) {
+            // 다이얼로그가 닫힐 때 AI 결과 초기화하지 않음 (사용자가 다시 확인할 수 있도록)
+          }
+        }}
         dealId={resolvedId}
+        editQuotation={
+          aiResult
+            ? {
+                id: "",
+                quotation_number: "",
+                company: "플루타",
+                title: aiResult.title,
+                valid_until: null,
+                notes: aiResult.notes || "",
+                items: aiResult.items.map((item: any, index: number) => ({
+                  id: `ai-${index}`,
+                  name: item.name,
+                  quantity: item.quantity,
+                  unit_price: item.unit_price,
+                  amount: item.quantity * item.unit_price,
+                })),
+              }
+            : undefined
+        }
         onSuccess={(quotationId, totalAmount) => {
           setPendingQuotation({ quotationId, totalAmount })
+          setAiResult(null) // 견적서 생성 후 AI 결과 초기화
         }}
       />
       {/* 견적서 상세 다이얼로그 */}

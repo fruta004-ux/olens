@@ -24,6 +24,7 @@ import {
   StickyNote,
   Menu,
   X,
+  Sparkles,
 } from "lucide-react"
 import { useState, memo, useCallback } from "react"
 import { Badge } from "@/components/ui/badge"
@@ -301,6 +302,11 @@ function CrmSidebarComponent() {
                         >
                           <item.icon className="h-3.5 w-3.5 flex-shrink-0" />
                           <span>{item.name}</span>
+                          {(item as any).badge && (
+                            <Badge variant="secondary" className="ml-auto text-[10px] px-1 py-0 bg-violet-500/20 text-violet-500">
+                              {(item as any).badge}
+                            </Badge>
+                          )}
                         </Link>
                       )
                     })}
