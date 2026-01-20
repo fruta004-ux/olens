@@ -7,16 +7,17 @@ import { Card } from "@/components/ui/card"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Button } from "@/components/ui/button"
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog"
-import { Eye, FileText, Pencil } from "lucide-react"
+import { Eye, Pencil } from "lucide-react"
 import { CreateQuotationDialog } from "@/components/create-quotation-dialog"
+import { QuotationViewDialog } from "@/components/quotation-view-dialog"
 import { createClient } from "@/lib/supabase/client"
 
 type Quotation = {
   id: string
   quotation_number: string
-  company: string
+  company: "플루타" | "오코랩스"
   deal_name: string
+  client_name: string
   assigned_to: string
   total_amount: number
   supply_amount: number
@@ -52,15 +53,7 @@ export default function QuotationsPage() {
     try {
       const { data, error } = await supabase
         .from("quotations")
-        .select(
-          `
-          *,
-          deal:deals!deal_id (
-            deal_name,
-            assigned_to
-          )
-        `,
-        )
+        .select("*")
         .order("created_at", { ascending: false })
 
       if (error) {
@@ -68,11 +61,48 @@ export default function QuotationsPage() {
         return
       }
 
-      // @ts-ignore - deal join 처리
+      // deal_id 또는 client_id가 있는 견적서의 거래처명 조회
+      const dealIds = data.filter(q => q.deal_id).map(q => q.deal_id)
+      const clientIds = data.filter(q => q.client_id).map(q => q.client_id)
+
+      let dealsMap: Record<string, { deal_name: string; assigned_to: string }> = {}
+      let clientsMap: Record<string, { company_name: string }> = {}
+
+      // deals 정보 조회
+      if (dealIds.length > 0) {
+        const { data: deals } = await supabase
+          .from("deals")
+          .select("id, deal_name, assigned_to")
+          .in("id", dealIds)
+        
+        if (deals) {
+          dealsMap = deals.reduce((acc, d) => {
+            acc[d.id] = { deal_name: d.deal_name, assigned_to: d.assigned_to }
+            return acc
+          }, {} as Record<string, { deal_name: string; assigned_to: string }>)
+        }
+      }
+
+      // clients 정보 조회 (client_activities와 연결된 클라이언트)
+      if (clientIds.length > 0) {
+        const { data: clients } = await supabase
+          .from("accounts")
+          .select("id, company_name")
+          .in("id", clientIds)
+        
+        if (clients) {
+          clientsMap = clients.reduce((acc, c) => {
+            acc[c.id] = { company_name: c.company_name }
+            return acc
+          }, {} as Record<string, { company_name: string }>)
+        }
+      }
+
       const mappedQuotations = data.map((q) => ({
         ...q,
-        deal_name: q.deal?.deal_name || "-",
-        assigned_to: q.deal?.assigned_to || "미정",
+        deal_name: q.deal_id ? (dealsMap[q.deal_id]?.deal_name || "-") : "-",
+        client_name: q.client_id ? (clientsMap[q.client_id]?.company_name || "-") : "-",
+        assigned_to: q.deal_id ? (dealsMap[q.deal_id]?.assigned_to || "미정") : "미정",
       }))
 
       setQuotations(mappedQuotations)
@@ -120,10 +150,6 @@ export default function QuotationsPage() {
     setShowEditDialog(false)
     setEditingQuotation(null)
     loadQuotations() // 목록 새로고침
-  }
-
-  function handlePrintQuotation() {
-    window.print()
   }
 
   if (loading) {
@@ -192,7 +218,7 @@ export default function QuotationsPage() {
                     <TableRow key={quotation.id}>
                       <TableCell className="font-medium">{quotation.quotation_number}</TableCell>
                       <TableCell>{quotation.company}</TableCell>
-                      <TableCell>{quotation.deal_name}</TableCell>
+                      <TableCell>{quotation.deal_name !== "-" ? quotation.deal_name : quotation.client_name}</TableCell>
                       <TableCell>{formatAmount(quotation.total_amount)}</TableCell>
                       <TableCell>{getStatusBadge(quotation.status)}</TableCell>
                       <TableCell>{formatDate(quotation.created_at)}</TableCell>
@@ -234,102 +260,15 @@ export default function QuotationsPage() {
         </main>
       </div>
 
-      {/* 견적서 상세 다이얼로그 */}
-      <Dialog open={showDetailDialog} onOpenChange={setShowDetailDialog}>
-        <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
-          <DialogHeader>
-            <DialogTitle>견적서 상세</DialogTitle>
-          </DialogHeader>
-
-          {selectedQuotation && (
-            <div className="space-y-6">
-              {/* 견적서 헤더 */}
-              <div className="text-center border-b pb-4">
-                <h2 className="text-2xl font-bold mb-2">견 적 서</h2>
-                <p className="text-sm text-muted-foreground">NO: {selectedQuotation.quotation_number}</p>
-              </div>
-
-              {/* 공급자 정보 */}
-              <div className="grid grid-cols-2 gap-4 p-4 border rounded-lg">
-                <div>
-                  <h3 className="font-semibold mb-2">{selectedQuotation.deal_name} 귀하</h3>
-                  <p className="text-sm text-muted-foreground">견적일자: {formatDate(selectedQuotation.created_at)}</p>
-                  {selectedQuotation.valid_until && (
-                    <p className="text-sm text-muted-foreground">
-                      유효기간: {formatDate(selectedQuotation.valid_until)}
-                    </p>
-                  )}
-                </div>
-                <div className="text-right">
-                  <p className="text-sm">
-                    <span className="font-semibold">상호:</span> {selectedQuotation.company}
-                  </p>
-                  <p className="text-sm">
-                    <span className="font-semibold">담당자:</span> {selectedQuotation.assigned_to}
-                  </p>
-                </div>
-              </div>
-
-              {/* 견적 항목 */}
-              <div>
-                <h3 className="font-semibold mb-2">견적 내역</h3>
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead>품목</TableHead>
-                      <TableHead className="text-center">수량</TableHead>
-                      <TableHead className="text-right">단가</TableHead>
-                      <TableHead className="text-right">금액</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {selectedQuotation.items.map((item, index) => (
-                      <TableRow key={index}>
-                        <TableCell>{item.name}</TableCell>
-                        <TableCell className="text-center">{item.quantity}</TableCell>
-                        <TableCell className="text-right">{formatAmount(item.unit_price)}</TableCell>
-                        <TableCell className="text-right">{formatAmount(item.amount)}</TableCell>
-                      </TableRow>
-                    ))}
-                  </TableBody>
-                </Table>
-              </div>
-
-              {/* 금액 합계 */}
-              <div className="border-t pt-4 space-y-2">
-                <div className="flex justify-between">
-                  <span className="font-semibold">공급가액:</span>
-                  <span>{formatAmount(selectedQuotation.supply_amount)}</span>
-                </div>
-                <div className="flex justify-between">
-                  <span className="font-semibold">부가세(10%):</span>
-                  <span>{formatAmount(selectedQuotation.vat_amount)}</span>
-                </div>
-                <div className="flex justify-between text-lg font-bold border-t pt-2">
-                  <span>총액:</span>
-                  <span>{formatAmount(selectedQuotation.total_amount)}</span>
-                </div>
-              </div>
-
-              {/* 비고 */}
-              {selectedQuotation.notes && (
-                <div className="border-t pt-4">
-                  <h3 className="font-semibold mb-2">비고</h3>
-                  <p className="text-sm whitespace-pre-wrap">{selectedQuotation.notes}</p>
-                </div>
-              )}
-
-              {/* 인쇄 버튼 */}
-              <div className="flex justify-end">
-                <Button onClick={handlePrintQuotation} variant="outline">
-                  <FileText className="mr-2 h-4 w-4" />
-                  인쇄
-                </Button>
-              </div>
-            </div>
-          )}
-        </DialogContent>
-      </Dialog>
+      {/* 견적서 상세 다이얼로그 - deals 페이지와 동일한 형태 */}
+      {selectedQuotation && (
+        <QuotationViewDialog
+          open={showDetailDialog}
+          onOpenChange={setShowDetailDialog}
+          quotation={selectedQuotation}
+          clientName={selectedQuotation.deal_name !== "-" ? selectedQuotation.deal_name : selectedQuotation.client_name}
+        />
+      )}
 
       {/* 견적서 수정 다이얼로그 */}
       <CreateQuotationDialog

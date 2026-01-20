@@ -1,7 +1,7 @@
 "use client"
 
 import { useEffect } from "react"
-import { Dialog, DialogContent } from "@/components/ui/dialog"
+import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog"
 import { Button } from "@/components/ui/button"
 import { FileDown } from "lucide-react"
 
@@ -181,6 +181,7 @@ export function QuotationViewDialog({ open, onOpenChange, quotation, clientName 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="!max-w-[850px] max-h-[95vh] overflow-y-auto p-0">
+        <DialogTitle className="sr-only">견적서 상세</DialogTitle>
         <div className="p-4 border-b print:hidden flex justify-between items-center">
           <h2 className="text-lg font-semibold">견적서 상세</h2>
           <Button onClick={handlePrint} className="gap-2">
