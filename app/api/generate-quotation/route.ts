@@ -4,7 +4,7 @@ const GEMINI_API_KEY = process.env.GEMINI_API_KEY
 
 // 단가 기준표 (프롬프트에 포함)
 const PRICING_GUIDE = `
-## 웹 개발 단가 기준표 (2024년 기준, 부가세 별도)
+## 웹 개발 단가 기준표 (2025년 기준, 부가세 별도)
 
 ### 웹사이트 유형별 기본 단가
 - 랜딩페이지 (1페이지): 100~200만원

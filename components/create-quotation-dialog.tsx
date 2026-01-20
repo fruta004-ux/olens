@@ -43,6 +43,7 @@ interface CreateQuotationDialogProps {
   open: boolean
   onOpenChange: (open: boolean) => void
   dealId?: string
+  clientId?: string  // 기존 영업(clients)용
   activityId?: string
   onSuccess?: (quotationId: string, totalAmount: number) => void
   editQuotation?: EditableQuotation | null
@@ -73,11 +74,13 @@ export function CreateQuotationDialog({
   open,
   onOpenChange,
   dealId,
+  clientId,
   activityId,
   onSuccess,
   editQuotation,
 }: CreateQuotationDialogProps) {
-  const isEditMode = !!editQuotation
+  // editQuotation.id가 있을 때만 수정 모드 (AI 견적서는 id가 빈 문자열이라 생성 모드로 처리)
+  const isEditMode = !!editQuotation?.id
   const [company, setCompany] = useState<"플루타" | "오코랩스">("플루타")
   const [title, setTitle] = useState("")
   const [validUntil, setValidUntil] = useState<Date>()
@@ -245,7 +248,8 @@ export function CreateQuotationDialog({
         const { data: quotation, error } = await supabase
           .from("quotations")
           .insert({
-            deal_id: dealId,
+            deal_id: dealId || null,
+            client_id: clientId || null,
             activity_id: activityId,
             quotation_number: quotationNumber,
             company,

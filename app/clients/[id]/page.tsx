@@ -1905,7 +1905,7 @@ function ClientDetailPageClient({ clientId }: { clientId: string }) {
       <CreateQuotationDialog
         open={showQuotationDialog}
         onOpenChange={setShowQuotationDialog}
-        dealId={resolvedId}
+        clientId={resolvedId}
         onSuccess={(quotationId, totalAmount) => {
           setPendingQuotation({ quotationId, totalAmount })
         }}

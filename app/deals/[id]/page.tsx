@@ -233,13 +233,21 @@ export default function DealDetailPage({ params }: { params: { id: string } }) {
 
 function DealDetailPageClient({ dealId }: { dealId: string }) {
   const router = useRouter()
-  const [activeTab, setActiveTab] = useState(() => {
-    if (typeof window !== "undefined") {
+  // Hydration 오류 방지: 초기값은 고정, useEffect에서 URL 파라미터 반영
+  const [activeTab, setActiveTab] = useState("activity")
+  const [isTabInitialized, setIsTabInitialized] = useState(false)
+  
+  // 클라이언트에서 URL 파라미터로 탭 초기화
+  useEffect(() => {
+    if (!isTabInitialized) {
       const params = new URLSearchParams(window.location.search)
-      return params.get("tab") || "activity"
+      const tabFromUrl = params.get("tab")
+      if (tabFromUrl && tabFromUrl !== activeTab) {
+        setActiveTab(tabFromUrl)
+      }
+      setIsTabInitialized(true)
     }
-    return "activity"
-  })
+  }, [isTabInitialized, activeTab])
   const [dealData, setDealData] = useState<any>({})
   const [localNotes, setLocalNotes] = useState<string>("")
   // activity_date 타입을 string으로 변경, assigned_to 초기값 보강
@@ -268,6 +276,7 @@ function DealDetailPageClient({ dealId }: { dealId: string }) {
   const [channelOptions, setChannelOptions] = useState<string[]>([])
   const [gradeOptions, setGradeOptions] = useState<string[]>([])
   const [showQuotationDialog, setShowQuotationDialog] = useState(false)
+  const [useAiDataForQuotation, setUseAiDataForQuotation] = useState(false) // AI 데이터 사용 여부
   const [pendingQuotation, setPendingQuotation] = useState<{
     quotationId: string
     totalAmount: number
@@ -298,6 +307,11 @@ function DealDetailPageClient({ dealId }: { dealId: string }) {
   const [aiResult, setAiResult] = useState<any>(null)
   const [copiedQuotation, setCopiedQuotation] = useState(false)
   const [copiedEmail, setCopiedEmail] = useState(false)
+  
+  // v0 데모 생성 관련 상태
+  const [demoLoading, setDemoLoading] = useState(false)
+  const [demoError, setDemoError] = useState<string | null>(null)
+  const [demoResult, setDemoResult] = useState<{ url: string; previewUrl: string } | null>(null)
 
   const supabase = createBrowserClient() // supabase 클라이언트 한번만 생성
 
@@ -902,6 +916,38 @@ function DealDetailPageClient({ dealId }: { dealId: string }) {
       setAiError(err.message || "알 수 없는 오류가 발생했습니다.")
     } finally {
       setAiLoading(false)
+    }
+  }
+
+  // v0 데모 생성 함수
+  const handleGenerateDemo = async () => {
+    if (!aiRequirements.trim()) {
+      setDemoError("프로젝트 요구사항을 먼저 입력해주세요.")
+      return
+    }
+
+    setDemoLoading(true)
+    setDemoError(null)
+    setDemoResult(null)
+
+    try {
+      const response = await fetch("/api/generate-demo", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          requirements: aiRequirements + (aiAdditionalContext ? `\n\n추가 정보: ${aiAdditionalContext}` : ""),
+          projectType: dealData.account?.company_name ? `${dealData.account.company_name} 프로젝트` : "웹 애플리케이션",
+        }),
+      })
+
+      const data = await response.json()
+      if (!response.ok) throw new Error(data.error || "데모 생성에 실패했습니다.")
+      
+      setDemoResult({ url: data.url, previewUrl: data.previewUrl })
+    } catch (err: any) {
+      setDemoError(err.message || "알 수 없는 오류가 발생했습니다.")
+    } finally {
+      setDemoLoading(false)
     }
   }
 
@@ -1792,7 +1838,10 @@ function DealDetailPageClient({ dealId }: { dealId: string }) {
                                     type="button"
                                     variant="outline"
                                     size="sm"
-                                    onClick={() => setShowQuotationDialog(true)}
+                                    onClick={() => {
+                                      setUseAiDataForQuotation(false) // 빈 폼으로 열기
+                                      setShowQuotationDialog(true)
+                                    }}
                                     className="gap-2"
                                   >
                                     <FileText className="h-4 w-4" />
@@ -2272,24 +2321,104 @@ function DealDetailPageClient({ dealId }: { dealId: string }) {
                         </div>
                       )}
 
-                      <Button
-                        onClick={handleGenerateAIQuotation}
-                        disabled={aiLoading || !aiRequirements.trim()}
-                        className="w-full md:w-auto bg-gradient-to-r from-violet-500 to-purple-600 hover:from-violet-600 hover:to-purple-700"
-                        size="lg"
-                      >
-                        {aiLoading ? (
-                          <>
-                            <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                            AI가 분석 중...
-                          </>
-                        ) : (
-                          <>
-                            <Sparkles className="w-4 h-4 mr-2" />
-                            견적서 생성
-                          </>
-                        )}
-                      </Button>
+                      <div className="flex flex-wrap gap-3">
+                        <Button
+                          onClick={handleGenerateAIQuotation}
+                          disabled={aiLoading || demoLoading || !aiRequirements.trim()}
+                          className="bg-gradient-to-r from-violet-500 to-purple-600 hover:from-violet-600 hover:to-purple-700"
+                          size="lg"
+                        >
+                          {aiLoading ? (
+                            <>
+                              <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                              AI가 분석 중...
+                            </>
+                          ) : (
+                            <>
+                              <Sparkles className="w-4 h-4 mr-2" />
+                              견적서 생성
+                            </>
+                          )}
+                        </Button>
+
+                        <Button
+                          onClick={handleGenerateDemo}
+                          disabled={aiLoading || demoLoading || !aiRequirements.trim()}
+                          variant="outline"
+                          size="lg"
+                          className="border-cyan-500 text-cyan-600 hover:bg-cyan-50 dark:hover:bg-cyan-950"
+                        >
+                          {demoLoading ? (
+                            <>
+                              <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                              데모 생성 중...
+                            </>
+                          ) : (
+                            <>
+                              <FileText className="w-4 h-4 mr-2" />
+                              v0 데모 생성
+                            </>
+                          )}
+                        </Button>
+                      </div>
+
+                      {/* 데모 생성 결과 */}
+                      {demoError && (
+                        <div className="p-3 rounded-lg bg-destructive/10 text-destructive flex items-center gap-2 text-sm">
+                          <AlertCircle className="w-4 h-4" />
+                          {demoError}
+                        </div>
+                      )}
+
+                      {demoResult && (
+                        <div className="p-4 rounded-lg bg-cyan-50 dark:bg-cyan-950 border border-cyan-200 dark:border-cyan-800">
+                          <div className="flex items-center gap-2 font-medium text-cyan-700 dark:text-cyan-300 mb-2">
+                            <Check className="w-4 h-4" />
+                            데모가 생성되었습니다!
+                          </div>
+                          <div className="p-2 bg-white dark:bg-background rounded border text-sm font-mono mb-3 break-all">
+                            {demoResult.url}
+                          </div>
+                          <div className="flex flex-wrap gap-2">
+                            <Button
+                              size="sm"
+                              onClick={() => window.open(demoResult.url, "_blank")}
+                              className="bg-cyan-600 hover:bg-cyan-700"
+                            >
+                              데모 열기
+                            </Button>
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              onClick={async () => {
+                                try {
+                                  if (navigator.clipboard && window.isSecureContext) {
+                                    await navigator.clipboard.writeText(demoResult.url)
+                                  } else {
+                                    // Fallback for HTTP
+                                    const textArea = document.createElement("textarea")
+                                    textArea.value = demoResult.url
+                                    document.body.appendChild(textArea)
+                                    textArea.select()
+                                    document.execCommand("copy")
+                                    document.body.removeChild(textArea)
+                                  }
+                                  alert("링크가 복사되었습니다!")
+                                } catch (err) {
+                                  // 마지막 fallback: 프롬프트로 보여주기
+                                  prompt("링크를 복사하세요:", demoResult.url)
+                                }
+                              }}
+                            >
+                              <Copy className="w-4 h-4 mr-1" />
+                              링크 복사
+                            </Button>
+                          </div>
+                          <p className="text-xs text-muted-foreground mt-2">
+                            ※ 첫 로딩에 30초~1분 정도 소요될 수 있습니다.
+                          </p>
+                        </div>
+                      )}
                     </CardContent>
                   </Card>
 
@@ -2385,7 +2514,10 @@ function DealDetailPageClient({ dealId }: { dealId: string }) {
 
                           {/* 실제 견적서 생성 버튼 */}
                           <Button
-                            onClick={() => setShowQuotationDialog(true)}
+                            onClick={() => {
+                              setUseAiDataForQuotation(true) // AI 데이터로 열기
+                              setShowQuotationDialog(true)
+                            }}
                             className="w-full md:w-auto"
                             size="lg"
                           >
@@ -2533,12 +2665,12 @@ function DealDetailPageClient({ dealId }: { dealId: string }) {
         onOpenChange={(open) => {
           setShowQuotationDialog(open)
           if (!open) {
-            // 다이얼로그가 닫힐 때 AI 결과 초기화하지 않음 (사용자가 다시 확인할 수 있도록)
+            setUseAiDataForQuotation(false) // 다이얼로그 닫힐 때 초기화
           }
         }}
         dealId={resolvedId}
         editQuotation={
-          aiResult
+          useAiDataForQuotation && aiResult
             ? {
                 id: "",
                 quotation_number: "",
