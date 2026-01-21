@@ -357,18 +357,22 @@ export default function DealsPage() {
     loadDeals()
   }, [])
 
-  // 스크롤 위치 복원
+  // 스크롤 위치 복원 (deals 로드 완료 후 한 번만 실행)
+  const [scrollRestored, setScrollRestored] = useState(false)
   useEffect(() => {
-    const savedScrollPosition = sessionStorage.getItem("deals-scroll-position")
-    if (savedScrollPosition && mainRef.current) {
-      // 약간의 지연 후 스크롤 복원 (데이터 로드 완료 대기)
-      setTimeout(() => {
-        if (mainRef.current) {
-          mainRef.current.scrollTop = parseInt(savedScrollPosition, 10)
-        }
-      }, 100)
+    if (deals.length > 0 && !scrollRestored) {
+      const savedScrollPosition = sessionStorage.getItem("deals-scroll-position")
+      if (savedScrollPosition && mainRef.current) {
+        // 렌더링 완료 후 스크롤 복원
+        requestAnimationFrame(() => {
+          if (mainRef.current) {
+            mainRef.current.scrollTop = parseInt(savedScrollPosition, 10)
+          }
+        })
+      }
+      setScrollRestored(true)
     }
-  }, [])
+  }, [deals.length, scrollRestored])
 
   // 거래처 클릭 시 스크롤 위치 저장
   const saveScrollPosition = () => {
