@@ -380,7 +380,21 @@ function DealDetailPageClient({ dealId }: { dealId: string }) {
       }
     })
 
-    setActivities(parsedActivities)
+    // 같은 날짜 내에서 메모가 먼저 오도록 정렬
+    const sortedActivities = parsedActivities.sort((a: any, b: any) => {
+      // 1. 날짜 기준 내림차순 (최신이 위)
+      const dateCompare = new Date(b.activity_date).getTime() - new Date(a.activity_date).getTime()
+      if (dateCompare !== 0) return dateCompare
+      
+      // 2. 같은 날짜 내에서 메모가 먼저
+      if (a.activity_type === "메모" && b.activity_type !== "메모") return -1
+      if (a.activity_type !== "메모" && b.activity_type === "메모") return 1
+      
+      // 3. 그 외에는 created_at 기준 내림차순
+      return new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
+    })
+
+    setActivities(sortedActivities)
   }
 
   const loadDealData = async () => {
