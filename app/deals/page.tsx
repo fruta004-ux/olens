@@ -1,6 +1,6 @@
 "use client"
 
-import React, { useState, useEffect, useMemo } from "react"
+import React, { useState, useEffect, useMemo, useRef } from "react"
 import { useRouter } from "next/navigation"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -147,6 +147,7 @@ const isChosungSearch = (text: string) => {
 
 export default function DealsPage() {
   const router = useRouter()
+  const mainRef = useRef<HTMLElement>(null)
   const [searchTerm, setSearchTerm] = useState("")
   const [selectedStages, setSelectedStages] = useState<string[]>(() => {
     if (typeof window !== "undefined") {
@@ -355,6 +356,26 @@ export default function DealsPage() {
   useEffect(() => {
     loadDeals()
   }, [])
+
+  // 스크롤 위치 복원
+  useEffect(() => {
+    const savedScrollPosition = sessionStorage.getItem("deals-scroll-position")
+    if (savedScrollPosition && mainRef.current) {
+      // 약간의 지연 후 스크롤 복원 (데이터 로드 완료 대기)
+      setTimeout(() => {
+        if (mainRef.current) {
+          mainRef.current.scrollTop = parseInt(savedScrollPosition, 10)
+        }
+      }, 100)
+    }
+  }, [])
+
+  // 거래처 클릭 시 스크롤 위치 저장
+  const saveScrollPosition = () => {
+    if (mainRef.current) {
+      sessionStorage.setItem("deals-scroll-position", mainRef.current.scrollTop.toString())
+    }
+  }
 
   const loadDeals = async () => {
     try {
@@ -694,7 +715,7 @@ export default function DealsPage() {
       <div className="flex flex-1 flex-col overflow-hidden">
         <CrmHeader />
 
-        <main className="flex-1 overflow-y-auto p-2 xl:p-6">
+        <main ref={mainRef} className="flex-1 overflow-y-auto p-2 xl:p-6">
           <div className="border-b bg-background p-4 xl:p-6">
             <div className="mb-4 xl:mb-6 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
               <div>
@@ -1034,7 +1055,10 @@ export default function DealsPage() {
                         <TableRow
                           key={deal.id}
                           className="cursor-pointer hover:bg-secondary"
-                          onClick={() => router.push(`/deals/${deal.id}?tab=activity`)}
+                          onClick={() => {
+                            saveScrollPosition()
+                            router.push(`/deals/${deal.id}?tab=activity`)
+                          }}
                         >
                           {columnOrder.map((column) => (
                             <TableCell key={column.id} className="text-center">

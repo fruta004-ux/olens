@@ -265,6 +265,7 @@ function DealDetailPageClient({ dealId }: { dealId: string }) {
     // attachments 초기화
     attachments: [],
   })
+  const [isAddingActivity, setIsAddingActivity] = useState(false)
   // editingActivity 상태를 객체로 변경하여 activity ID별 관리
   const [editingActivity, setEditingActivity] = useState<any>({})
   const [activityDateOpen, setActivityDateOpen] = useState(false)
@@ -657,11 +658,14 @@ function DealDetailPageClient({ dealId }: { dealId: string }) {
   }
 
   const handleAddActivity = async () => {
+    if (isAddingActivity) return // 중복 제출 방지
+    
     if (!newActivity.content.trim()) {
       alert("활동 내용을 입력해주세요.")
       return
     }
 
+    setIsAddingActivity(true)
     try {
       let attachments = []
       if (newActivity.attachments.length > 0) {
@@ -720,6 +724,8 @@ function DealDetailPageClient({ dealId }: { dealId: string }) {
     } catch (error: unknown) {
       console.error("활동 추가 오류:", error)
       alert("활동 추가에 실패했습니다.")
+    } finally {
+      setIsAddingActivity(false)
     }
   }
 
@@ -1866,6 +1872,7 @@ function DealDetailPageClient({ dealId }: { dealId: string }) {
                                     <Button
                                       variant="outline"
                                       size="sm"
+                                      disabled={isAddingActivity}
                                       onClick={() => {
                                         setDealData((prev) => ({ ...prev, showAddActivity: false }))
                                         setNewActivity({
@@ -1880,8 +1887,15 @@ function DealDetailPageClient({ dealId }: { dealId: string }) {
                                     >
                                       취소
                                     </Button>
-                                    <Button size="sm" onClick={handleAddActivity}>
-                                      저장
+                                    <Button size="sm" onClick={handleAddActivity} disabled={isAddingActivity}>
+                                      {isAddingActivity ? (
+                                        <>
+                                          <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                                          저장 중...
+                                        </>
+                                      ) : (
+                                        "저장"
+                                      )}
                                     </Button>
                                   </div>
                                 </div>
