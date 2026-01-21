@@ -66,6 +66,7 @@ export default function AdminPage() {
         .from("activities")
         .select("*")
         .eq("activity_date", dateStr)
+        .neq("activity_type", "메모")
         .order("created_at", { ascending: false })
 
       if (!activitiesData) {
