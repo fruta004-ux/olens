@@ -117,6 +117,68 @@ const parseLocalDate = (dateString: string): Date => {
   return new Date(year, month - 1, day) // 로컬 시간 기준으로 생성
 }
 
+// 활동 내용 렌더링 - bullet point 줄들은 문단 간격 없이 표시
+const renderActivityContent = (content: string) => {
+  if (!content) return null
+  
+  const lines = content.split("\n")
+  const bulletPattern = /^[\s]*[•\-\*→👉●◦‣⁃▪▸►◆◇○✓✔☑☐\d+\.]/
+  
+  const result: React.ReactNode[] = []
+  let currentGroup: string[] = []
+  let groupType: "bullet" | "text" | null = null
+  
+  const flushGroup = (index: number) => {
+    if (currentGroup.length === 0) return
+    
+    if (groupType === "bullet") {
+      // bullet 라인들은 간격 없이 밀집
+      result.push(
+        <div key={`group-${index}`} className="leading-relaxed">
+          {currentGroup.map((line, i) => (
+            <div key={i}>{line}</div>
+          ))}
+        </div>
+      )
+    } else {
+      // 일반 텍스트는 문단 간격
+      result.push(
+        <div key={`group-${index}`} className="mb-2">
+          {currentGroup.map((line, i) => (
+            <div key={i} className="whitespace-pre-wrap">{line}</div>
+          ))}
+        </div>
+      )
+    }
+    currentGroup = []
+    groupType = null
+  }
+  
+  lines.forEach((line, index) => {
+    const isBullet = bulletPattern.test(line)
+    const lineType = isBullet ? "bullet" : "text"
+    
+    // 빈 줄이면 그룹 종료
+    if (line.trim() === "") {
+      flushGroup(index)
+      return
+    }
+    
+    // 타입이 바뀌면 이전 그룹 종료
+    if (groupType !== null && groupType !== lineType) {
+      flushGroup(index)
+    }
+    
+    groupType = lineType
+    currentGroup.push(line)
+  })
+  
+  // 마지막 그룹 처리
+  flushGroup(lines.length)
+  
+  return result
+}
+
 const EditableInput = ({
   defaultValue,
   onSave,
@@ -2245,9 +2307,9 @@ function DealDetailPageClient({ dealId }: { dealId: string }) {
                                               </Button>
                                             </div>
                                           </div>
-                                          <p className="text-sm text-muted-foreground mb-2 whitespace-pre-wrap">
-                                            {activity.content}
-                                          </p>
+                                          <div className="text-sm text-muted-foreground mb-2">
+                                            {renderActivityContent(activity.content)}
+                                          </div>
                                           <div className="flex items-center gap-2 text-xs text-muted-foreground">
                                             <User className="h-3 w-3" />
                                             {activity.assigned_to}
