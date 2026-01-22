@@ -191,6 +191,15 @@ export default function DealsPage() {
     }
     return []
   })
+  const [isCompanyFilterOpen, setIsCompanyFilterOpen] = useState(false)
+  const [selectedCompanies, setSelectedCompanies] = useState<string[]>(() => {
+    if (typeof window !== "undefined") {
+      const saved = localStorage.getItem("deals-company-filter")
+      return saved ? JSON.parse(saved) : []
+    }
+    return []
+  })
+  const [settingsNeedsOptions, setSettingsNeedsOptions] = useState<string[]>([])
   const [isAddDealOpen, setIsAddDealOpen] = useState(false)
   const [activeTab, setActiveTab] = useState("all")
 
@@ -355,7 +364,26 @@ export default function DealsPage() {
 
   useEffect(() => {
     loadDeals()
+    loadSettingsNeeds()
   }, [])
+
+  // settings 테이블에서 니즈 축약 목록 로드
+  const loadSettingsNeeds = async () => {
+    try {
+      const supabase = createBrowserClient()
+      const { data, error } = await supabase
+        .from("settings")
+        .select("value")
+        .eq("category", "needs")
+        .order("display_order")
+      
+      if (!error && data) {
+        setSettingsNeedsOptions(data.map((n) => n.value))
+      }
+    } catch (error) {
+      console.error("[v0] 니즈 설정 로드 실패:", error)
+    }
+  }
 
   // 스크롤 위치 복원 (deals 로드 완료 후 한 번만 실행)
   const [scrollRestored, setScrollRestored] = useState(false)
@@ -410,6 +438,7 @@ export default function DealsPage() {
           lastActivity: deal.updated_at ? formatDate(deal.updated_at.split("T")[0]) : "-",
           nextContact: deal.next_contact_date || null,
           account_id: deal.account_id,
+          company: deal.company || "",
         }
       })
 
@@ -436,6 +465,7 @@ export default function DealsPage() {
     grade: deal.grade,
     priority: deal.priority,
     nextContact: deal.nextContact,
+    company: deal.company,
   }))
 
   const amountRangeOptions = [
@@ -456,18 +486,21 @@ export default function DealsPage() {
     { id: "미정", label: "미정" },
   ]
 
-  // 실제 데이터에서 니즈 축약 목록 추출
+  // settings에서 가져온 니즈 목록 + 미분류 옵션
   const needsOptions = useMemo(() => {
-    const needsSet = new Set<string>()
-    deals.forEach((deal: any) => {
-      if (deal.needsSummary && deal.needsSummary !== "-") {
-        needsSet.add(deal.needsSummary)
-      }
-    })
-    return Array.from(needsSet)
-      .sort((a, b) => a.localeCompare(b, 'ko'))
-      .map(needs => ({ id: needs, label: needs }))
-  }, [deals])
+    const options = settingsNeedsOptions.map(needs => ({ id: needs, label: needs }))
+    // 미분류 옵션 추가 (settings에 없는 니즈를 가진 거래처)
+    options.push({ id: "__unclassified__", label: "미분류" })
+    return options
+  }, [settingsNeedsOptions])
+
+  // 회사 필터 옵션
+  const companyOptions = [
+    { id: "__all__", label: "전체" },
+    { id: "플루타", label: "플루타" },
+    { id: "오코랩스", label: "오코랩스" },
+    { id: "__none__", label: "미지정" },
+  ]
 
   // 담당자명에서 직함 제거 함수
   const getNameOnly = (fullName: string) => {
@@ -515,12 +548,32 @@ export default function DealsPage() {
     })
   }
 
+  const toggleCompany = (companyId: string) => {
+    // "전체" 선택 시 다른 모든 필터 해제
+    if (companyId === "__all__") {
+      setSelectedCompanies([])
+      if (typeof window !== "undefined") {
+        localStorage.removeItem("deals-company-filter")
+      }
+      return
+    }
+
+    setSelectedCompanies((prev) => {
+      const newValue = prev.includes(companyId) ? prev.filter((id) => id !== companyId) : [...prev, companyId]
+      if (typeof window !== "undefined") {
+        localStorage.setItem("deals-company-filter", JSON.stringify(newValue))
+      }
+      return newValue
+    })
+  }
+
   // 모든 필터 초기화
   const clearAllFilters = () => {
     setSelectedStages([])
     setSelectedAmounts([])
     setSelectedContacts([])
     setSelectedNeeds([])
+    setSelectedCompanies([])
     setSearchTerm("")
     setColumnSort(null)
     if (typeof window !== "undefined") {
@@ -528,11 +581,12 @@ export default function DealsPage() {
       localStorage.removeItem("deals-amount-filter")
       localStorage.removeItem("deals-assignee-filter")
       localStorage.removeItem("deals-needs-filter")
+      localStorage.removeItem("deals-company-filter")
     }
   }
 
   // 필터가 적용되어 있는지 확인
-  const hasActiveFilters = selectedStages.length > 0 || selectedAmounts.length > 0 || selectedContacts.length > 0 || selectedNeeds.length > 0 || searchTerm.length > 0
+  const hasActiveFilters = selectedStages.length > 0 || selectedAmounts.length > 0 || selectedContacts.length > 0 || selectedNeeds.length > 0 || selectedCompanies.length > 0 || searchTerm.length > 0
 
   const filterByAmount = (deals: typeof dealsWithDisplayData) => {
     if (selectedAmounts.length === 0) return deals
@@ -585,7 +639,27 @@ export default function DealsPage() {
     if (selectedNeeds.length === 0) return deals
 
     return deals.filter((deal) => {
+      // 미분류 선택 시: settings에 없는 니즈를 가진 거래처 필터링
+      if (selectedNeeds.includes("__unclassified__")) {
+        const isUnclassified = deal.needsSummary === "-" || 
+          !settingsNeedsOptions.includes(deal.needsSummary)
+        if (isUnclassified) return true
+      }
+      // 일반 니즈 필터링
       return selectedNeeds.includes(deal.needsSummary)
+    })
+  }
+
+  const filterByCompany = (deals: typeof dealsWithDisplayData) => {
+    if (selectedCompanies.length === 0) return deals
+
+    return deals.filter((deal) => {
+      // 미지정 선택 시: company가 비어있는 거래처
+      if (selectedCompanies.includes("__none__")) {
+        if (!deal.company || deal.company.trim() === "") return true
+      }
+      // 일반 회사 필터링
+      return selectedCompanies.includes(deal.company)
     })
   }
 
@@ -677,7 +751,7 @@ export default function DealsPage() {
     })
   }
 
-  const filteredDeals = sortByColumn(filterByNeeds(filterBySearch(filterByContact(filterByAmount(filterByStage(dealsWithDisplayData))))))
+  const filteredDeals = sortByColumn(filterByCompany(filterByNeeds(filterBySearch(filterByContact(filterByAmount(filterByStage(dealsWithDisplayData)))))))
 
   const handleSortChange = (newSortBy: 'nextContact' | 'firstContact') => {
     setSortBy(newSortBy)
@@ -744,6 +818,57 @@ export default function DealsPage() {
               </div>
               
               <div className="flex flex-wrap items-center gap-2 xl:gap-4">
+
+              {/* 회사 필터 */}
+              <Popover open={isCompanyFilterOpen} onOpenChange={setIsCompanyFilterOpen}>
+                <PopoverTrigger asChild>
+                  <Button variant="outline" className="gap-2 bg-transparent">
+                    <Building2 className="h-4 w-4" />
+                    회사
+                    {selectedCompanies.length > 0 && (
+                      <Badge variant="secondary" className="ml-1 rounded-full px-2">
+                        {selectedCompanies.length}
+                      </Badge>
+                    )}
+                  </Button>
+                </PopoverTrigger>
+                <PopoverContent className="w-48" align="start">
+                  <div className="space-y-2">
+                    <div className="font-medium text-sm">회사 선택</div>
+                    <div className="space-y-2">
+                      {companyOptions.map((option) => (
+                        <div key={option.id} className="flex items-center space-x-2">
+                          {option.id === "__all__" ? (
+                            <div
+                              className={cn(
+                                "flex items-center gap-2 w-full px-2 py-1.5 rounded cursor-pointer text-sm",
+                                selectedCompanies.length === 0 ? "bg-primary/10 text-primary font-medium" : "hover:bg-muted"
+                              )}
+                              onClick={() => toggleCompany(option.id)}
+                            >
+                              {option.label}
+                            </div>
+                          ) : (
+                            <>
+                              <Checkbox
+                                id={`company-${option.id}`}
+                                checked={selectedCompanies.includes(option.id)}
+                                onCheckedChange={() => toggleCompany(option.id)}
+                              />
+                              <label
+                                htmlFor={`company-${option.id}`}
+                                className="text-sm leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70 cursor-pointer flex-1"
+                              >
+                                {option.label}
+                              </label>
+                            </>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                </PopoverContent>
+              </Popover>
 
               <Popover open={isContactFilterOpen} onOpenChange={setIsContactFilterOpen}>
                 <PopoverTrigger asChild>
