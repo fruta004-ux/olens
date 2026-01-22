@@ -57,6 +57,7 @@ import { QuotationViewDialog } from "@/components/quotation-view-dialog"
 import { CloseReasonDialog } from "@/components/close-reason-dialog"
 import { getCloseReasonText } from "@/lib/close-reasons"
 import { RecontactDialog } from "@/components/recontact-dialog"
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { getRecontactReasonText } from "@/lib/recontact-reasons"
 import {
   Sheet,
@@ -268,6 +269,9 @@ function DealDetailPageClient({ dealId }: { dealId: string }) {
   const [isAddingActivity, setIsAddingActivity] = useState(false)
   // editingActivity 상태를 객체로 변경하여 activity ID별 관리
   const [editingActivity, setEditingActivity] = useState<any>({})
+  // BDTA 등급 가이드
+  const [isBDTADialogOpen, setIsBDTADialogOpen] = useState(false)
+  const [selectedBDTA, setSelectedBDTA] = useState<string[]>([])
   const [activityDateOpen, setActivityDateOpen] = useState(false)
   const [nextContactDateOpen, setNextContactDateOpen] = useState(false)
   const [firstContactDateOpen, setFirstContactDateOpen] = useState(false)
@@ -491,6 +495,23 @@ function DealDetailPageClient({ dealId }: { dealId: string }) {
       default:
         return <FileText className="h-5 w-5 text-primary" />
     }
+  }
+
+  // BDTA 선택에 따른 등급 계산
+  const calculateGradeFromBDTA = (selectedItems: string[]): string => {
+    const count = selectedItems.length
+    if (count === 0) return "C"
+    if (count === 1) return "B"
+    if (count >= 2 && count <= 3) return "A"
+    return "S"
+  }
+
+  // BDTA 등급 적용
+  const applyBDTAGrade = (selectedItems: string[], isNone: boolean = false) => {
+    const newGrade = isNone ? "C" : calculateGradeFromBDTA(selectedItems)
+    handleUpdateDeal({ grade: newGrade })
+    setIsBDTADialogOpen(false)
+    setSelectedBDTA([])
   }
 
   const handleUpdateDeal = async (updates: any) => {
@@ -1258,7 +1279,16 @@ function DealDetailPageClient({ dealId }: { dealId: string }) {
 
           {/* 등급 + 우선권 (1줄에 반반) */}
           <div>
-            <label className="text-xs text-muted-foreground">등급</label>
+            <div className="flex items-center gap-2">
+              <label className="text-xs text-muted-foreground">등급</label>
+              <button
+                type="button"
+                onClick={() => setIsBDTADialogOpen(true)}
+                className="text-[10px] px-1.5 py-0.5 bg-muted hover:bg-muted/80 text-muted-foreground rounded border"
+              >
+                등급 가이드
+              </button>
+            </div>
             <select
               className="w-full mt-1 px-3 py-2 text-sm border rounded-md"
               value={dealData.grade || ""}
@@ -2756,6 +2786,105 @@ function DealDetailPageClient({ dealId }: { dealId: string }) {
         onConfirm={handleRecontactConfirm}
         dealName={dealData.deal_name}
       />
+
+      {/* BDTA 등급 가이드 다이얼로그 */}
+      <Dialog open={isBDTADialogOpen} onOpenChange={setIsBDTADialogOpen}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>BDTA 등급 가이드</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4">
+            <p className="text-sm text-muted-foreground">
+              해당되는 항목을 선택하세요. 선택 개수에 따라 등급이 자동으로 결정됩니다.
+            </p>
+            
+            {/* BDTA 체크박스 테이블 */}
+            <div className="border rounded-lg overflow-hidden">
+              <table className="w-full text-sm">
+                <thead className="bg-muted">
+                  <tr>
+                    <th className="px-4 py-2 text-left font-medium">코드</th>
+                    <th className="px-4 py-2 text-left font-medium">판단 질문</th>
+                    <th className="px-4 py-2 text-center font-medium w-16">선택</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {[
+                    { code: "B", name: "Budget", question: "예산이 확인됐는가" },
+                    { code: "D", name: "Decision Maker", question: "의사결정권자가 확인됐는가" },
+                    { code: "T", name: "Timing", question: "일정이 언급·합의됐는가" },
+                    { code: "A", name: "Action Signal", question: "행동 신호가 있는가 (계약 요청, 일정 확정 등)" },
+                  ].map((item) => (
+                    <tr key={item.code} className="border-t">
+                      <td className="px-4 py-3">
+                        <span className="font-medium">{item.code}</span>
+                        <span className="text-muted-foreground ml-1">({item.name})</span>
+                      </td>
+                      <td className="px-4 py-3 text-muted-foreground">{item.question}</td>
+                      <td className="px-4 py-3 text-center">
+                        <input
+                          type="checkbox"
+                          className="h-4 w-4 rounded border-gray-300"
+                          checked={selectedBDTA.includes(item.code)}
+                          onChange={(e) => {
+                            if (e.target.checked) {
+                              setSelectedBDTA([...selectedBDTA, item.code])
+                            } else {
+                              setSelectedBDTA(selectedBDTA.filter((c) => c !== item.code))
+                            }
+                          }}
+                        />
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+
+            {/* 등급 안내 */}
+            <div className="bg-muted/50 rounded-lg p-3 text-sm">
+              <p className="font-medium mb-2">등급 기준:</p>
+              <div className="grid grid-cols-2 gap-1 text-muted-foreground">
+                <span>• 0개 선택: <strong className="text-foreground">C등급</strong></span>
+                <span>• 1개 선택: <strong className="text-foreground">B등급</strong></span>
+                <span>• 2~3개 선택: <strong className="text-foreground">A등급</strong></span>
+                <span>• 4개 선택: <strong className="text-foreground">S등급</strong></span>
+              </div>
+            </div>
+
+            {/* 현재 선택 상태 */}
+            <div className="flex items-center justify-between p-3 bg-primary/5 rounded-lg">
+              <span className="text-sm">
+                현재 선택: <strong>{selectedBDTA.length}개</strong>
+                {selectedBDTA.length > 0 && (
+                  <span className="ml-2 text-muted-foreground">({selectedBDTA.join(", ")})</span>
+                )}
+              </span>
+              <span className="text-sm font-bold text-primary">
+                → {calculateGradeFromBDTA(selectedBDTA)}등급
+              </span>
+            </div>
+
+            {/* 버튼들 */}
+            <div className="flex gap-2">
+              <Button
+                variant="outline"
+                className="flex-1"
+                onClick={() => applyBDTAGrade([], true)}
+              >
+                해당 없음 (C등급)
+              </Button>
+              <Button
+                className="flex-1"
+                onClick={() => applyBDTAGrade(selectedBDTA)}
+                disabled={selectedBDTA.length === 0}
+              >
+                {calculateGradeFromBDTA(selectedBDTA)}등급 적용
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }

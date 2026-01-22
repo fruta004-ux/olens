@@ -149,6 +149,7 @@ export function AddDealDialog({ open: controlledOpen, onOpenChange, stage, trigg
             notes: formData.notes,
             assigned_to: formData.assigned_to,
             pipeline: "영업 파이프라인 CRM",
+            grade: "추정불가",
           },
         ])
         .select()

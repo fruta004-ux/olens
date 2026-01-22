@@ -442,7 +442,7 @@ ${formData.content || "내용 없음"}
           inflow_source: formData.inflow_source || null,
           inquiry_channel: formData.inquiry_channel || null,
           needs_summary: formData.needs_summary || null,
-          grade: formData.grade || null,
+          grade: formData.grade || "추정불가",
         })
         .select()
         .single()
