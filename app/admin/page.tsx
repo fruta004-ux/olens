@@ -1,6 +1,7 @@
 "use client"
 
 import { useState, useEffect, useRef } from "react"
+import { useRouter } from "next/navigation"
 import { Shield, Plus, Pencil, Trash2, Calendar, ChevronLeft, ChevronRight, Copy, Check } from "lucide-react"
 import { toBlob } from "html-to-image"
 import { Button } from "@/components/ui/button"
@@ -20,6 +21,7 @@ import { format } from "date-fns"
 import { ko } from "date-fns/locale"
 
 export default function AdminPage() {
+  const router = useRouter()
   const [needsSettings, setNeedsSettings] = useState<any[]>([])
   const [sourceSettings, setSourceSettings] = useState<any[]>([])
   const [channelSettings, setChannelSettings] = useState<any[]>([])
@@ -295,7 +297,15 @@ export default function AdminPage() {
                   </TableHeader>
                   <TableBody>
                     {groupedActivities[assignee].map((activity: any, index: number) => (
-                      <TableRow key={activity.id} className="h-12">
+                      <TableRow 
+                        key={activity.id} 
+                        className={`h-12 ${activity.deal_id ? "cursor-pointer hover:bg-muted/50" : ""}`}
+                        onClick={() => {
+                          if (activity.deal_id) {
+                            router.push(`/deals/${activity.deal_id}`)
+                          }
+                        }}
+                      >
                         <TableCell className="py-2">{index + 1}</TableCell>
                         <TableCell className="py-2">{truncateText(activity.deal?.account?.company_name, 15)}</TableCell>
                         <TableCell className="py-2">{activity.activity_type}</TableCell>
