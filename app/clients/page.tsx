@@ -6,7 +6,6 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Badge } from "@/components/ui/badge"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
-import { Card, CardContent } from "@/components/ui/card"
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
 import { Checkbox } from "@/components/ui/checkbox"
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu"
@@ -204,6 +203,7 @@ export default function ClientsPage() {
 
   // 컬럼 순서 (고정)
   const columnOrder = [
+    { id: "rowNumber", label: "No.", align: "center", width: "w-12" },
     { id: "firstContact", label: "첫 문의 날짜", align: "center" },
     { id: "name", label: "상호명", align: "center" },
     { id: "needsSummary", label: "니즈 축약", align: "center" },
@@ -237,6 +237,7 @@ export default function ClientsPage() {
       S5_complete: "S5_계약완료",
       S6_closed: "S6_종료", // 옛날 값
       S6_complete: "S6_종료",
+      S7_recontact: "S7_재접촉",
     }
     return stageMap[stage] || stage
   }
@@ -535,6 +536,7 @@ export default function ClientsPage() {
         "S4_결정 대기": ["S4_결정 대기", "S4_협상", "S4_negotiation", "S4_decision", "S4_closed_won"],
         "S5_계약완료": ["S5_계약완료", "S5_계약 완료", "S5_complete", "S5_contract"],
         "S6_종료": ["S6_종료", "S6_complete", "S6_closed"],
+        "S7_재접촉": ["S7_재접촉", "S7_recontact"],
       }
 
       // 선택된 단계에 해당하는 모든 가능한 DB 값 확인
@@ -973,6 +975,16 @@ export default function ClientsPage() {
                             S6_종료
                           </label>
                         </div>
+                        <div className="flex items-center space-x-2">
+                          <Checkbox
+                            id="stage-S7"
+                            checked={selectedStages.includes("S7_재접촉")}
+                            onCheckedChange={() => toggleStage("S7_재접촉")}
+                          />
+                          <label htmlFor="stage-S7" className="text-sm leading-none flex-1 cursor-pointer">
+                            S7_재접촉
+                          </label>
+                        </div>
                       </div>
                     </div>
                   </div>
@@ -992,39 +1004,62 @@ export default function ClientsPage() {
                 </Button>
               )}
             </div>
+
+            {/* 목록 개수 표시 */}
+            <div className="flex items-center justify-between mt-4 pt-4 border-t">
+              <div className="text-sm text-muted-foreground">
+                {hasActiveFilters ? (
+                  <>
+                    전체 <span className="font-semibold text-foreground">{deals.length}</span>개 중{" "}
+                    <span className="font-semibold text-primary">{filteredDeals.length}</span>개 표시
+                  </>
+                ) : (
+                  <>
+                    전체 <span className="font-semibold text-foreground">{deals.length}</span>개
+                  </>
+                )}
+              </div>
+            </div>
           </div>
 
-          <Card>
-            <CardContent className="p-0">
-              <div className="rounded-lg border bg-card p-6">
-                <Table>
+          <div className="rounded-lg border bg-card p-4 overflow-x-auto">
+                <Table className="min-w-[950px]">
                   <TableHeader>
                     <TableRow>
                       {columnOrder.map((column) => (
                         <TableHead
                           key={column.id}
-                          className="text-center select-none hover:bg-muted/50 cursor-pointer"
-                          onClick={() => handleColumnSort(column.id)}
+                          className={cn(
+                            "text-center select-none",
+                            column.id === "rowNumber" 
+                              ? "w-12 text-xs" 
+                              : "hover:bg-muted/50 cursor-pointer"
+                          )}
+                          onClick={() => column.id !== "rowNumber" && handleColumnSort(column.id)}
                         >
-                          <div className="flex items-center justify-center gap-1">
-                            {column.label}
-                            {columnSort?.column === column.id ? (
-                              columnSort.direction === 'asc' ? (
-                                <ArrowUp className="h-4 w-4 text-primary" />
+                          {column.id === "rowNumber" ? (
+                            <span className="text-muted-foreground">{column.label}</span>
+                          ) : (
+                            <div className="flex items-center justify-center gap-1">
+                              {column.label}
+                              {columnSort?.column === column.id ? (
+                                columnSort.direction === 'asc' ? (
+                                  <ArrowUp className="h-4 w-4 text-primary" />
+                                ) : (
+                                  <ArrowDown className="h-4 w-4 text-primary" />
+                                )
                               ) : (
-                                <ArrowDown className="h-4 w-4 text-primary" />
-                              )
-                            ) : (
-                              <ArrowUpDown className="h-3 w-3 text-muted-foreground opacity-50" />
-                            )}
-                          </div>
+                                <ArrowUpDown className="h-3 w-3 text-muted-foreground opacity-50" />
+                              )}
+                            </div>
+                          )}
                         </TableHead>
                       ))}
                       <TableHead className="w-[50px]"></TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {filteredDeals.map((deal) => {
+                    {filteredDeals.map((deal, index) => {
                       const nextContactStatus = getNextContactStatus(deal.nextContact)
                       return (
                         <TableRow
@@ -1033,8 +1068,16 @@ export default function ClientsPage() {
                           onClick={() => router.push(`/clients/${deal.id}?tab=activity`)}
                         >
                           {columnOrder.map((column) => (
-                            <TableCell key={column.id} className="text-center">
-                              {renderCell(column.id, deal, nextContactStatus)}
+                            <TableCell 
+                              key={column.id} 
+                              className={cn(
+                                "text-center",
+                                column.id === "rowNumber" && "w-12 text-xs text-muted-foreground"
+                              )}
+                            >
+                              {column.id === "rowNumber" 
+                                ? index + 1 
+                                : renderCell(column.id, deal, nextContactStatus)}
                             </TableCell>
                           ))}
                           <TableCell>
@@ -1062,9 +1105,7 @@ export default function ClientsPage() {
                     })}
                   </TableBody>
                 </Table>
-              </div>
-            </CardContent>
-          </Card>
+          </div>
         </main>
       </div>
 

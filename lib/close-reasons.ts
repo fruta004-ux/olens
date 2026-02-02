@@ -25,6 +25,7 @@ export const CLOSE_REASONS: CloseReason[] = [
   { code: 'C07', reason: '연락 두절', category: 'C' },
   { code: 'C08', reason: '니즈 불일치', category: 'C' },
   { code: 'C09', reason: '프로젝트 취소', category: 'C' },
+  { code: 'C10', reason: '시장조사', category: 'C' },
   
   // P - Price (가격 사유)
   { code: 'P01', reason: '가격 부담', category: 'P' },

@@ -1294,10 +1294,19 @@ function DealDetailPageClient({ dealId }: { dealId: string }) {
             >
               <option value="S0_new_lead">S0_신규 유입</option>
               <option value="S1_qualified">S1_유효 리드</option>
+              {/* 레거시 값 지원 */}
+              <option value="S2_contact">S2_상담 완료</option>
               <option value="S2_consultation">S2_상담 완료</option>
               <option value="S3_proposal">S3_제안 발송</option>
+              {/* 레거시 값 지원 */}
+              <option value="S4_negotiation">S4_결정 대기</option>
               <option value="S4_decision">S4_결정 대기</option>
+              <option value="S4_closed_won">S4_결정 대기</option>
+              {/* 레거시 값 지원 */}
+              <option value="S5_contract">S5_계약완료</option>
               <option value="S5_complete">S5_계약완료</option>
+              {/* 레거시 값 지원 */}
+              <option value="S6_closed">S6_종료</option>
               <option value="S6_complete">S6_종료</option>
               <option value="S7_recontact">S7_재접촉</option>
             </select>
