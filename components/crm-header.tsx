@@ -76,17 +76,15 @@ export function CrmHeader() {
         const supabase = createBrowserClient()
         const search = searchTerm.toLowerCase()
         
-        // deals 검색
+        // deals 검색 - 전체 데이터 가져오기
         const { data: deals } = await supabase
           .from("deals")
           .select("id, deal_name, stage, account:accounts(company_name)")
-          .limit(10)
         
-        // clients 검색
+        // clients 검색 - 전체 데이터 가져오기
         const { data: clients } = await supabase
           .from("clients")
           .select("id, deal_name, stage, account:accounts(company_name)")
-          .limit(10)
 
         const results: SearchResult[] = []
         
@@ -94,6 +92,8 @@ export function CrmHeader() {
         if (deals) {
           deals.forEach((deal: any) => {
             const name = deal.account?.company_name || deal.deal_name || ""
+            if (!name) return
+            
             const matchesSearch = isChosungSearch(searchTerm)
               ? getChosung(name).includes(searchTerm)
               : name.toLowerCase().includes(search)
@@ -113,6 +113,8 @@ export function CrmHeader() {
         if (clients) {
           clients.forEach((client: any) => {
             const name = client.account?.company_name || client.deal_name || ""
+            if (!name) return
+            
             const matchesSearch = isChosungSearch(searchTerm)
               ? getChosung(name).includes(searchTerm)
               : name.toLowerCase().includes(search)
@@ -128,7 +130,9 @@ export function CrmHeader() {
           })
         }
 
-        setSearchResults(results.slice(0, 10))
+        // 이름순 정렬 후 최대 15개 표시
+        results.sort((a, b) => a.name.localeCompare(b.name, 'ko'))
+        setSearchResults(results.slice(0, 15))
         setShowResults(true)
       } catch (error) {
         console.error("[CrmHeader] 검색 오류:", error)

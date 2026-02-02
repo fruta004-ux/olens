@@ -208,6 +208,8 @@ export default function DealsPage() {
     return []
   })
   const [settingsSourceOptions, setSettingsSourceOptions] = useState<string[]>([])
+  const [dateRangeStart, setDateRangeStart] = useState<string>("")
+  const [dateRangeEnd, setDateRangeEnd] = useState<string>("")
   const [isAddDealOpen, setIsAddDealOpen] = useState(false)
   const [activeTab, setActiveTab] = useState("all")
 
@@ -615,6 +617,8 @@ export default function DealsPage() {
     setSelectedNeeds([])
     setSelectedCompanies([])
     setSelectedSources([])
+    setDateRangeStart("")
+    setDateRangeEnd("")
     setSearchTerm("")
     setColumnSort(null)
     if (typeof window !== "undefined") {
@@ -628,7 +632,7 @@ export default function DealsPage() {
   }
 
   // 필터가 적용되어 있는지 확인
-  const hasActiveFilters = selectedStages.length > 0 || selectedAmounts.length > 0 || selectedContacts.length > 0 || selectedNeeds.length > 0 || selectedCompanies.length > 0 || selectedSources.length > 0 || searchTerm.length > 0
+  const hasActiveFilters = selectedStages.length > 0 || selectedAmounts.length > 0 || selectedContacts.length > 0 || selectedNeeds.length > 0 || selectedCompanies.length > 0 || selectedSources.length > 0 || dateRangeStart || dateRangeEnd || searchTerm.length > 0
 
   const filterByAmount = (deals: typeof dealsWithDisplayData) => {
     if (selectedAmounts.length === 0) return deals
@@ -722,6 +726,28 @@ export default function DealsPage() {
     })
   }
 
+  const filterByDateRange = (deals: typeof dealsWithDisplayData) => {
+    if (!dateRangeStart && !dateRangeEnd) return deals
+
+    return deals.filter((deal) => {
+      if (deal.firstContact === "-") return false
+      
+      const dealDate = parseLocalDate(deal.firstContact)
+      
+      if (dateRangeStart) {
+        const startDate = parseLocalDate(dateRangeStart)
+        if (dealDate < startDate) return false
+      }
+      
+      if (dateRangeEnd) {
+        const endDate = parseLocalDate(dateRangeEnd)
+        if (dealDate > endDate) return false
+      }
+      
+      return true
+    })
+  }
+
   const filterBySearch = (deals: typeof dealsWithDisplayData) => {
     if (!searchTerm) return deals
     const search = searchTerm.toLowerCase()
@@ -810,7 +836,7 @@ export default function DealsPage() {
     })
   }
 
-  const filteredDeals = sortByColumn(filterBySource(filterByCompany(filterByNeeds(filterBySearch(filterByContact(filterByAmount(filterByStage(dealsWithDisplayData))))))))
+  const filteredDeals = sortByColumn(filterByDateRange(filterBySource(filterByCompany(filterByNeeds(filterBySearch(filterByContact(filterByAmount(filterByStage(dealsWithDisplayData)))))))))
 
   const handleSortChange = (newSortBy: 'nextContact' | 'firstContact') => {
     setSortBy(newSortBy)
@@ -866,10 +892,10 @@ export default function DealsPage() {
             </div>
 
             <div className="flex flex-col xl:flex-row items-stretch xl:items-center gap-3 xl:gap-4">
-              <div className="relative w-full xl:w-48 min-w-0">
+              <div className="relative w-full xl:flex-1 min-w-0">
                 <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
                 <Input
-                  placeholder="검색..."
+                  placeholder="거래 검색..."
                   value={searchTerm}
                   onChange={(e) => setSearchTerm(e.target.value)}
                   className="pl-9"
@@ -1253,8 +1279,8 @@ export default function DealsPage() {
               </div>
             </div>
 
-            {/* 목록 개수 표시 */}
-            <div className="flex items-center justify-between mt-4 pt-4 border-t">
+            {/* 목록 개수 표시 + 날짜 필터 */}
+            <div className="flex items-center justify-between mt-4 pt-4 border-t gap-4">
               <div className="text-sm text-muted-foreground">
                 {hasActiveFilters ? (
                   <>
@@ -1265,6 +1291,39 @@ export default function DealsPage() {
                   <>
                     전체 <span className="font-semibold text-foreground">{deals.length}</span>개
                   </>
+                )}
+              </div>
+              
+              {/* 첫 문의 날짜 범위 필터 */}
+              <div className="flex items-center gap-2 text-sm">
+                <span className="text-muted-foreground whitespace-nowrap">첫 문의:</span>
+                <Input
+                  type="date"
+                  value={dateRangeStart}
+                  onChange={(e) => setDateRangeStart(e.target.value)}
+                  className="w-36 h-8 text-sm"
+                  placeholder="시작일"
+                />
+                <span className="text-muted-foreground">~</span>
+                <Input
+                  type="date"
+                  value={dateRangeEnd}
+                  onChange={(e) => setDateRangeEnd(e.target.value)}
+                  className="w-36 h-8 text-sm"
+                  placeholder="종료일"
+                />
+                {(dateRangeStart || dateRangeEnd) && (
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="h-8 px-2 text-muted-foreground hover:text-foreground"
+                    onClick={() => {
+                      setDateRangeStart("")
+                      setDateRangeEnd("")
+                    }}
+                  >
+                    <X className="h-3 w-3" />
+                  </Button>
                 )}
               </div>
             </div>

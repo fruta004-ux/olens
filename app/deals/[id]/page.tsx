@@ -1286,7 +1286,31 @@ function DealDetailPageClient({ dealId }: { dealId: string }) {
             <label className="text-xs text-muted-foreground">단계</label>
             <select
               className="w-full mt-1 px-3 py-2 text-sm border rounded-md"
-              value={dealData.stage || "S0_new_lead"}
+              value={(() => {
+                // 레거시 stage 값을 표준 값으로 정규화
+                const stage = dealData.stage || "S0_new_lead"
+                const normalize: Record<string, string> = {
+                  // 한글 값 → 영문 키
+                  "S0_신규 유입": "S0_new_lead",
+                  "S1_유효 리드": "S1_qualified",
+                  "S1_유효리드": "S1_qualified",
+                  "S2_상담 완료": "S2_consultation",
+                  "S3_제안 발송": "S3_proposal",
+                  "S4_결정 대기": "S4_decision",
+                  "S4_협상": "S4_decision",
+                  "S5_계약완료": "S5_complete",
+                  "S5_계약 완료": "S5_complete",
+                  "S6_종료": "S6_complete",
+                  "S7_재접촉": "S7_recontact",
+                  // 영문 레거시 값
+                  "S2_contact": "S2_consultation",
+                  "S4_negotiation": "S4_decision",
+                  "S4_closed_won": "S4_decision",
+                  "S5_contract": "S5_complete",
+                  "S6_closed": "S6_complete",
+                }
+                return normalize[stage] || stage
+              })()}
               onChange={(e) => {
                 const newStage = e.target.value
                 handleStageChange(newStage)
@@ -1294,19 +1318,10 @@ function DealDetailPageClient({ dealId }: { dealId: string }) {
             >
               <option value="S0_new_lead">S0_신규 유입</option>
               <option value="S1_qualified">S1_유효 리드</option>
-              {/* 레거시 값 지원 */}
-              <option value="S2_contact">S2_상담 완료</option>
               <option value="S2_consultation">S2_상담 완료</option>
               <option value="S3_proposal">S3_제안 발송</option>
-              {/* 레거시 값 지원 */}
-              <option value="S4_negotiation">S4_결정 대기</option>
               <option value="S4_decision">S4_결정 대기</option>
-              <option value="S4_closed_won">S4_결정 대기</option>
-              {/* 레거시 값 지원 */}
-              <option value="S5_contract">S5_계약완료</option>
               <option value="S5_complete">S5_계약완료</option>
-              {/* 레거시 값 지원 */}
-              <option value="S6_closed">S6_종료</option>
               <option value="S6_complete">S6_종료</option>
               <option value="S7_recontact">S7_재접촉</option>
             </select>
