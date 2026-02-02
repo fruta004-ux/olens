@@ -9,7 +9,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
 import { Checkbox } from "@/components/ui/checkbox"
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu"
-import { Search, Filter, Plus, MoreVertical, Building2, User, AlertCircle, Clock, ArrowUpDown, X, ArrowUp, ArrowDown, FileText } from "lucide-react"
+import { Search, Filter, Plus, MoreVertical, Building2, User, AlertCircle, Clock, ArrowUpDown, X, ArrowUp, ArrowDown, FileText, Share2 } from "lucide-react"
 import { cn } from "@/lib/utils"
 import CrmSidebar from "@/components/crm-sidebar"
 import CrmHeader from "@/components/crm-header"
@@ -199,6 +199,15 @@ export default function DealsPage() {
     return []
   })
   const [settingsNeedsOptions, setSettingsNeedsOptions] = useState<string[]>([])
+  const [isSourceFilterOpen, setIsSourceFilterOpen] = useState(false)
+  const [selectedSources, setSelectedSources] = useState<string[]>(() => {
+    if (typeof window !== "undefined") {
+      const saved = localStorage.getItem("deals-source-filter")
+      return saved ? JSON.parse(saved) : []
+    }
+    return []
+  })
+  const [settingsSourceOptions, setSettingsSourceOptions] = useState<string[]>([])
   const [isAddDealOpen, setIsAddDealOpen] = useState(false)
   const [activeTab, setActiveTab] = useState("all")
 
@@ -367,21 +376,33 @@ export default function DealsPage() {
     loadSettingsNeeds()
   }, [])
 
-  // settings 테이블에서 니즈 축약 목록 로드
+  // settings 테이블에서 니즈 축약 및 유입 경로 목록 로드
   const loadSettingsNeeds = async () => {
     try {
       const supabase = createBrowserClient()
-      const { data, error } = await supabase
+      // 니즈 축약 로드
+      const { data: needsData, error: needsError } = await supabase
         .from("settings")
         .select("value")
         .eq("category", "needs")
         .order("display_order")
       
-      if (!error && data) {
-        setSettingsNeedsOptions(data.map((n) => n.value))
+      if (!needsError && needsData) {
+        setSettingsNeedsOptions(needsData.map((n) => n.value))
+      }
+
+      // 유입 경로 로드
+      const { data: sourceData, error: sourceError } = await supabase
+        .from("settings")
+        .select("value")
+        .eq("category", "source")
+        .order("display_order")
+      
+      if (!sourceError && sourceData) {
+        setSettingsSourceOptions(sourceData.map((s) => s.value))
       }
     } catch (error) {
-      console.error("[v0] 니즈 설정 로드 실패:", error)
+      console.error("[v0] 설정 로드 실패:", error)
     }
   }
 
@@ -439,6 +460,7 @@ export default function DealsPage() {
           nextContact: deal.next_contact_date || null,
           account_id: deal.account_id,
           company: deal.company || "",
+          inflowSource: deal.inflow_source || "",
         }
       })
 
@@ -466,6 +488,7 @@ export default function DealsPage() {
     priority: deal.priority,
     nextContact: deal.nextContact,
     company: deal.company,
+    inflowSource: deal.inflowSource,
   }))
 
   const amountRangeOptions = [
@@ -493,6 +516,13 @@ export default function DealsPage() {
     options.push({ id: "__unclassified__", label: "미분류" })
     return options
   }, [settingsNeedsOptions])
+
+  // settings에서 가져온 유입 경로 목록 + 미분류 옵션
+  const sourceOptions = useMemo(() => {
+    const options = settingsSourceOptions.map(source => ({ id: source, label: source }))
+    options.push({ id: "__unclassified__", label: "미분류" })
+    return options
+  }, [settingsSourceOptions])
 
   // 회사 필터 옵션
   const companyOptions = [
@@ -567,6 +597,16 @@ export default function DealsPage() {
     })
   }
 
+  const toggleSource = (sourceId: string) => {
+    setSelectedSources((prev) => {
+      const newValue = prev.includes(sourceId) ? prev.filter((id) => id !== sourceId) : [...prev, sourceId]
+      if (typeof window !== "undefined") {
+        localStorage.setItem("deals-source-filter", JSON.stringify(newValue))
+      }
+      return newValue
+    })
+  }
+
   // 모든 필터 초기화
   const clearAllFilters = () => {
     setSelectedStages([])
@@ -574,6 +614,7 @@ export default function DealsPage() {
     setSelectedContacts([])
     setSelectedNeeds([])
     setSelectedCompanies([])
+    setSelectedSources([])
     setSearchTerm("")
     setColumnSort(null)
     if (typeof window !== "undefined") {
@@ -582,11 +623,12 @@ export default function DealsPage() {
       localStorage.removeItem("deals-assignee-filter")
       localStorage.removeItem("deals-needs-filter")
       localStorage.removeItem("deals-company-filter")
+      localStorage.removeItem("deals-source-filter")
     }
   }
 
   // 필터가 적용되어 있는지 확인
-  const hasActiveFilters = selectedStages.length > 0 || selectedAmounts.length > 0 || selectedContacts.length > 0 || selectedNeeds.length > 0 || selectedCompanies.length > 0 || searchTerm.length > 0
+  const hasActiveFilters = selectedStages.length > 0 || selectedAmounts.length > 0 || selectedContacts.length > 0 || selectedNeeds.length > 0 || selectedCompanies.length > 0 || selectedSources.length > 0 || searchTerm.length > 0
 
   const filterByAmount = (deals: typeof dealsWithDisplayData) => {
     if (selectedAmounts.length === 0) return deals
@@ -661,6 +703,22 @@ export default function DealsPage() {
       }
       // 일반 회사 필터링
       return selectedCompanies.includes(deal.company)
+    })
+  }
+
+  const filterBySource = (deals: typeof dealsWithDisplayData) => {
+    if (selectedSources.length === 0) return deals
+
+    return deals.filter((deal) => {
+      // 미분류 선택 시: settings에 없는 유입 경로를 가진 거래처
+      if (selectedSources.includes("__unclassified__")) {
+        const isUnclassified = !deal.inflowSource || 
+          deal.inflowSource.trim() === "" ||
+          !settingsSourceOptions.includes(deal.inflowSource)
+        if (isUnclassified) return true
+      }
+      // 일반 유입 경로 필터링
+      return selectedSources.includes(deal.inflowSource)
     })
   }
 
@@ -752,7 +810,7 @@ export default function DealsPage() {
     })
   }
 
-  const filteredDeals = sortByColumn(filterByCompany(filterByNeeds(filterBySearch(filterByContact(filterByAmount(filterByStage(dealsWithDisplayData)))))))
+  const filteredDeals = sortByColumn(filterBySource(filterByCompany(filterByNeeds(filterBySearch(filterByContact(filterByAmount(filterByStage(dealsWithDisplayData))))))))
 
   const handleSortChange = (newSortBy: 'nextContact' | 'firstContact') => {
     setSortBy(newSortBy)
@@ -808,10 +866,10 @@ export default function DealsPage() {
             </div>
 
             <div className="flex flex-col xl:flex-row items-stretch xl:items-center gap-3 xl:gap-4">
-              <div className="relative flex-1 min-w-0">
+              <div className="relative w-full xl:w-48 min-w-0">
                 <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
                 <Input
-                  placeholder="거래 검색..."
+                  placeholder="검색..."
                   value={searchTerm}
                   onChange={(e) => setSearchTerm(e.target.value)}
                   className="pl-9"
@@ -932,6 +990,43 @@ export default function DealsPage() {
                           />
                           <label
                             htmlFor={`needs-${option.id}`}
+                            className="text-sm leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70 cursor-pointer flex-1"
+                          >
+                            {option.label}
+                          </label>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                </PopoverContent>
+              </Popover>
+
+              {/* 유입 경로 필터 */}
+              <Popover open={isSourceFilterOpen} onOpenChange={setIsSourceFilterOpen}>
+                <PopoverTrigger asChild>
+                  <Button variant="outline" className="gap-2 bg-transparent">
+                    <Share2 className="h-4 w-4" />
+                    유입 경로
+                    {selectedSources.length > 0 && (
+                      <Badge variant="secondary" className="ml-1 rounded-full px-2">
+                        {selectedSources.length}
+                      </Badge>
+                    )}
+                  </Button>
+                </PopoverTrigger>
+                <PopoverContent className="w-64" align="start">
+                  <div className="space-y-2">
+                    <div className="font-medium text-sm">유입 경로 선택</div>
+                    <div className="space-y-2 max-h-80 overflow-y-auto">
+                      {sourceOptions.map((option) => (
+                        <div key={option.id} className="flex items-center space-x-2">
+                          <Checkbox
+                            id={`source-${option.id}`}
+                            checked={selectedSources.includes(option.id)}
+                            onCheckedChange={() => toggleSource(option.id)}
+                          />
+                          <label
+                            htmlFor={`source-${option.id}`}
                             className="text-sm leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70 cursor-pointer flex-1"
                           >
                             {option.label}
