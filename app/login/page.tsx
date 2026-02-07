@@ -5,7 +5,8 @@ import { useRouter } from "next/navigation"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { createBrowserClient } from "@/lib/supabase/client"
-import { Loader2, Lock } from "lucide-react"
+import { Loader2 } from "lucide-react"
+import Image from "next/image"
 
 export default function LoginPage() {
   const router = useRouter()
@@ -48,10 +49,16 @@ export default function LoginPage() {
     <div className="flex min-h-screen items-center justify-center bg-background">
       <div className="w-full max-w-sm px-6">
         <div className="mb-8 text-center">
-          <div className="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-full bg-primary/10">
-            <Lock className="h-7 w-7 text-primary" />
+          <div className="mx-auto mb-4 flex h-16 w-16 items-center justify-center">
+            <Image
+              src="/icon.svg"
+              alt="Olens"
+              width={64}
+              height={64}
+              className="rounded-xl"
+            />
           </div>
-          <h1 className="text-2xl font-bold">SalesCRM</h1>
+          <h1 className="text-2xl font-bold">Olens</h1>
           <p className="mt-1 text-sm text-muted-foreground">로그인하여 시작하세요</p>
         </div>
 

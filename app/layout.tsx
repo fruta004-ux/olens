@@ -5,9 +5,16 @@ import { LayoutWrapper } from "@/components/layout-wrapper"
 import "./globals.css"
 
 export const metadata: Metadata = {
-  title: "SalesCRM - 영업 관리 시스템",
-  description: "효율적인 영업 관리를 위한 CRM",
-  generator: "v0.app",
+  title: "Olens - 영업 관리 시스템",
+  description: "Olens CRM",
+  robots: {
+    index: false,
+    follow: false,
+    googleBot: {
+      index: false,
+      follow: false,
+    },
+  },
   icons: {
     icon: [
       {
