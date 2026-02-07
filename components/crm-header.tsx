@@ -3,13 +3,14 @@
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Avatar, AvatarFallback } from "@/components/ui/avatar"
-import { Search, Bell, PhoneIncoming, Plus, Lock, Building2, Loader2 } from "lucide-react"
+import { Search, Bell, PhoneIncoming, Plus, Lock, Building2, Loader2, LogOut } from "lucide-react"
 import { useState, useEffect, useRef } from "react"
 import { useRouter } from "next/navigation"
 import { QuickMemoDialog } from "@/components/quick-memo-dialog"
 import { CrmQuickRegisterDialog } from "@/components/crm-quick-register-dialog"
 import { createBrowserClient } from "@/lib/supabase/client"
 import { cn } from "@/lib/utils"
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger, DropdownMenuSeparator } from "@/components/ui/dropdown-menu"
 
 // 초성 검색 관련 함수
 const getChosung = (str: string) => {
@@ -43,6 +44,29 @@ export function CrmHeader() {
   const [quickMemoOpen, setQuickMemoOpen] = useState(false)
   const [quickRegisterOpen, setQuickRegisterOpen] = useState(false)
   
+  // 사용자 정보
+  const [userName, setUserName] = useState<string>("")
+  const [userEmail, setUserEmail] = useState<string>("")
+
+  useEffect(() => {
+    const loadUser = async () => {
+      const supabase = createBrowserClient()
+      const { data: { user } } = await supabase.auth.getUser()
+      if (user) {
+        setUserName(user.user_metadata?.name || user.email?.split("@")[0] || "")
+        setUserEmail(user.email || "")
+      }
+    }
+    loadUser()
+  }, [])
+
+  const handleLogout = async () => {
+    const supabase = createBrowserClient()
+    await supabase.auth.signOut()
+    router.push("/login")
+    router.refresh()
+  }
+
   // 검색 관련 상태
   const [searchTerm, setSearchTerm] = useState("")
   const [searchResults, setSearchResults] = useState<SearchResult[]>([])
@@ -247,12 +271,28 @@ export function CrmHeader() {
             <Lock className="absolute right-1.5 top-1.5 h-3 w-3" />
           </Button>
 
-          <div className="relative opacity-50 cursor-not-allowed">
-            <Avatar>
-              <AvatarFallback className="bg-muted text-muted-foreground">JS</AvatarFallback>
-            </Avatar>
-            <Lock className="absolute right-0 bottom-0 h-3 w-3 bg-card rounded-full p-0.5" />
-          </div>
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <button className="flex items-center gap-2 cursor-pointer rounded-full hover:opacity-80 transition-opacity">
+                <Avatar>
+                  <AvatarFallback className="bg-primary/10 text-primary font-semibold">
+                    {userName ? userName.charAt(0) : "?"}
+                  </AvatarFallback>
+                </Avatar>
+              </button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" className="w-56">
+              <div className="px-3 py-2">
+                <p className="text-sm font-medium">{userName || "사용자"}</p>
+                <p className="text-xs text-muted-foreground">{userEmail}</p>
+              </div>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem onClick={handleLogout} className="text-destructive cursor-pointer">
+                <LogOut className="mr-2 h-4 w-4" />
+                로그아웃
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
         </div>
       </header>
 
