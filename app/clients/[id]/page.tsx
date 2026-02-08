@@ -32,9 +32,20 @@ import {
   ArrowUpDown,
   ArrowUp,
   ArrowDown,
+  Briefcase,
+  TrendingUp,
+  AlertTriangle,
+  Edit,
 } from "lucide-react"
 import Link from "next/link"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogFooter,
+} from "@/components/ui/dialog"
 import { useState, useEffect, useCallback } from "react" // useMemo 추가
 import { Popover, PopoverContent } from "@/components/ui/popover"
 import { Calendar as CalendarComponent } from "@/components/ui/calendar" // CalendarComponent 이름 변경
@@ -215,6 +226,38 @@ function ClientDetailPageClient({ clientId }: { clientId: string }) {
   const [showCloseReasonDialog, setShowCloseReasonDialog] = useState(false)
   const [pendingStageChange, setPendingStageChange] = useState<string | null>(null)
 
+  // 계약 이력 상태
+  const [contracts, setContracts] = useState<any[]>([])
+  const [showContractDialog, setShowContractDialog] = useState(false)
+  const [editingContract, setEditingContract] = useState<any>(null)
+  const [contractForm, setContractForm] = useState({
+    service_type: "",
+    contract_name: "",
+    contract_amount: "",
+    contract_date: "",
+    start_date: "",
+    end_date: "",
+    status: "진행중",
+    notes: "",
+  })
+  const [serviceTypeOptions, setServiceTypeOptions] = useState<string[]>([])
+
+  // 영업 기회 상태
+  const [opportunities, setOpportunities] = useState<any[]>([])
+  const [showOpportunityDialog, setShowOpportunityDialog] = useState(false)
+  const [editingOpportunity, setEditingOpportunity] = useState<any>(null)
+  const [opportunityForm, setOpportunityForm] = useState({
+    opportunity_type: "업셀",
+    title: "",
+    description: "",
+    expected_amount: "",
+    probability: "중간",
+    target_date: "",
+    status: "발굴",
+    related_contract_id: "",
+    notes: "",
+  })
+
   const supabase = createBrowserClient() // supabase 클라이언트 한번만 생성
 
   // resolvedId를 useEffect 외부에서 선언
@@ -332,12 +375,15 @@ function ClientDetailPageClient({ clientId }: { clientId: string }) {
         setSourceOptions(data.filter((s) => s.category === "source").map((s) => s.value))
         setChannelOptions(data.filter((s) => s.category === "channel").map((s) => s.value))
         setGradeOptions(data.filter((s) => s.category === "grade").map((s) => s.value))
+        setServiceTypeOptions(data.filter((s) => s.category === "service_type").map((s) => s.value))
       }
     }
 
     fetchSettings() // settings 로드
     loadDealData() // deal 데이터 로드
-  }, [resolvedId, supabase, clientId]) // resolvedId, supabase, clientId 변경 시 다시 로드
+    loadContracts() // 계약 이력 로드
+    loadOpportunities() // 영업 기회 로드
+  }, [resolvedId, supabase, clientId, loadContracts, loadOpportunities]) // resolvedId, supabase, clientId 변경 시 다시 로드
 
   // Activities 아이콘 매핑 함수
   const getActivityIcon = (type: string) => {
@@ -777,6 +823,292 @@ function ClientDetailPageClient({ clientId }: { clientId: string }) {
     setEditingActivity({})
   }
 
+  // === 계약 이력 CRUD ===
+  const loadContracts = useCallback(async () => {
+    const { data, error } = await supabase
+      .from("client_contracts")
+      .select("*")
+      .eq("client_id", resolvedId)
+      .order("contract_date", { ascending: false })
+
+    if (error) {
+      console.error("계약 이력 로드 오류:", error)
+      return
+    }
+    setContracts(data || [])
+  }, [resolvedId, supabase])
+
+  const resetContractForm = () => {
+    setContractForm({
+      service_type: "",
+      contract_name: "",
+      contract_amount: "",
+      contract_date: "",
+      start_date: "",
+      end_date: "",
+      status: "진행중",
+      notes: "",
+    })
+    setEditingContract(null)
+  }
+
+  const handleSaveContract = async () => {
+    if (!contractForm.contract_name.trim()) {
+      alert("계약명을 입력해주세요.")
+      return
+    }
+
+    const payload = {
+      client_id: resolvedId,
+      service_type: contractForm.service_type || null,
+      contract_name: contractForm.contract_name,
+      contract_amount: contractForm.contract_amount || null,
+      contract_date: contractForm.contract_date || null,
+      start_date: contractForm.start_date || null,
+      end_date: contractForm.end_date || null,
+      status: contractForm.status,
+      notes: contractForm.notes || null,
+    }
+
+    if (editingContract) {
+      const { error } = await supabase
+        .from("client_contracts")
+        .update(payload)
+        .eq("id", editingContract.id)
+
+      if (error) {
+        console.error("계약 수정 오류:", error)
+        alert("계약 수정에 실패했습니다.")
+        return
+      }
+      alert("계약이 수정되었습니다.")
+    } else {
+      const { error } = await supabase
+        .from("client_contracts")
+        .insert(payload)
+
+      if (error) {
+        console.error("계약 추가 오류:", error)
+        alert("계약 추가에 실패했습니다.")
+        return
+      }
+      alert("계약이 추가되었습니다.")
+    }
+
+    setShowContractDialog(false)
+    resetContractForm()
+    loadContracts()
+  }
+
+  const handleEditContract = (contract: any) => {
+    setEditingContract(contract)
+    setContractForm({
+      service_type: contract.service_type || "",
+      contract_name: contract.contract_name || "",
+      contract_amount: contract.contract_amount || "",
+      contract_date: contract.contract_date || "",
+      start_date: contract.start_date || "",
+      end_date: contract.end_date || "",
+      status: contract.status || "진행중",
+      notes: contract.notes || "",
+    })
+    setShowContractDialog(true)
+  }
+
+  const handleDeleteContract = async (contractId: string) => {
+    if (!confirm("이 계약을 삭제하시겠습니까?")) return
+
+    const { error } = await supabase
+      .from("client_contracts")
+      .delete()
+      .eq("id", contractId)
+
+    if (error) {
+      console.error("계약 삭제 오류:", error)
+      alert("계약 삭제에 실패했습니다.")
+      return
+    }
+    alert("계약이 삭제되었습니다.")
+    loadContracts()
+  }
+
+  // === 영업 기회 CRUD ===
+  const loadOpportunities = useCallback(async () => {
+    const { data, error } = await supabase
+      .from("client_opportunities")
+      .select("*, related_contract:client_contracts!related_contract_id(id, contract_name)")
+      .eq("client_id", resolvedId)
+      .order("created_at", { ascending: false })
+
+    if (error) {
+      console.error("영업 기회 로드 오류:", error)
+      return
+    }
+    setOpportunities(data || [])
+  }, [resolvedId, supabase])
+
+  const resetOpportunityForm = () => {
+    setOpportunityForm({
+      opportunity_type: "업셀",
+      title: "",
+      description: "",
+      expected_amount: "",
+      probability: "중간",
+      target_date: "",
+      status: "발굴",
+      related_contract_id: "",
+      notes: "",
+    })
+    setEditingOpportunity(null)
+  }
+
+  const handleSaveOpportunity = async () => {
+    if (!opportunityForm.title.trim()) {
+      alert("기회 제목을 입력해주세요.")
+      return
+    }
+
+    const payload = {
+      client_id: resolvedId,
+      opportunity_type: opportunityForm.opportunity_type,
+      title: opportunityForm.title,
+      description: opportunityForm.description || null,
+      expected_amount: opportunityForm.expected_amount || null,
+      probability: opportunityForm.probability,
+      target_date: opportunityForm.target_date || null,
+      status: opportunityForm.status,
+      related_contract_id: opportunityForm.related_contract_id || null,
+      notes: opportunityForm.notes || null,
+    }
+
+    if (editingOpportunity) {
+      const { error } = await supabase
+        .from("client_opportunities")
+        .update(payload)
+        .eq("id", editingOpportunity.id)
+
+      if (error) {
+        console.error("영업 기회 수정 오류:", error)
+        alert("영업 기회 수정에 실패했습니다.")
+        return
+      }
+      alert("영업 기회가 수정되었습니다.")
+    } else {
+      const { error } = await supabase
+        .from("client_opportunities")
+        .insert(payload)
+
+      if (error) {
+        console.error("영업 기회 추가 오류:", error)
+        alert("영업 기회 추가에 실패했습니다.")
+        return
+      }
+      alert("영업 기회가 추가되었습니다.")
+    }
+
+    setShowOpportunityDialog(false)
+    resetOpportunityForm()
+    loadOpportunities()
+  }
+
+  const handleEditOpportunity = (opp: any) => {
+    setEditingOpportunity(opp)
+    setOpportunityForm({
+      opportunity_type: opp.opportunity_type || "업셀",
+      title: opp.title || "",
+      description: opp.description || "",
+      expected_amount: opp.expected_amount || "",
+      probability: opp.probability || "중간",
+      target_date: opp.target_date || "",
+      status: opp.status || "발굴",
+      related_contract_id: opp.related_contract_id || "",
+      notes: opp.notes || "",
+    })
+    setShowOpportunityDialog(true)
+  }
+
+  const handleDeleteOpportunity = async (oppId: string) => {
+    if (!confirm("이 영업 기회를 삭제하시겠습니까?")) return
+
+    const { error } = await supabase
+      .from("client_opportunities")
+      .delete()
+      .eq("id", oppId)
+
+    if (error) {
+      console.error("영업 기회 삭제 오류:", error)
+      alert("영업 기회 삭제에 실패했습니다.")
+      return
+    }
+    alert("영업 기회가 삭제되었습니다.")
+    loadOpportunities()
+  }
+
+  // 만료 임박 판단 (30일 이내)
+  const isExpiringContract = (endDate: string) => {
+    if (!endDate) return false
+    const end = parseLocalDate(endDate)
+    const now = new Date()
+    const diffDays = Math.ceil((end.getTime() - now.getTime()) / (1000 * 60 * 60 * 24))
+    return diffDays >= 0 && diffDays <= 30
+  }
+
+  const isExpiredContract = (endDate: string) => {
+    if (!endDate) return false
+    const end = parseLocalDate(endDate)
+    const now = new Date()
+    return end.getTime() < now.getTime()
+  }
+
+  const getOpportunityTypeBadge = (type: string) => {
+    switch (type) {
+      case "업셀":
+        return <Badge className="bg-orange-100 text-orange-700 hover:bg-orange-100">업셀</Badge>
+      case "크로스셀":
+        return <Badge className="bg-blue-100 text-blue-700 hover:bg-blue-100">크로스셀</Badge>
+      case "재계약":
+        return <Badge className="bg-green-100 text-green-700 hover:bg-green-100">재계약</Badge>
+      default:
+        return <Badge>{type}</Badge>
+    }
+  }
+
+  const getOpportunityStatusBadge = (status: string) => {
+    switch (status) {
+      case "발굴":
+        return <Badge variant="outline" className="border-gray-300 text-gray-600">발굴</Badge>
+      case "제안중":
+        return <Badge variant="outline" className="border-blue-300 text-blue-600">제안중</Badge>
+      case "협상중":
+        return <Badge variant="outline" className="border-yellow-300 text-yellow-600">협상중</Badge>
+      case "성사":
+        return <Badge variant="outline" className="border-green-300 text-green-600">성사</Badge>
+      case "무산":
+        return <Badge variant="outline" className="border-red-300 text-red-600">무산</Badge>
+      default:
+        return <Badge variant="outline">{status}</Badge>
+    }
+  }
+
+  const getContractStatusBadge = (contract: any) => {
+    if (contract.end_date && isExpiredContract(contract.end_date) && contract.status !== "완료") {
+      return <Badge className="bg-red-100 text-red-700 hover:bg-red-100">만료</Badge>
+    }
+    if (contract.end_date && isExpiringContract(contract.end_date) && contract.status === "진행중") {
+      return <Badge className="bg-amber-100 text-amber-700 hover:bg-amber-100">만료 임박</Badge>
+    }
+    switch (contract.status) {
+      case "진행중":
+        return <Badge className="bg-green-100 text-green-700 hover:bg-green-100">진행중</Badge>
+      case "완료":
+        return <Badge className="bg-gray-100 text-gray-600 hover:bg-gray-100">완료</Badge>
+      case "만료":
+        return <Badge className="bg-red-100 text-red-700 hover:bg-red-100">만료</Badge>
+      default:
+        return <Badge variant="outline">{contract.status}</Badge>
+    }
+  }
+
   const handleTabChange = (tab: string) => {
     setActiveTab(tab)
     const newUrl = `/clients/${clientId}${tab === "activity" ? "" : `?tab=${tab}`}`
@@ -956,6 +1288,22 @@ function ClientDetailPageClient({ clientId }: { clientId: string }) {
                     <MessageSquare className="h-4 w-4" />
                     활동
                   </TabsTrigger>
+                  <TabsTrigger value="contracts" className="gap-2">
+                    <Briefcase className="h-4 w-4" />
+                    계약 이력
+                    {contracts.filter(c => c.end_date && isExpiringContract(c.end_date) && c.status === "진행중").length > 0 && (
+                      <span className="ml-1 h-2 w-2 rounded-full bg-amber-500 animate-pulse" />
+                    )}
+                  </TabsTrigger>
+                  <TabsTrigger value="opportunities" className="gap-2">
+                    <TrendingUp className="h-4 w-4" />
+                    영업 기회
+                    {opportunities.filter(o => !["성사", "무산"].includes(o.status)).length > 0 && (
+                      <span className="ml-1 text-xs bg-primary/10 text-primary px-1.5 py-0.5 rounded-full">
+                        {opportunities.filter(o => !["성사", "무산"].includes(o.status)).length}
+                      </span>
+                    )}
+                  </TabsTrigger>
                   <TabsTrigger value="info" className="gap-2">
                     <FileText className="h-4 w-4" />
                     정보
@@ -1037,6 +1385,183 @@ function ClientDetailPageClient({ clientId }: { clientId: string }) {
                           />
                         </div>
                       </div>
+                    </CardContent>
+                  </Card>
+                </TabsContent>
+
+                {/* 계약 이력 탭 */}
+                <TabsContent value="contracts" className="space-y-6">
+                  <Card>
+                    <CardHeader className="flex flex-row items-center justify-between">
+                      <CardTitle>계약 이력</CardTitle>
+                      <Button
+                        size="sm"
+                        onClick={() => {
+                          resetContractForm()
+                          setShowContractDialog(true)
+                        }}
+                      >
+                        <Plus className="mr-2 h-4 w-4" />
+                        계약 추가
+                      </Button>
+                    </CardHeader>
+                    <CardContent>
+                      {contracts.length === 0 ? (
+                        <p className="text-center text-muted-foreground py-8">등록된 계약이 없습니다.</p>
+                      ) : (
+                        <div className="space-y-3">
+                          {contracts.map((contract) => (
+                            <div
+                              key={contract.id}
+                              className={cn(
+                                "border rounded-lg p-4 transition-colors hover:bg-muted/50",
+                                contract.end_date && isExpiringContract(contract.end_date) && contract.status === "진행중"
+                                  ? "border-amber-300 bg-amber-50/50"
+                                  : contract.end_date && isExpiredContract(contract.end_date) && contract.status !== "완료"
+                                  ? "border-red-200 bg-red-50/30"
+                                  : ""
+                              )}
+                            >
+                              <div className="flex items-start justify-between">
+                                <div className="flex-1">
+                                  <div className="flex items-center gap-2 mb-2">
+                                    <h4 className="font-semibold text-foreground">{contract.contract_name}</h4>
+                                    {getContractStatusBadge(contract)}
+                                    {contract.service_type && (
+                                      <Badge variant="outline" className="text-xs">{contract.service_type}</Badge>
+                                    )}
+                                  </div>
+                                  <div className="grid grid-cols-2 gap-x-6 gap-y-1 text-sm text-muted-foreground">
+                                    {contract.contract_amount && (
+                                      <div>금액: <span className="text-foreground font-medium">{contract.contract_amount}</span></div>
+                                    )}
+                                    {contract.contract_date && (
+                                      <div>계약일: {contract.contract_date}</div>
+                                    )}
+                                    {contract.start_date && (
+                                      <div>시작일: {contract.start_date}</div>
+                                    )}
+                                    {contract.end_date && (
+                                      <div className="flex items-center gap-1">
+                                        종료일: {contract.end_date}
+                                        {isExpiringContract(contract.end_date) && contract.status === "진행중" && (
+                                          <AlertTriangle className="h-3.5 w-3.5 text-amber-500" />
+                                        )}
+                                      </div>
+                                    )}
+                                  </div>
+                                  {contract.notes && (
+                                    <p className="text-xs text-muted-foreground mt-2 whitespace-pre-wrap">{contract.notes}</p>
+                                  )}
+                                </div>
+                                <div className="flex gap-1 ml-2">
+                                  <Button
+                                    variant="ghost"
+                                    size="sm"
+                                    className="h-8 w-8 p-0"
+                                    onClick={() => handleEditContract(contract)}
+                                  >
+                                    <Edit className="h-3.5 w-3.5" />
+                                  </Button>
+                                  <Button
+                                    variant="ghost"
+                                    size="sm"
+                                    className="h-8 w-8 p-0 hover:text-destructive"
+                                    onClick={() => handleDeleteContract(contract.id)}
+                                  >
+                                    <Trash2 className="h-3.5 w-3.5" />
+                                  </Button>
+                                </div>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </CardContent>
+                  </Card>
+                </TabsContent>
+
+                {/* 영업 기회 탭 */}
+                <TabsContent value="opportunities" className="space-y-6">
+                  <Card>
+                    <CardHeader className="flex flex-row items-center justify-between">
+                      <CardTitle>영업 기회</CardTitle>
+                      <Button
+                        size="sm"
+                        onClick={() => {
+                          resetOpportunityForm()
+                          setShowOpportunityDialog(true)
+                        }}
+                      >
+                        <Plus className="mr-2 h-4 w-4" />
+                        기회 추가
+                      </Button>
+                    </CardHeader>
+                    <CardContent>
+                      {opportunities.length === 0 ? (
+                        <p className="text-center text-muted-foreground py-8">등록된 영업 기회가 없습니다.</p>
+                      ) : (
+                        <div className="space-y-3">
+                          {opportunities.map((opp) => (
+                            <div
+                              key={opp.id}
+                              className="border rounded-lg p-4 transition-colors hover:bg-muted/50"
+                            >
+                              <div className="flex items-start justify-between">
+                                <div className="flex-1">
+                                  <div className="flex items-center gap-2 mb-2">
+                                    <h4 className="font-semibold text-foreground">{opp.title}</h4>
+                                    {getOpportunityTypeBadge(opp.opportunity_type)}
+                                    {getOpportunityStatusBadge(opp.status)}
+                                  </div>
+                                  {opp.description && (
+                                    <p className="text-sm text-muted-foreground mb-2 whitespace-pre-wrap">{opp.description}</p>
+                                  )}
+                                  <div className="grid grid-cols-2 gap-x-6 gap-y-1 text-sm text-muted-foreground">
+                                    {opp.expected_amount && (
+                                      <div>예상 금액: <span className="text-foreground font-medium">{opp.expected_amount}</span></div>
+                                    )}
+                                    <div>가능성: <span className={cn(
+                                      "font-medium",
+                                      opp.probability === "높음" ? "text-green-600" : opp.probability === "중간" ? "text-yellow-600" : "text-red-600"
+                                    )}>{opp.probability}</span></div>
+                                    {opp.target_date && (
+                                      <div>목표 시기: {opp.target_date}</div>
+                                    )}
+                                    {opp.related_contract?.contract_name && (
+                                      <div className="flex items-center gap-1">
+                                        <Briefcase className="h-3 w-3" />
+                                        연관 계약: {opp.related_contract.contract_name}
+                                      </div>
+                                    )}
+                                  </div>
+                                  {opp.notes && (
+                                    <p className="text-xs text-muted-foreground mt-2 whitespace-pre-wrap">{opp.notes}</p>
+                                  )}
+                                </div>
+                                <div className="flex gap-1 ml-2">
+                                  <Button
+                                    variant="ghost"
+                                    size="sm"
+                                    className="h-8 w-8 p-0"
+                                    onClick={() => handleEditOpportunity(opp)}
+                                  >
+                                    <Edit className="h-3.5 w-3.5" />
+                                  </Button>
+                                  <Button
+                                    variant="ghost"
+                                    size="sm"
+                                    className="h-8 w-8 p-0 hover:text-destructive"
+                                    onClick={() => handleDeleteOpportunity(opp.id)}
+                                  >
+                                    <Trash2 className="h-3.5 w-3.5" />
+                                  </Button>
+                                </div>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      )}
                     </CardContent>
                   </Card>
                 </TabsContent>
@@ -1932,6 +2457,241 @@ function ClientDetailPageClient({ clientId }: { clientId: string }) {
         onConfirm={handleCloseReasonConfirm}
         dealName={dealData.deal_name}
       />
+
+      {/* 계약 추가/수정 다이얼로그 */}
+      <Dialog open={showContractDialog} onOpenChange={(open) => {
+        setShowContractDialog(open)
+        if (!open) resetContractForm()
+      }}>
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <DialogTitle>{editingContract ? "계약 수정" : "계약 추가"}</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4 py-4">
+            <div className="space-y-2">
+              <Label>계약명 *</Label>
+              <Input
+                value={contractForm.contract_name}
+                onChange={(e) => setContractForm(prev => ({ ...prev, contract_name: e.target.value }))}
+                placeholder="계약명을 입력하세요"
+              />
+            </div>
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label>서비스 종류</Label>
+                <select
+                  className="w-full px-3 py-2 text-sm border rounded-md bg-background"
+                  value={contractForm.service_type}
+                  onChange={(e) => setContractForm(prev => ({ ...prev, service_type: e.target.value }))}
+                >
+                  <option value="">선택하세요</option>
+                  {serviceTypeOptions.map((type) => (
+                    <option key={type} value={type}>{type}</option>
+                  ))}
+                </select>
+              </div>
+              <div className="space-y-2">
+                <Label>계약 금액</Label>
+                <Input
+                  value={contractForm.contract_amount}
+                  onChange={(e) => {
+                    const formatted = formatNumberWithCommas(e.target.value)
+                    setContractForm(prev => ({ ...prev, contract_amount: formatted }))
+                  }}
+                  placeholder="예: 10,000,000"
+                />
+              </div>
+            </div>
+            <div className="grid grid-cols-3 gap-4">
+              <div className="space-y-2">
+                <Label>계약일</Label>
+                <Input
+                  type="date"
+                  value={contractForm.contract_date}
+                  onChange={(e) => setContractForm(prev => ({ ...prev, contract_date: e.target.value }))}
+                />
+              </div>
+              <div className="space-y-2">
+                <Label>시작일</Label>
+                <Input
+                  type="date"
+                  value={contractForm.start_date}
+                  onChange={(e) => setContractForm(prev => ({ ...prev, start_date: e.target.value }))}
+                />
+              </div>
+              <div className="space-y-2">
+                <Label>종료일</Label>
+                <Input
+                  type="date"
+                  value={contractForm.end_date}
+                  onChange={(e) => setContractForm(prev => ({ ...prev, end_date: e.target.value }))}
+                />
+              </div>
+            </div>
+            <div className="space-y-2">
+              <Label>상태</Label>
+              <select
+                className="w-full px-3 py-2 text-sm border rounded-md bg-background"
+                value={contractForm.status}
+                onChange={(e) => setContractForm(prev => ({ ...prev, status: e.target.value }))}
+              >
+                <option value="진행중">진행중</option>
+                <option value="완료">완료</option>
+                <option value="만료">만료</option>
+              </select>
+            </div>
+            <div className="space-y-2">
+              <Label>메모</Label>
+              <Textarea
+                value={contractForm.notes}
+                onChange={(e) => setContractForm(prev => ({ ...prev, notes: e.target.value }))}
+                placeholder="메모를 입력하세요"
+                rows={3}
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => {
+              setShowContractDialog(false)
+              resetContractForm()
+            }}>
+              취소
+            </Button>
+            <Button onClick={handleSaveContract}>
+              {editingContract ? "수정" : "추가"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* 영업 기회 추가/수정 다이얼로그 */}
+      <Dialog open={showOpportunityDialog} onOpenChange={(open) => {
+        setShowOpportunityDialog(open)
+        if (!open) resetOpportunityForm()
+      }}>
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <DialogTitle>{editingOpportunity ? "영업 기회 수정" : "영업 기회 추가"}</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4 py-4">
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label>기회 유형 *</Label>
+                <select
+                  className="w-full px-3 py-2 text-sm border rounded-md bg-background"
+                  value={opportunityForm.opportunity_type}
+                  onChange={(e) => setOpportunityForm(prev => ({ ...prev, opportunity_type: e.target.value }))}
+                >
+                  <option value="업셀">업셀</option>
+                  <option value="크로스셀">크로스셀</option>
+                  <option value="재계약">재계약</option>
+                </select>
+              </div>
+              <div className="space-y-2">
+                <Label>상태</Label>
+                <select
+                  className="w-full px-3 py-2 text-sm border rounded-md bg-background"
+                  value={opportunityForm.status}
+                  onChange={(e) => setOpportunityForm(prev => ({ ...prev, status: e.target.value }))}
+                >
+                  <option value="발굴">발굴</option>
+                  <option value="제안중">제안중</option>
+                  <option value="협상중">협상중</option>
+                  <option value="성사">성사</option>
+                  <option value="무산">무산</option>
+                </select>
+              </div>
+            </div>
+            <div className="space-y-2">
+              <Label>기회 제목 *</Label>
+              <Input
+                value={opportunityForm.title}
+                onChange={(e) => setOpportunityForm(prev => ({ ...prev, title: e.target.value }))}
+                placeholder="예: 모바일 앱 추가 개발"
+              />
+            </div>
+            <div className="space-y-2">
+              <Label>상세 내용</Label>
+              <Textarea
+                value={opportunityForm.description}
+                onChange={(e) => setOpportunityForm(prev => ({ ...prev, description: e.target.value }))}
+                placeholder="기회에 대한 상세 설명"
+                rows={3}
+              />
+            </div>
+            <div className="grid grid-cols-3 gap-4">
+              <div className="space-y-2">
+                <Label>예상 금액</Label>
+                <Input
+                  value={opportunityForm.expected_amount}
+                  onChange={(e) => {
+                    const formatted = formatNumberWithCommas(e.target.value)
+                    setOpportunityForm(prev => ({ ...prev, expected_amount: formatted }))
+                  }}
+                  placeholder="예: 5,000,000"
+                />
+              </div>
+              <div className="space-y-2">
+                <Label>가능성</Label>
+                <select
+                  className="w-full px-3 py-2 text-sm border rounded-md bg-background"
+                  value={opportunityForm.probability}
+                  onChange={(e) => setOpportunityForm(prev => ({ ...prev, probability: e.target.value }))}
+                >
+                  <option value="높음">높음</option>
+                  <option value="중간">중간</option>
+                  <option value="낮음">낮음</option>
+                </select>
+              </div>
+              <div className="space-y-2">
+                <Label>목표 시기</Label>
+                <Input
+                  type="date"
+                  value={opportunityForm.target_date}
+                  onChange={(e) => setOpportunityForm(prev => ({ ...prev, target_date: e.target.value }))}
+                />
+              </div>
+            </div>
+            {contracts.length > 0 && (
+              <div className="space-y-2">
+                <Label>연관 계약</Label>
+                <select
+                  className="w-full px-3 py-2 text-sm border rounded-md bg-background"
+                  value={opportunityForm.related_contract_id}
+                  onChange={(e) => setOpportunityForm(prev => ({ ...prev, related_contract_id: e.target.value }))}
+                >
+                  <option value="">선택하세요 (선택사항)</option>
+                  {contracts.map((contract) => (
+                    <option key={contract.id} value={contract.id}>
+                      {contract.contract_name} {contract.service_type ? `(${contract.service_type})` : ""}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            )}
+            <div className="space-y-2">
+              <Label>메모</Label>
+              <Textarea
+                value={opportunityForm.notes}
+                onChange={(e) => setOpportunityForm(prev => ({ ...prev, notes: e.target.value }))}
+                placeholder="메모를 입력하세요"
+                rows={3}
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => {
+              setShowOpportunityDialog(false)
+              resetOpportunityForm()
+            }}>
+              취소
+            </Button>
+            <Button onClick={handleSaveOpportunity}>
+              {editingOpportunity ? "수정" : "추가"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }

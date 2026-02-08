@@ -359,18 +359,43 @@ export default function ClientsPage() {
   const loadDeals = async () => {
     try {
       const supabase = createBrowserClient()
-      const { data, error } = await supabase
-        .from("clients")
-        .select(`
-          *,
-          account:accounts(company_name, industry),
-          contact:contacts(name, email)
-        `)
-        .order("next_contact_date", { ascending: true })
+      const [clientsResult, contractsResult] = await Promise.all([
+        supabase
+          .from("clients")
+          .select(`
+            *,
+            account:accounts(company_name, industry),
+            contact:contacts(name, email)
+          `)
+          .order("next_contact_date", { ascending: true }),
+        supabase
+          .from("client_contracts")
+          .select("client_id, end_date, status")
+          .eq("status", "진행중")
+      ])
 
-      if (error) throw error
+      if (clientsResult.error) throw clientsResult.error
 
-      const dealsData = data.map((deal: any) => {
+      // 계약 만료 임박 정보를 client_id별로 매핑
+      const now = new Date()
+      const contractExpiryMap: Record<string, { hasExpiring: boolean; expiringCount: number }> = {}
+      if (contractsResult.data) {
+        contractsResult.data.forEach((contract: any) => {
+          if (!contract.end_date) return
+          const endDate = parseLocalDate(contract.end_date)
+          const diffDays = Math.ceil((endDate.getTime() - now.getTime()) / (1000 * 60 * 60 * 24))
+          if (diffDays >= 0 && diffDays <= 30) {
+            if (!contractExpiryMap[contract.client_id]) {
+              contractExpiryMap[contract.client_id] = { hasExpiring: false, expiringCount: 0 }
+            }
+            contractExpiryMap[contract.client_id].hasExpiring = true
+            contractExpiryMap[contract.client_id].expiringCount += 1
+          }
+        })
+      }
+
+      const dealsData = clientsResult.data.map((deal: any) => {
+        const expiryInfo = contractExpiryMap[deal.id]
         return {
           id: deal.id,
           firstContact: deal.first_contact_date ? formatDateToYYYYMMDD(deal.first_contact_date) : "-",
@@ -385,6 +410,8 @@ export default function ClientsPage() {
           lastActivity: deal.updated_at ? formatDate(deal.updated_at.split("T")[0]) : "-",
           nextContact: deal.next_contact_date || null,
           account_id: deal.account_id,
+          hasExpiringContract: expiryInfo?.hasExpiring || false,
+          expiringContractCount: expiryInfo?.expiringCount || 0,
         }
       })
 
@@ -411,6 +438,8 @@ export default function ClientsPage() {
     grade: deal.grade,
     priority: deal.priority,
     nextContact: deal.nextContact,
+    hasExpiringContract: deal.hasExpiringContract,
+    expiringContractCount: deal.expiringContractCount,
   }))
 
   const amountRangeOptions = [
@@ -1173,6 +1202,12 @@ const renderCell = (columnId: string, deal: any, nextContactStatus: any) => {
         <div className="flex items-center justify-center gap-2">
           <Building2 className="h-4 w-4 text-muted-foreground" />
           <span className="font-medium">{deal.name}</span>
+          {deal.hasExpiringContract && (
+            <Badge className="bg-amber-100 text-amber-700 hover:bg-amber-100 text-[10px] px-1.5 py-0 h-5 gap-1">
+              <AlertCircle className="h-3 w-3" />
+              만료임박 {deal.expiringContractCount > 1 ? `(${deal.expiringContractCount})` : ""}
+            </Badge>
+          )}
         </div>
       )
     case "needsSummary":
