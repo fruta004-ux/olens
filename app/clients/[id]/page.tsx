@@ -363,6 +363,36 @@ function ClientDetailPageClient({ clientId }: { clientId: string }) {
     }))
   }
 
+  // === 계약 이력 로드 (useEffect 전에 정의) ===
+  const loadContracts = useCallback(async () => {
+    const { data, error } = await supabase
+      .from("client_contracts")
+      .select("*")
+      .eq("client_id", resolvedId)
+      .order("contract_date", { ascending: false })
+
+    if (error) {
+      console.error("계약 이력 로드 오류:", error)
+      return
+    }
+    setContracts(data || [])
+  }, [resolvedId, supabase])
+
+  // === 영업 기회 로드 (useEffect 전에 정의) ===
+  const loadOpportunities = useCallback(async () => {
+    const { data, error } = await supabase
+      .from("client_opportunities")
+      .select("*, related_contract:client_contracts!related_contract_id(id, contract_name)")
+      .eq("client_id", resolvedId)
+      .order("created_at", { ascending: false })
+
+    if (error) {
+      console.error("영업 기회 로드 오류:", error)
+      return
+    }
+    setOpportunities(data || [])
+  }, [resolvedId, supabase])
+
   useEffect(() => {
     if (!resolvedId) return
 
@@ -824,20 +854,6 @@ function ClientDetailPageClient({ clientId }: { clientId: string }) {
   }
 
   // === 계약 이력 CRUD ===
-  const loadContracts = useCallback(async () => {
-    const { data, error } = await supabase
-      .from("client_contracts")
-      .select("*")
-      .eq("client_id", resolvedId)
-      .order("contract_date", { ascending: false })
-
-    if (error) {
-      console.error("계약 이력 로드 오류:", error)
-      return
-    }
-    setContracts(data || [])
-  }, [resolvedId, supabase])
-
   const resetContractForm = () => {
     setContractForm({
       service_type: "",
@@ -933,20 +949,6 @@ function ClientDetailPageClient({ clientId }: { clientId: string }) {
   }
 
   // === 영업 기회 CRUD ===
-  const loadOpportunities = useCallback(async () => {
-    const { data, error } = await supabase
-      .from("client_opportunities")
-      .select("*, related_contract:client_contracts!related_contract_id(id, contract_name)")
-      .eq("client_id", resolvedId)
-      .order("created_at", { ascending: false })
-
-    if (error) {
-      console.error("영업 기회 로드 오류:", error)
-      return
-    }
-    setOpportunities(data || [])
-  }, [resolvedId, supabase])
-
   const resetOpportunityForm = () => {
     setOpportunityForm({
       opportunity_type: "업셀",
