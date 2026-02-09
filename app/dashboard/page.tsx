@@ -45,6 +45,16 @@ import {
   LayoutDashboard
 } from "lucide-react";
 import { PageHeader } from "@/components/page-header";
+import {
+  LineChart,
+  Line,
+  XAxis,
+  YAxis,
+  CartesianGrid,
+  Tooltip,
+  Legend,
+  ResponsiveContainer,
+} from "recharts";
 
 // ===== 공통 타입 =====
 interface Deal {
@@ -179,6 +189,42 @@ export default function DashboardPage() {
   const supabase = createClient();
 
   // ===== 파이프라인 탭 컴포넌트 =====
+  // 단계별 색상 설정 (차트용)
+  const STAGE_COLORS: Record<string, string> = {
+    S0: "#94a3b8", // slate
+    S1: "#3b82f6", // blue
+    S2: "#8b5cf6", // violet
+    S3: "#f59e0b", // amber
+    S4: "#a855f7", // purple
+    S5: "#22c55e", // green
+    S6: "#ef4444", // red
+    S7: "#06b6d4", // cyan
+  };
+
+  const STAGE_LABELS: Record<string, string> = {
+    S0: "S0 신규유입",
+    S1: "S1 유효리드",
+    S2: "S2 상담완료",
+    S3: "S3 제안발송",
+    S4: "S4 결정대기",
+    S5: "S5 계약완료",
+    S6: "S6 종료",
+    S7: "S7 재접촉",
+  };
+
+  // 단계 코드를 S0~S7로 정규화
+  const normalizeStageKey = (stage: string): string => {
+    if (stage.startsWith("S0")) return "S0";
+    if (stage.startsWith("S1")) return "S1";
+    if (stage.startsWith("S2")) return "S2";
+    if (stage.startsWith("S3")) return "S3";
+    if (stage.startsWith("S4")) return "S4";
+    if (stage.startsWith("S5")) return "S5";
+    if (stage.startsWith("S6")) return "S6";
+    if (stage.startsWith("S7")) return "S7";
+    return stage;
+  };
+
   const PipelineTab = () => {
     const [pipelineData, setPipelineData] = useState<PipelineData | null>(null);
     const [serviceTypeMap, setServiceTypeMap] = useState<ServiceTypeMapping>({});
@@ -186,11 +232,118 @@ export default function DashboardPage() {
     const [expandedService, setExpandedService] = useState<string | null>(null);
     const [serviceDeals, setServiceDeals] = useState<Record<string, Deal[]>>({});
     const [isLoading, setIsLoading] = useState(true);
-    
+
+    // 스냅샷 추이 상태
+    const [snapshotData, setSnapshotData] = useState<any[]>([]);
+    const [trendRange, setTrendRange] = useState("30"); // 일 수
+    const [trendUnit, setTrendUnit] = useState<"daily" | "weekly" | "monthly">("daily");
+    const [snapshotLoading, setSnapshotLoading] = useState(false);
+
+    // 스냅샷 데이터 로드
+    const loadSnapshotData = async () => {
+      setSnapshotLoading(true);
+      try {
+        const daysAgo = parseInt(trendRange);
+        const fromDate = new Date();
+        fromDate.setDate(fromDate.getDate() - daysAgo);
+        const fromStr = fromDate.toISOString().split("T")[0];
+
+        const { data, error } = await supabase
+          .from("pipeline_snapshots")
+          .select("snapshot_date, stage, deal_count")
+          .gte("snapshot_date", fromStr)
+          .order("snapshot_date", { ascending: true });
+
+        if (error) {
+          console.error("스냅샷 데이터 로드 오류:", error);
+          setSnapshotData([]);
+          return;
+        }
+
+        if (!data || data.length === 0) {
+          setSnapshotData([]);
+          return;
+        }
+
+        // 날짜별로 그룹핑 + 단계별 정규화
+        const dateMap: Record<string, Record<string, number>> = {};
+        data.forEach((row: any) => {
+          const date = row.snapshot_date;
+          const stageKey = normalizeStageKey(row.stage);
+          if (!dateMap[date]) {
+            dateMap[date] = { S0: 0, S1: 0, S2: 0, S3: 0, S4: 0, S5: 0, S6: 0, S7: 0 };
+          }
+          dateMap[date][stageKey] = (dateMap[date][stageKey] || 0) + row.deal_count;
+        });
+
+        // 집계 단위에 따라 변환
+        let chartData: any[] = [];
+
+        if (trendUnit === "daily") {
+          chartData = Object.entries(dateMap).map(([date, stages]) => ({
+            date: format(new Date(date + "T00:00:00"), "MM/dd"),
+            fullDate: date,
+            ...stages,
+            total: Object.values(stages).reduce((a, b) => a + b, 0),
+          }));
+        } else if (trendUnit === "weekly") {
+          // 주간 집계: 주의 마지막 날짜 기준
+          const weekMap: Record<string, { date: string; stages: Record<string, number> }> = {};
+          Object.entries(dateMap).forEach(([date, stages]) => {
+            const d = new Date(date + "T00:00:00");
+            const weekStart = new Date(d);
+            weekStart.setDate(d.getDate() - d.getDay() + 1); // 월요일 기준
+            const weekKey = weekStart.toISOString().split("T")[0];
+            // 각 주의 가장 마지막 스냅샷을 사용
+            if (!weekMap[weekKey] || date > weekMap[weekKey].date) {
+              weekMap[weekKey] = { date, stages };
+            }
+          });
+          chartData = Object.entries(weekMap)
+            .sort(([a], [b]) => a.localeCompare(b))
+            .map(([weekKey, { date, stages }]) => ({
+              date: format(new Date(weekKey + "T00:00:00"), "MM/dd") + "~",
+              fullDate: date,
+              ...stages,
+              total: Object.values(stages).reduce((a, b) => a + b, 0),
+            }));
+        } else {
+          // 월간 집계: 월의 마지막 스냅샷 기준
+          const monthMap: Record<string, { date: string; stages: Record<string, number> }> = {};
+          Object.entries(dateMap).forEach(([date, stages]) => {
+            const monthKey = date.substring(0, 7); // YYYY-MM
+            if (!monthMap[monthKey] || date > monthMap[monthKey].date) {
+              monthMap[monthKey] = { date, stages };
+            }
+          });
+          chartData = Object.entries(monthMap)
+            .sort(([a], [b]) => a.localeCompare(b))
+            .map(([monthKey, { date, stages }]) => ({
+              date: format(new Date(monthKey + "-01T00:00:00"), "yyyy.MM"),
+              fullDate: date,
+              ...stages,
+              total: Object.values(stages).reduce((a, b) => a + b, 0),
+            }));
+        }
+
+        setSnapshotData(chartData);
+      } catch (err) {
+        console.error("스냅샷 로드 에러:", err);
+        setSnapshotData([]);
+      } finally {
+        setSnapshotLoading(false);
+      }
+    };
+
     // 파이프라인 데이터 로드
     useEffect(() => {
       loadPipelineData();
     }, []);
+
+    // 스냅샷 데이터 로드
+    useEffect(() => {
+      loadSnapshotData();
+    }, [trendRange, trendUnit]);
     
     const loadPipelineData = async () => {
       setIsLoading(true);
@@ -728,6 +881,175 @@ export default function DashboardPage() {
             </CardContent>
           </Card>
         </div>
+
+        {/* 파이프라인 추이 섹션 */}
+        <Separator className="my-2" />
+        
+        <Card>
+          <CardHeader className="pb-3">
+            <div className="flex items-center justify-between">
+              <CardTitle className="text-base flex items-center gap-2">
+                <History className="h-4 w-4" />
+                파이프라인 추이
+              </CardTitle>
+              <div className="flex items-center gap-2">
+                {/* 집계 단위 */}
+                <div className="flex rounded-lg border overflow-hidden">
+                  {(["daily", "weekly", "monthly"] as const).map((unit) => (
+                    <button
+                      key={unit}
+                      onClick={() => setTrendUnit(unit)}
+                      className={cn(
+                        "px-3 py-1 text-xs font-medium transition-colors",
+                        trendUnit === unit
+                          ? "bg-primary text-primary-foreground"
+                          : "bg-background hover:bg-muted text-muted-foreground"
+                      )}
+                    >
+                      {unit === "daily" ? "일별" : unit === "weekly" ? "주간" : "월간"}
+                    </button>
+                  ))}
+                </div>
+                {/* 기간 선택 */}
+                <Select value={trendRange} onValueChange={setTrendRange}>
+                  <SelectTrigger className="w-[100px] h-8 text-xs">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="7">7일</SelectItem>
+                    <SelectItem value="30">30일</SelectItem>
+                    <SelectItem value="90">90일</SelectItem>
+                    <SelectItem value="180">6개월</SelectItem>
+                    <SelectItem value="365">1년</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+          </CardHeader>
+          <CardContent>
+            {snapshotLoading ? (
+              <div className="flex items-center justify-center py-12 text-muted-foreground text-sm">
+                데이터 로딩 중...
+              </div>
+            ) : snapshotData.length === 0 ? (
+              <div className="flex flex-col items-center justify-center py-12 text-muted-foreground">
+                <History className="h-8 w-8 mb-2 opacity-50" />
+                <p className="text-sm">스냅샷 데이터가 없습니다.</p>
+                <p className="text-xs mt-1">SQL 스크립트(030_pipeline_snapshots.sql)를 먼저 실행해주세요.</p>
+              </div>
+            ) : (
+              <div className="space-y-6">
+                {/* 라인 차트 */}
+                <div className="h-[350px]">
+                  <ResponsiveContainer width="100%" height="100%">
+                    <LineChart data={snapshotData} margin={{ top: 5, right: 20, left: 0, bottom: 5 }}>
+                      <CartesianGrid strokeDasharray="3 3" className="opacity-30" />
+                      <XAxis
+                        dataKey="date"
+                        tick={{ fontSize: 11 }}
+                        interval="preserveStartEnd"
+                      />
+                      <YAxis tick={{ fontSize: 11 }} allowDecimals={false} />
+                      <Tooltip
+                        contentStyle={{
+                          backgroundColor: "hsl(var(--card))",
+                          border: "1px solid hsl(var(--border))",
+                          borderRadius: "8px",
+                          fontSize: "12px",
+                        }}
+                        formatter={(value: number, name: string) => [
+                          `${value}건`,
+                          STAGE_LABELS[name] || name,
+                        ]}
+                      />
+                      <Legend
+                        formatter={(value: string) => (
+                          <span className="text-xs">{STAGE_LABELS[value] || value}</span>
+                        )}
+                      />
+                      {Object.entries(STAGE_COLORS).map(([key, color]) => (
+                        <Line
+                          key={key}
+                          type="monotone"
+                          dataKey={key}
+                          stroke={color}
+                          strokeWidth={2}
+                          dot={{ r: 3 }}
+                          activeDot={{ r: 5 }}
+                          connectNulls
+                        />
+                      ))}
+                    </LineChart>
+                  </ResponsiveContainer>
+                </div>
+
+                {/* 데이터 테이블 */}
+                <div className="rounded-lg border overflow-x-auto">
+                  <Table className="min-w-[700px]">
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead className="text-center text-xs w-[100px]">날짜</TableHead>
+                        {Object.entries(STAGE_LABELS).map(([key, label]) => (
+                          <TableHead key={key} className="text-center text-xs">
+                            <span className="inline-flex items-center gap-1">
+                              <span
+                                className="inline-block w-2 h-2 rounded-full"
+                                style={{ backgroundColor: STAGE_COLORS[key] }}
+                              />
+                              {key}
+                            </span>
+                          </TableHead>
+                        ))}
+                        <TableHead className="text-center text-xs font-bold">합계</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {snapshotData.map((row, idx) => {
+                        const prevRow = idx > 0 ? snapshotData[idx - 1] : null;
+                        return (
+                          <TableRow key={row.fullDate}>
+                            <TableCell className="text-center text-xs font-medium">
+                              {row.date}
+                            </TableCell>
+                            {Object.keys(STAGE_LABELS).map((key) => {
+                              const current = row[key] || 0;
+                              const prev = prevRow ? (prevRow[key] || 0) : null;
+                              const diff = prev !== null ? current - prev : null;
+                              return (
+                                <TableCell key={key} className="text-center text-xs">
+                                  <span>{current}</span>
+                                  {diff !== null && diff !== 0 && (
+                                    <span className={cn(
+                                      "ml-1 text-[10px]",
+                                      diff > 0 ? "text-green-600" : "text-red-500"
+                                    )}>
+                                      {diff > 0 ? "+" : ""}{diff}
+                                    </span>
+                                  )}
+                                </TableCell>
+                              );
+                            })}
+                            <TableCell className="text-center text-xs font-bold">
+                              {row.total}
+                              {prevRow && (row.total - prevRow.total) !== 0 && (
+                                <span className={cn(
+                                  "ml-1 text-[10px]",
+                                  (row.total - prevRow.total) > 0 ? "text-green-600" : "text-red-500"
+                                )}>
+                                  {(row.total - prevRow.total) > 0 ? "+" : ""}{row.total - prevRow.total}
+                                </span>
+                              )}
+                            </TableCell>
+                          </TableRow>
+                        );
+                      })}
+                    </TableBody>
+                  </Table>
+                </div>
+              </div>
+            )}
+          </CardContent>
+        </Card>
       </div>
     );
   };
