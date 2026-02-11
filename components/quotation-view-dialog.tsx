@@ -303,12 +303,14 @@ export function QuotationViewDialog({ open, onOpenChange, quotation, clientName 
                       <td className="py-1 px-2 border-r border-gray-300 text-center text-xs">{item.name ? idx + 1 : ""}</td>
                       <td className="py-1 px-2 border-r border-gray-300 text-xs">{item.name}</td>
                       <td className="py-1 px-2 border-r border-gray-300 text-center text-xs">
-                        {item.quantity > 0 ? item.quantity : ""}
+                        {item.quantity !== 0 ? item.quantity : ""}
                       </td>
                       <td className="py-1 px-2 border-r border-gray-300 text-right text-xs">
-                        {item.unit_price > 0 ? `₩${formatNumber(item.unit_price)}` : ""}
+                        {item.unit_price !== 0 ? `₩${formatNumber(item.unit_price)}` : ""}
                       </td>
-                      <td className="py-1 px-2 text-right text-xs">{item.amount > 0 ? `₩${formatNumber(item.amount)}` : ""}</td>
+                      <td className={`py-1 px-2 text-right text-xs ${item.amount < 0 ? "text-red-600" : ""}`}>
+                        {item.amount !== 0 ? `₩${formatNumber(item.amount)}` : ""}
+                      </td>
                     </tr>
                   ))}
                 </tbody>

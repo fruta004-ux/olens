@@ -160,12 +160,14 @@ export function QuotationDetailDialog({ open, onOpenChange, quotation, clientNam
                     <td className="py-2 px-2 border-r border-gray-300 text-center">{item.name ? idx + 1 : ""}</td>
                     <td className="py-2 px-2 border-r border-gray-300">{item.name}</td>
                     <td className="py-2 px-2 border-r border-gray-300 text-center">
-                      {item.quantity > 0 ? item.quantity : ""}
+                      {item.quantity !== 0 ? item.quantity : ""}
                     </td>
                     <td className="py-2 px-2 border-r border-gray-300 text-right">
-                      {item.unit_price > 0 ? `₩${formatNumber(item.unit_price)}` : ""}
+                      {item.unit_price !== 0 ? `₩${formatNumber(item.unit_price)}` : ""}
                     </td>
-                    <td className="py-2 px-2 text-right">{item.amount > 0 ? `₩${formatNumber(item.amount)}` : ""}</td>
+                    <td className={`py-2 px-2 text-right ${item.amount < 0 ? "text-red-600" : ""}`}>
+                      {item.amount !== 0 ? `₩${formatNumber(item.amount)}` : ""}
+                    </td>
                   </tr>
                 ))}
               </tbody>

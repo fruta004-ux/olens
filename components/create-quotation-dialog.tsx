@@ -169,7 +169,12 @@ export function CreateQuotationDialog({
   }
 
   const parseNumber = (str: string): number => {
-    return Number(str.replace(/[^0-9]/g, "")) || 0
+    // 마이너스 부호 허용: 숫자와 마이너스만 남기고 제거
+    const cleaned = str.replace(/[^0-9-]/g, "")
+    // 마이너스가 앞에만 오도록 정리
+    const isNegative = cleaned.startsWith("-")
+    const digits = cleaned.replace(/-/g, "")
+    return (isNegative ? -1 : 1) * (Number(digits) || 0)
   }
 
   // 공급가액 (총액)
@@ -433,14 +438,19 @@ export function CreateQuotationDialog({
                   <div className="col-span-2">
                     <Input
                       type="text"
-                      placeholder="0"
+                      placeholder="0 (마이너스 가능)"
                       value={item.unit_price ? formatNumber(item.unit_price) : ""}
                       onChange={(e) => updateItem(item.id, "unit_price", parseNumber(e.target.value))}
                       className="text-right"
                     />
                   </div>
                   <div className="col-span-2">
-                    <Input type="text" value={formatNumber(item.amount)} disabled className="text-right bg-muted" />
+                    <Input
+                      type="text"
+                      value={item.amount !== 0 ? formatNumber(item.amount) : ""}
+                      disabled
+                      className={cn("text-right bg-muted", item.amount < 0 && "text-red-600")}
+                    />
                   </div>
                   <div className="col-span-1">
                     <Button
@@ -462,15 +472,15 @@ export function CreateQuotationDialog({
             <div className="border-t pt-3 space-y-2">
               <div className="flex justify-between text-sm">
                 <span>공급가액</span>
-                <span className="font-semibold">₩{formatNumber(supplyAmount)}</span>
+                <span className={cn("font-semibold", supplyAmount < 0 && "text-red-600")}>₩{formatNumber(supplyAmount)}</span>
               </div>
               <div className="flex justify-between text-sm">
                 <span>부가세 (10%)</span>
-                <span className="font-semibold">₩{formatNumber(taxAmount)}</span>
+                <span className={cn("font-semibold", taxAmount < 0 && "text-red-600")}>₩{formatNumber(taxAmount)}</span>
               </div>
               <div className="flex justify-between text-lg font-bold border-t pt-2">
                 <span>총 견적금액</span>
-                <span className="text-primary">₩{formatNumber(totalAmount)}</span>
+                <span className={cn("text-primary", totalAmount < 0 && "text-red-600")}>₩{formatNumber(totalAmount)}</span>
               </div>
             </div>
           </div>
