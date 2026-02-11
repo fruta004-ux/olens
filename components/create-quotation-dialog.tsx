@@ -304,7 +304,7 @@ export function CreateQuotationDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
+      <DialogContent className="max-w-7xl max-h-[90vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle className="text-2xl font-bold">
             {isEditMode ? "견적서 수정" : "견적서 생성"}
@@ -437,10 +437,10 @@ export function CreateQuotationDialog({
                   </div>
                   <div className="col-span-2">
                     <Input
-                      type="text"
-                      placeholder="0 (마이너스 가능)"
-                      value={item.unit_price ? formatNumber(item.unit_price) : ""}
-                      onChange={(e) => updateItem(item.id, "unit_price", parseNumber(e.target.value))}
+                      type="number"
+                      placeholder="0"
+                      value={item.unit_price || ""}
+                      onChange={(e) => updateItem(item.id, "unit_price", Number(e.target.value) || 0)}
                       className="text-right"
                     />
                   </div>
