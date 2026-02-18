@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useRef } from "react"
 import { useRouter } from "next/navigation"
-import { Shield, Plus, Pencil, Trash2, Calendar, ChevronLeft, ChevronRight, Copy, Check } from "lucide-react"
+import { Shield, Plus, Pencil, Trash2, Calendar, ChevronLeft, ChevronRight, Copy, Check, GripVertical } from "lucide-react"
 import { toBlob } from "html-to-image"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -26,6 +26,7 @@ export default function AdminPage() {
   const [sourceSettings, setSourceSettings] = useState<any[]>([])
   const [channelSettings, setChannelSettings] = useState<any[]>([])
   const [gradeSettings, setGradeSettings] = useState<any[]>([])
+  const [contractReasonSettings, setContractReasonSettings] = useState<any[]>([])
   const [isDialogOpen, setIsDialogOpen] = useState(false)
   const [editingItem, setEditingItem] = useState<any>(null)
   const [newValue, setNewValue] = useState("")
@@ -39,7 +40,35 @@ export default function AdminPage() {
   const [copiedAssignee, setCopiedAssignee] = useState<string | null>(null)
   const assigneeRefs = useRef<{ [key: string]: HTMLDivElement | null }>({})
 
+  const [dragItem, setDragItem] = useState<string | null>(null)
+  const [dragOverItem, setDragOverItem] = useState<string | null>(null)
+
   const supabase = createBrowserClient()
+
+  const handleReorder = async (settings: any[], category: string) => {
+    if (!dragItem || !dragOverItem || dragItem === dragOverItem) return
+
+    const items = [...settings]
+    const fromIdx = items.findIndex(i => i.id === dragItem)
+    const toIdx = items.findIndex(i => i.id === dragOverItem)
+    if (fromIdx === -1 || toIdx === -1) return
+
+    const [moved] = items.splice(fromIdx, 1)
+    items.splice(toIdx, 0, moved)
+
+    const updates = items.map((item, idx) => ({
+      id: item.id,
+      display_order: idx + 1,
+    }))
+
+    for (const u of updates) {
+      await supabase.from("settings").update({ display_order: u.display_order }).eq("id", u.id)
+    }
+
+    setDragItem(null)
+    setDragOverItem(null)
+    loadSettings()
+  }
 
   useEffect(() => {
     loadSettings()
@@ -57,6 +86,7 @@ export default function AdminPage() {
       setSourceSettings(data.filter((s: any) => s.category === "source"))
       setChannelSettings(data.filter((s: any) => s.category === "channel"))
       setGradeSettings(data.filter((s: any) => s.category === "grade"))
+      setContractReasonSettings(data.filter((s: any) => s.category === "contract_reason"))
     }
   }
 
@@ -362,7 +392,9 @@ export default function AdminPage() {
             ? sourceSettings
             : currentCategory === "grade"
               ? gradeSettings
-              : channelSettings
+              : currentCategory === "contract_reason"
+                ? contractReasonSettings
+                : channelSettings
       const insertData: any = {
         category: currentCategory,
         value: newValue,
@@ -392,22 +424,35 @@ export default function AdminPage() {
         <Table>
           <TableHeader>
             <TableRow className="h-10">
+              <TableHead className="w-[40px] py-2"></TableHead>
               <TableHead className="py-2">항목</TableHead>
               {isNeedsCategory && <TableHead className="w-[120px] py-2">서비스 타입</TableHead>}
-              <TableHead className="w-[80px] py-2">순서</TableHead>
+              <TableHead className="w-[60px] py-2">순서</TableHead>
               <TableHead className="w-[120px] py-2">작업</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
             {settings.length === 0 ? (
               <TableRow className="h-12">
-                <TableCell colSpan={isNeedsCategory ? 4 : 3} className="text-center text-muted-foreground py-3">
+                <TableCell colSpan={isNeedsCategory ? 5 : 4} className="text-center text-muted-foreground py-3">
                   등록된 항목이 없습니다.
                 </TableCell>
               </TableRow>
             ) : (
               settings.map((item) => (
-                <TableRow key={item.id} className="h-12">
+                <TableRow
+                  key={item.id}
+                  className={`h-12 transition-colors ${dragOverItem === item.id ? "bg-primary/10" : ""}`}
+                  draggable
+                  onDragStart={() => setDragItem(item.id)}
+                  onDragOver={(e) => { e.preventDefault(); setDragOverItem(item.id) }}
+                  onDragLeave={() => { if (dragOverItem === item.id) setDragOverItem(null) }}
+                  onDrop={(e) => { e.preventDefault(); handleReorder(settings, category) }}
+                  onDragEnd={() => { setDragItem(null); setDragOverItem(null) }}
+                >
+                  <TableCell className="py-2 w-[40px] cursor-grab active:cursor-grabbing">
+                    <GripVertical className="h-4 w-4 text-muted-foreground" />
+                  </TableCell>
                   <TableCell className="py-2">{item.value}</TableCell>
                   {isNeedsCategory && (
                     <TableCell className="py-2">
@@ -424,7 +469,7 @@ export default function AdminPage() {
                       )}
                     </TableCell>
                   )}
-                  <TableCell className="py-2">{item.display_order}</TableCell>
+                  <TableCell className="py-2 text-muted-foreground text-xs">{item.display_order}</TableCell>
                   <TableCell className="py-2">
                     <div className="flex gap-2">
                       <Button variant="outline" size="sm" onClick={() => handleEdit(item)}>
@@ -464,6 +509,7 @@ export default function AdminPage() {
               <TabsTrigger value="source">유입 경로</TabsTrigger>
               <TabsTrigger value="channel">문의 창구</TabsTrigger>
               <TabsTrigger value="grade">등급</TabsTrigger>
+              <TabsTrigger value="contract_reason">결정 사유</TabsTrigger>
               <TabsTrigger value="activity">활동 기록</TabsTrigger>
               <TabsTrigger value="patchnotes">패치노트</TabsTrigger>
             </TabsList>
@@ -474,6 +520,7 @@ export default function AdminPage() {
               {renderSettingsTable(channelSettings, "channel", "문의 창구 항목")}
             </TabsContent>
             <TabsContent value="grade">{renderSettingsTable(gradeSettings, "grade", "등급 항목")}</TabsContent>
+            <TabsContent value="contract_reason">{renderSettingsTable(contractReasonSettings, "contract_reason", "계약 확정 결정 사유")}</TabsContent>
             <TabsContent value="activity">{renderActivityLog()}</TabsContent>
             <TabsContent value="patchnotes">
               <PatchNotesManager />

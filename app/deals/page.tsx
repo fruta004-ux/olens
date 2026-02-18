@@ -459,6 +459,7 @@ export default function DealsPage() {
           value: deal.amount_range || "-",
           contact: deal.assigned_to || "미정",
           lastActivity: deal.updated_at ? formatDate(deal.updated_at.split("T")[0]) : "-",
+          lastActivityRaw: deal.updated_at ? deal.updated_at.split("T")[0] : null,
           nextContact: deal.next_contact_date || null,
           account_id: deal.account_id,
           company: deal.company || "",
@@ -485,6 +486,7 @@ export default function DealsPage() {
     contact: deal.contact,
     value: deal.value,
     lastActivity: deal.lastActivity,
+    lastActivityRaw: deal.lastActivityRaw,
     account_id: deal.account_id,
     grade: deal.grade,
     priority: deal.priority,
@@ -815,8 +817,14 @@ export default function DealsPage() {
       let aVal: any = a[column as keyof typeof a]
       let bVal: any = b[column as keyof typeof b]
 
+      // lastActivity는 raw 날짜값으로 비교
+      if (column === 'lastActivity') {
+        aVal = a.lastActivityRaw
+        bVal = b.lastActivityRaw
+      }
+
       // 날짜 컬럼 처리
-      if (column === 'firstContact' || column === 'nextContact') {
+      if (column === 'firstContact' || column === 'nextContact' || column === 'lastActivity') {
         if (aVal === '-' || !aVal) aVal = null
         if (bVal === '-' || !bVal) bVal = null
         if (!aVal && !bVal) return 0

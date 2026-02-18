@@ -1,9 +1,10 @@
 "use client"
 
-import { useEffect } from "react"
+import { useEffect, useState } from "react"
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog"
 import { Button } from "@/components/ui/button"
-import { FileDown } from "lucide-react"
+import { FileDown, Trash2 } from "lucide-react"
+import { createBrowserClient } from "@/lib/supabase/client"
 
 // A4 인쇄용 스타일
 const printStyles = `
@@ -77,6 +78,7 @@ interface QuotationViewDialogProps {
   open: boolean
   onOpenChange: (open: boolean) => void
   quotation: {
+    id?: string
     quotation_number: string
     company: "플루타" | "오코랩스"
     title: string
@@ -89,6 +91,7 @@ interface QuotationViewDialogProps {
     created_at: string
   }
   clientName?: string
+  onDelete?: () => void
 }
 
 const COMPANY_INFO = {
@@ -116,8 +119,27 @@ const COMPANY_INFO = {
   },
 }
 
-export function QuotationViewDialog({ open, onOpenChange, quotation, clientName }: QuotationViewDialogProps) {
+export function QuotationViewDialog({ open, onOpenChange, quotation, clientName, onDelete }: QuotationViewDialogProps) {
   const companyInfo = COMPANY_INFO[quotation.company]
+  const [deleting, setDeleting] = useState(false)
+
+  const handleDelete = async () => {
+    if (!quotation.id) return
+    if (!confirm(`견적서 ${quotation.quotation_number}을(를) 삭제하시겠습니까?`)) return
+    setDeleting(true)
+    try {
+      const supabase = createBrowserClient()
+      const { error } = await supabase.from("quotations").delete().eq("id", quotation.id)
+      if (error) throw error
+      onOpenChange(false)
+      if (onDelete) onDelete()
+    } catch (err) {
+      console.error("견적서 삭제 실패:", err)
+      alert("견적서 삭제에 실패했습니다.")
+    } finally {
+      setDeleting(false)
+    }
+  }
 
   // 인쇄 스타일 주입
   useEffect(() => {
@@ -184,10 +206,19 @@ export function QuotationViewDialog({ open, onOpenChange, quotation, clientName 
         <DialogTitle className="sr-only">견적서 상세</DialogTitle>
         <div className="p-4 border-b print:hidden flex justify-between items-center">
           <h2 className="text-lg font-semibold">견적서 상세</h2>
-          <Button onClick={handlePrint} className="gap-2">
-            <FileDown className="h-4 w-4" />
-            인쇄 / PDF 저장
-          </Button>
+          <div className="flex items-center gap-2">
+            {quotation.id && (
+              <Button variant="outline" size="sm" onClick={handleDelete} disabled={deleting}
+                className="gap-1 text-destructive hover:text-destructive hover:bg-destructive/10">
+                <Trash2 className="h-4 w-4" />
+                {deleting ? "삭제 중..." : "삭제"}
+              </Button>
+            )}
+            <Button onClick={handlePrint} className="gap-2">
+              <FileDown className="h-4 w-4" />
+              인쇄 / PDF 저장
+            </Button>
+          </div>
         </div>
 
         <div className="flex justify-center p-4 print:p-0 print:block">
@@ -221,7 +252,7 @@ export function QuotationViewDialog({ open, onOpenChange, quotation, clientName 
             </div>
 
             {/* 메인 테이블 */}
-            <div className="border-2 border-black mb-4">
+            <div className="border-2 border-black">
               {/* 상단: 고객 정보 + 공급자 정보 */}
               <div className="grid grid-cols-2 border-b-2 border-black">
                 {/* 왼쪽: 고객 정보 */}
@@ -341,9 +372,15 @@ export function QuotationViewDialog({ open, onOpenChange, quotation, clientName 
 
             {/* 비고 */}
             {quotation.notes && (
-              <div className="mt-3">
-                <h4 className="font-semibold text-xs mb-1">비고:</h4>
-                <p className="text-xs text-gray-700 whitespace-pre-wrap leading-tight">{quotation.notes}</p>
+              <div className="border-2 border-black mt-0">
+                <div className="flex">
+                  <div className="bg-gray-100 px-3 py-2 font-semibold text-xs border-r-2 border-black flex items-start w-16 shrink-0">
+                    비고
+                  </div>
+                  <div className="px-3 py-2 flex-1">
+                    <p className="text-xs text-gray-700 whitespace-pre-wrap leading-relaxed">{quotation.notes}</p>
+                  </div>
+                </div>
               </div>
             )}
           </div>

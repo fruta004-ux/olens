@@ -1,7 +1,7 @@
 "use client";
 
-import { useState, useEffect, useRef } from "react";
-import { useRouter } from "next/navigation";
+import { useState, useEffect, useRef, useCallback, Suspense } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import { CrmSidebar } from "@/components/crm-sidebar";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -42,8 +42,12 @@ import {
   ArrowRight,
   Lightbulb,
   PieChart,
-  LayoutDashboard
+  LayoutDashboard,
+  CalendarIcon,
+  ArrowUpDown,
 } from "lucide-react";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { Calendar } from "@/components/ui/calendar";
 import { PageHeader } from "@/components/page-header";
 import {
   LineChart,
@@ -169,15 +173,25 @@ interface FeedbackHistory {
   created_at: string;
 }
 
-export default function DashboardPage() {
+export default function DashboardPageWrapper() {
+  return (
+    <Suspense fallback={null}>
+      <DashboardPage />
+    </Suspense>
+  );
+}
+
+function DashboardPage() {
   const router = useRouter();
-  const [activeTab, setActiveTab] = useState("pipeline");
+  const searchParams = useSearchParams();
+
+  const [activeTab, setActiveTab] = useState(() => searchParams.get("tab") || "pipeline");
   
   // 단계별 현황 분석 상태
   const [stageCounts, setStageCounts] = useState<Record<string, number>>({});
   const [stageDeals, setStageDeals] = useState<Record<string, Deal[]>>({});
   const [feedbackHistories, setFeedbackHistories] = useState<Record<string, FeedbackHistory[]>>({});
-  const [selectedStage, setSelectedStage] = useState<string>("S0");
+  const [selectedStage, setSelectedStage] = useState<string>(() => searchParams.get("stage") || "S0");
   const [expandedStage, setExpandedStage] = useState<string | null>(null);
   const [editingFeedback, setEditingFeedback] = useState<string>("");
   const [draftFeedbacks, setDraftFeedbacks] = useState<Record<string, string>>({});
@@ -186,7 +200,26 @@ export default function DashboardPage() {
   const [allDealsCount, setAllDealsCount] = useState(0); // S0~S6 전체 합계
   
   const stageRefs = useRef<Record<string, HTMLDivElement | null>>({});
+  const snapshotCheckedRef = useRef(false);
   const supabase = createClient();
+
+  const updateUrl = useCallback((tab: string, stage: string) => {
+    const params = new URLSearchParams();
+    if (tab !== "pipeline") params.set("tab", tab);
+    if (stage !== "S0") params.set("stage", stage);
+    const qs = params.toString();
+    window.history.replaceState(null, "", `/dashboard${qs ? `?${qs}` : ""}`);
+  }, []);
+
+  const handleTabChange = (tab: string) => {
+    setActiveTab(tab);
+    updateUrl(tab, selectedStage);
+  };
+
+  const handleStageSelect = (stage: string) => {
+    setSelectedStage(stage);
+    updateUrl(activeTab, stage);
+  };
 
   // ===== 파이프라인 탭 컴포넌트 =====
   // 단계별 색상 설정 (차트용)
@@ -235,23 +268,62 @@ export default function DashboardPage() {
 
     // 스냅샷 추이 상태
     const [snapshotData, setSnapshotData] = useState<any[]>([]);
-    const [trendRange, setTrendRange] = useState("30"); // 일 수
-    const [trendUnit, setTrendUnit] = useState<"daily" | "weekly" | "monthly">("daily");
     const [snapshotLoading, setSnapshotLoading] = useState(false);
+
+    const defaultFrom = new Date();
+    defaultFrom.setDate(defaultFrom.getDate() - 30);
+    const [snapshotFrom, setSnapshotFrom] = useState<Date>(defaultFrom);
+    const [snapshotTo, setSnapshotTo] = useState<Date>(new Date());
+    const [snapshotFromOpen, setSnapshotFromOpen] = useState(false);
+    const [snapshotToOpen, setSnapshotToOpen] = useState(false);
+    const [trendUnit, setTrendUnit] = useState<"daily" | "weekly" | "monthly">("daily");
+
+    // 비교 날짜
+    const [compareDate1, setCompareDate1] = useState<Date | undefined>(undefined);
+    const [compareDate2, setCompareDate2] = useState<Date | undefined>(undefined);
+    const [compareDateOpen1, setCompareDateOpen1] = useState(false);
+    const [compareDateOpen2, setCompareDateOpen2] = useState(false);
+    const [compareData, setCompareData] = useState<{ date1: Record<string, number>; date2: Record<string, number> } | null>(null);
+
+    const toDateStr = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+
+    const ensureTodaySnapshot = async () => {
+      if (snapshotCheckedRef.current) return;
+      snapshotCheckedRef.current = true;
+      try {
+        await fetch("/api/snapshot", { method: "POST" });
+      } catch {
+        // 실패해도 기존 데이터 표시에는 영향 없음
+      }
+    };
+
+    const groupByDate = (data: any[]): Record<string, Record<string, number>> => {
+      const dateMap: Record<string, Record<string, number>> = {};
+      data.forEach((row: any) => {
+        const date = row.snapshot_date;
+        const stageKey = normalizeStageKey(row.stage);
+        if (!dateMap[date]) {
+          dateMap[date] = { S0: 0, S1: 0, S2: 0, S3: 0, S4: 0, S5: 0, S6: 0, S7: 0 };
+        }
+        dateMap[date][stageKey] = (dateMap[date][stageKey] || 0) + row.deal_count;
+      });
+      return dateMap;
+    };
 
     // 스냅샷 데이터 로드
     const loadSnapshotData = async () => {
       setSnapshotLoading(true);
       try {
-        const daysAgo = parseInt(trendRange);
-        const fromDate = new Date();
-        fromDate.setDate(fromDate.getDate() - daysAgo);
-        const fromStr = fromDate.toISOString().split("T")[0];
+        await ensureTodaySnapshot();
+
+        const fromStr = toDateStr(snapshotFrom);
+        const toStr = toDateStr(snapshotTo);
 
         const { data, error } = await supabase
           .from("pipeline_snapshots")
           .select("snapshot_date, stage, deal_count")
           .gte("snapshot_date", fromStr)
+          .lte("snapshot_date", toStr)
           .order("snapshot_date", { ascending: true });
 
         if (error) {
@@ -265,18 +337,7 @@ export default function DashboardPage() {
           return;
         }
 
-        // 날짜별로 그룹핑 + 단계별 정규화
-        const dateMap: Record<string, Record<string, number>> = {};
-        data.forEach((row: any) => {
-          const date = row.snapshot_date;
-          const stageKey = normalizeStageKey(row.stage);
-          if (!dateMap[date]) {
-            dateMap[date] = { S0: 0, S1: 0, S2: 0, S3: 0, S4: 0, S5: 0, S6: 0, S7: 0 };
-          }
-          dateMap[date][stageKey] = (dateMap[date][stageKey] || 0) + row.deal_count;
-        });
-
-        // 집계 단위에 따라 변환
+        const dateMap = groupByDate(data);
         let chartData: any[] = [];
 
         if (trendUnit === "daily") {
@@ -287,14 +348,12 @@ export default function DashboardPage() {
             total: Object.values(stages).reduce((a, b) => a + b, 0),
           }));
         } else if (trendUnit === "weekly") {
-          // 주간 집계: 주의 마지막 날짜 기준
           const weekMap: Record<string, { date: string; stages: Record<string, number> }> = {};
           Object.entries(dateMap).forEach(([date, stages]) => {
             const d = new Date(date + "T00:00:00");
             const weekStart = new Date(d);
-            weekStart.setDate(d.getDate() - d.getDay() + 1); // 월요일 기준
-            const weekKey = weekStart.toISOString().split("T")[0];
-            // 각 주의 가장 마지막 스냅샷을 사용
+            weekStart.setDate(d.getDate() - d.getDay() + 1);
+            const weekKey = toDateStr(weekStart);
             if (!weekMap[weekKey] || date > weekMap[weekKey].date) {
               weekMap[weekKey] = { date, stages };
             }
@@ -308,10 +367,9 @@ export default function DashboardPage() {
               total: Object.values(stages).reduce((a, b) => a + b, 0),
             }));
         } else {
-          // 월간 집계: 월의 마지막 스냅샷 기준
           const monthMap: Record<string, { date: string; stages: Record<string, number> }> = {};
           Object.entries(dateMap).forEach(([date, stages]) => {
-            const monthKey = date.substring(0, 7); // YYYY-MM
+            const monthKey = date.substring(0, 7);
             if (!monthMap[monthKey] || date > monthMap[monthKey].date) {
               monthMap[monthKey] = { date, stages };
             }
@@ -335,6 +393,47 @@ export default function DashboardPage() {
       }
     };
 
+    // 비교 데이터 로드
+    const loadCompareData = async () => {
+      if (!compareDate1 || !compareDate2) {
+        setCompareData(null);
+        return;
+      }
+      const d1Str = toDateStr(compareDate1);
+      const d2Str = toDateStr(compareDate2);
+
+      const { data, error } = await supabase
+        .from("pipeline_snapshots")
+        .select("snapshot_date, stage, deal_count")
+        .in("snapshot_date", [d1Str, d2Str]);
+
+      if (error || !data) {
+        setCompareData(null);
+        return;
+      }
+
+      const empty = (): Record<string, number> => ({ S0: 0, S1: 0, S2: 0, S3: 0, S4: 0, S5: 0, S6: 0, S7: 0 });
+      const result = { date1: empty(), date2: empty() };
+      data.forEach((row: any) => {
+        const key = normalizeStageKey(row.stage);
+        if (row.snapshot_date === d1Str) {
+          result.date1[key] = (result.date1[key] || 0) + row.deal_count;
+        } else if (row.snapshot_date === d2Str) {
+          result.date2[key] = (result.date2[key] || 0) + row.deal_count;
+        }
+      });
+      setCompareData(result);
+    };
+
+    // 빠른 기간 설정
+    const setQuickRange = (days: number) => {
+      const to = new Date();
+      const from = new Date();
+      from.setDate(from.getDate() - days);
+      setSnapshotFrom(from);
+      setSnapshotTo(to);
+    };
+
     // 파이프라인 데이터 로드
     useEffect(() => {
       loadPipelineData();
@@ -343,7 +442,12 @@ export default function DashboardPage() {
     // 스냅샷 데이터 로드
     useEffect(() => {
       loadSnapshotData();
-    }, [trendRange, trendUnit]);
+    }, [snapshotFrom, snapshotTo, trendUnit]);
+
+    // 비교 데이터 로드
+    useEffect(() => {
+      loadCompareData();
+    }, [compareDate1, compareDate2]);
     
     const loadPipelineData = async () => {
       setIsLoading(true);
@@ -887,13 +991,12 @@ export default function DashboardPage() {
         
         <Card>
           <CardHeader className="pb-3">
-            <div className="flex items-center justify-between">
-              <CardTitle className="text-base flex items-center gap-2">
-                <History className="h-4 w-4" />
-                파이프라인 추이
-              </CardTitle>
-              <div className="flex items-center gap-2">
-                {/* 집계 단위 */}
+            <div className="flex flex-col gap-3">
+              <div className="flex items-center justify-between">
+                <CardTitle className="text-base flex items-center gap-2">
+                  <History className="h-4 w-4" />
+                  파이프라인 추이
+                </CardTitle>
                 <div className="flex rounded-lg border overflow-hidden">
                   {(["daily", "weekly", "monthly"] as const).map((unit) => (
                     <button
@@ -910,19 +1013,58 @@ export default function DashboardPage() {
                     </button>
                   ))}
                 </div>
-                {/* 기간 선택 */}
-                <Select value={trendRange} onValueChange={setTrendRange}>
-                  <SelectTrigger className="w-[100px] h-8 text-xs">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="7">7일</SelectItem>
-                    <SelectItem value="30">30일</SelectItem>
-                    <SelectItem value="90">90일</SelectItem>
-                    <SelectItem value="180">6개월</SelectItem>
-                    <SelectItem value="365">1년</SelectItem>
-                  </SelectContent>
-                </Select>
+              </div>
+
+              {/* 기간 선택 */}
+              <div className="flex flex-wrap items-center gap-2">
+                <div className="flex items-center gap-1.5">
+                  <Popover open={snapshotFromOpen} onOpenChange={setSnapshotFromOpen}>
+                    <PopoverTrigger asChild>
+                      <Button variant="outline" size="sm" className="h-8 text-xs gap-1.5 min-w-[120px]">
+                        <CalendarIcon className="h-3.5 w-3.5" />
+                        {format(snapshotFrom, "yyyy.MM.dd")}
+                      </Button>
+                    </PopoverTrigger>
+                    <PopoverContent className="w-auto p-0" align="start">
+                      <Calendar
+                        mode="single"
+                        selected={snapshotFrom}
+                        onSelect={(d) => { if (d) { setSnapshotFrom(d); setSnapshotFromOpen(false); } }}
+                        locale={ko}
+                      />
+                    </PopoverContent>
+                  </Popover>
+                  <span className="text-xs text-muted-foreground">~</span>
+                  <Popover open={snapshotToOpen} onOpenChange={setSnapshotToOpen}>
+                    <PopoverTrigger asChild>
+                      <Button variant="outline" size="sm" className="h-8 text-xs gap-1.5 min-w-[120px]">
+                        <CalendarIcon className="h-3.5 w-3.5" />
+                        {format(snapshotTo, "yyyy.MM.dd")}
+                      </Button>
+                    </PopoverTrigger>
+                    <PopoverContent className="w-auto p-0" align="start">
+                      <Calendar
+                        mode="single"
+                        selected={snapshotTo}
+                        onSelect={(d) => { if (d) { setSnapshotTo(d); setSnapshotToOpen(false); } }}
+                        locale={ko}
+                      />
+                    </PopoverContent>
+                  </Popover>
+                </div>
+                <div className="flex items-center gap-1">
+                  {[
+                    { label: "7일", days: 7 },
+                    { label: "30일", days: 30 },
+                    { label: "90일", days: 90 },
+                    { label: "6개월", days: 180 },
+                    { label: "1년", days: 365 },
+                  ].map(({ label, days }) => (
+                    <Button key={days} variant="ghost" size="sm" className="h-7 text-xs px-2" onClick={() => setQuickRange(days)}>
+                      {label}
+                    </Button>
+                  ))}
+                </div>
               </div>
             </div>
           </CardHeader>
@@ -934,8 +1076,8 @@ export default function DashboardPage() {
             ) : snapshotData.length === 0 ? (
               <div className="flex flex-col items-center justify-center py-12 text-muted-foreground">
                 <History className="h-8 w-8 mb-2 opacity-50" />
-                <p className="text-sm">스냅샷 데이터가 없습니다.</p>
-                <p className="text-xs mt-1">SQL 스크립트(030_pipeline_snapshots.sql)를 먼저 실행해주세요.</p>
+                <p className="text-sm">해당 기간에 스냅샷 데이터가 없습니다.</p>
+                <p className="text-xs mt-1">매일 대시보드에 접속하면 자동으로 데이터가 수집됩니다.</p>
               </div>
             ) : (
               <div className="space-y-6">
@@ -985,19 +1127,21 @@ export default function DashboardPage() {
 
                 {/* 데이터 테이블 */}
                 <div className="rounded-lg border overflow-x-auto">
-                  <Table className="min-w-[700px]">
+                  <Table className="min-w-[800px]">
                     <TableHeader>
                       <TableRow>
-                        <TableHead className="text-center text-xs w-[100px]">날짜</TableHead>
+                        <TableHead className="text-center text-xs w-[90px]">날짜</TableHead>
                         {Object.entries(STAGE_LABELS).map(([key, label]) => (
                           <TableHead key={key} className="text-center text-xs">
-                            <span className="inline-flex items-center gap-1">
-                              <span
-                                className="inline-block w-2 h-2 rounded-full"
-                                style={{ backgroundColor: STAGE_COLORS[key] }}
-                              />
-                              {key}
-                            </span>
+                            <div className="flex flex-col items-center gap-0.5">
+                              <span className="inline-flex items-center gap-1">
+                                <span
+                                  className="inline-block w-2 h-2 rounded-full"
+                                  style={{ backgroundColor: STAGE_COLORS[key] }}
+                                />
+                                {label}
+                              </span>
+                            </div>
                           </TableHead>
                         ))}
                         <TableHead className="text-center text-xs font-bold">합계</TableHead>
@@ -1050,6 +1194,153 @@ export default function DashboardPage() {
             )}
           </CardContent>
         </Card>
+
+        {/* 날짜 비교 섹션 */}
+        <Card>
+          <CardHeader className="pb-3">
+            <div className="flex flex-col gap-3">
+              <CardTitle className="text-base flex items-center gap-2">
+                <ArrowUpDown className="h-4 w-4" />
+                날짜별 비교
+              </CardTitle>
+              <div className="flex flex-wrap items-center gap-2">
+                <Popover open={compareDateOpen1} onOpenChange={setCompareDateOpen1}>
+                  <PopoverTrigger asChild>
+                    <Button variant="outline" size="sm" className="h-8 text-xs gap-1.5 min-w-[120px]">
+                      <CalendarIcon className="h-3.5 w-3.5" />
+                      {compareDate1 ? format(compareDate1, "yyyy.MM.dd") : "기준 날짜"}
+                    </Button>
+                  </PopoverTrigger>
+                  <PopoverContent className="w-auto p-0" align="start">
+                    <Calendar
+                      mode="single"
+                      selected={compareDate1}
+                      onSelect={(d) => { setCompareDate1(d || undefined); setCompareDateOpen1(false); }}
+                      locale={ko}
+                    />
+                  </PopoverContent>
+                </Popover>
+                <span className="text-xs text-muted-foreground font-medium">vs</span>
+                <Popover open={compareDateOpen2} onOpenChange={setCompareDateOpen2}>
+                  <PopoverTrigger asChild>
+                    <Button variant="outline" size="sm" className="h-8 text-xs gap-1.5 min-w-[120px]">
+                      <CalendarIcon className="h-3.5 w-3.5" />
+                      {compareDate2 ? format(compareDate2, "yyyy.MM.dd") : "비교 날짜"}
+                    </Button>
+                  </PopoverTrigger>
+                  <PopoverContent className="w-auto p-0" align="start">
+                    <Calendar
+                      mode="single"
+                      selected={compareDate2}
+                      onSelect={(d) => { setCompareDate2(d || undefined); setCompareDateOpen2(false); }}
+                      locale={ko}
+                    />
+                  </PopoverContent>
+                </Popover>
+                {(compareDate1 || compareDate2) && (
+                  <Button variant="ghost" size="sm" className="h-7 text-xs px-2" onClick={() => { setCompareDate1(undefined); setCompareDate2(undefined); setCompareData(null); }}>
+                    초기화
+                  </Button>
+                )}
+              </div>
+            </div>
+          </CardHeader>
+          <CardContent>
+            {!compareDate1 || !compareDate2 ? (
+              <div className="flex flex-col items-center justify-center py-8 text-muted-foreground">
+                <ArrowUpDown className="h-6 w-6 mb-2 opacity-50" />
+                <p className="text-sm">두 날짜를 선택하면 단계별 건수 변화를 비교할 수 있습니다.</p>
+              </div>
+            ) : !compareData ? (
+              <div className="flex items-center justify-center py-8 text-muted-foreground text-sm">
+                데이터 로딩 중...
+              </div>
+            ) : (
+              <div className="rounded-lg border overflow-x-auto">
+                <Table className="min-w-[800px]">
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead className="text-center text-xs w-[120px]">구분</TableHead>
+                      {Object.entries(STAGE_LABELS).map(([key, label]) => (
+                        <TableHead key={key} className="text-center text-xs">
+                          <div className="flex flex-col items-center gap-0.5">
+                            <span className="inline-flex items-center gap-1">
+                              <span
+                                className="inline-block w-2 h-2 rounded-full"
+                                style={{ backgroundColor: STAGE_COLORS[key] }}
+                              />
+                              {label}
+                            </span>
+                          </div>
+                        </TableHead>
+                      ))}
+                      <TableHead className="text-center text-xs font-bold">합계</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    <TableRow>
+                      <TableCell className="text-center text-xs font-medium">
+                        {format(compareDate1, "MM/dd")} (기준)
+                      </TableCell>
+                      {Object.keys(STAGE_LABELS).map((key) => (
+                        <TableCell key={key} className="text-center text-xs">
+                          {compareData.date1[key] || 0}
+                        </TableCell>
+                      ))}
+                      <TableCell className="text-center text-xs font-bold">
+                        {Object.values(compareData.date1).reduce((a, b) => a + b, 0)}
+                      </TableCell>
+                    </TableRow>
+                    <TableRow>
+                      <TableCell className="text-center text-xs font-medium">
+                        {format(compareDate2, "MM/dd")} (비교)
+                      </TableCell>
+                      {Object.keys(STAGE_LABELS).map((key) => (
+                        <TableCell key={key} className="text-center text-xs">
+                          {compareData.date2[key] || 0}
+                        </TableCell>
+                      ))}
+                      <TableCell className="text-center text-xs font-bold">
+                        {Object.values(compareData.date2).reduce((a, b) => a + b, 0)}
+                      </TableCell>
+                    </TableRow>
+                    <TableRow className="bg-muted/30">
+                      <TableCell className="text-center text-xs font-bold">변화</TableCell>
+                      {Object.keys(STAGE_LABELS).map((key) => {
+                        const diff = (compareData.date2[key] || 0) - (compareData.date1[key] || 0);
+                        return (
+                          <TableCell key={key} className="text-center text-xs">
+                            <span className={cn(
+                              "font-bold",
+                              diff > 0 ? "text-green-600" : diff < 0 ? "text-red-500" : "text-muted-foreground"
+                            )}>
+                              {diff > 0 ? "+" : ""}{diff}
+                            </span>
+                          </TableCell>
+                        );
+                      })}
+                      {(() => {
+                        const total1 = Object.values(compareData.date1).reduce((a, b) => a + b, 0);
+                        const total2 = Object.values(compareData.date2).reduce((a, b) => a + b, 0);
+                        const totalDiff = total2 - total1;
+                        return (
+                          <TableCell className="text-center text-xs">
+                            <span className={cn(
+                              "font-bold",
+                              totalDiff > 0 ? "text-green-600" : totalDiff < 0 ? "text-red-500" : "text-muted-foreground"
+                            )}>
+                              {totalDiff > 0 ? "+" : ""}{totalDiff}
+                            </span>
+                          </TableCell>
+                        );
+                      })()}
+                    </TableRow>
+                  </TableBody>
+                </Table>
+              </div>
+            )}
+          </CardContent>
+        </Card>
       </div>
     );
   };
@@ -1065,7 +1356,7 @@ export default function DashboardPage() {
       return;
     }
     
-    setSelectedStage(newStage);
+    handleStageSelect(newStage);
     setExpandedStage(newStage);
     setEditingFeedback(draftFeedbacks[newStage] || "");
     
@@ -1482,7 +1773,7 @@ export default function DashboardPage() {
 
         <div className="flex-1 p-2 xl:p-6 space-y-4 xl:space-y-6">
           {/* 탭 */}
-          <Tabs value={activeTab} onValueChange={setActiveTab}>
+          <Tabs value={activeTab} onValueChange={handleTabChange}>
             <TabsList className="grid w-full max-w-md grid-cols-2">
               <TabsTrigger value="pipeline" className="flex items-center gap-2">
                 <PieChart className="h-4 w-4" />

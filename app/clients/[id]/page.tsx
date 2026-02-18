@@ -36,6 +36,10 @@ import {
   TrendingUp,
   AlertTriangle,
   Edit,
+  ImageIcon,
+  Copy,
+  Check,
+  ChevronRight,
 } from "lucide-react"
 import Link from "next/link"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
@@ -176,13 +180,15 @@ export default function ClientDetailPage({ params }: { params: { id: string } })
 
 function ClientDetailPageClient({ clientId }: { clientId: string }) {
   const router = useRouter()
-  const [activeTab, setActiveTab] = useState(() => {
+  const [activeTab, setActiveTab] = useState("opportunities")
+  
+  useEffect(() => {
     if (typeof window !== "undefined") {
       const params = new URLSearchParams(window.location.search)
-      return params.get("tab") || "activity"
+      const tab = params.get("tab")
+      if (tab) setActiveTab(tab)
     }
-    return "activity"
-  })
+  }, [])
   const [dealData, setDealData] = useState<any>({})
   const [localNotes, setLocalNotes] = useState<string>("")
   // activity_date 타입을 string으로 변경, assigned_to 초기값 보강
@@ -210,6 +216,7 @@ function ClientDetailPageClient({ clientId }: { clientId: string }) {
   const [sourceOptions, setSourceOptions] = useState<string[]>([])
   const [channelOptions, setChannelOptions] = useState<string[]>([])
   const [gradeOptions, setGradeOptions] = useState<string[]>([])
+  const [categoryOptions, setCategoryOptions] = useState<string[]>([])
   const [showQuotationDialog, setShowQuotationDialog] = useState(false)
   const [pendingQuotation, setPendingQuotation] = useState<{
     quotationId: string
@@ -218,6 +225,7 @@ function ClientDetailPageClient({ clientId }: { clientId: string }) {
 
   const [selectedQuotation, setSelectedQuotation] = useState<any>(null)
   const [showQuotationDetail, setShowQuotationDetail] = useState(false)
+  const [quotationTargetActivityId, setQuotationTargetActivityId] = useState<string | null>(null)
   
   // 활동 정렬 순서 상태 (desc: 최신순, asc: 오래된순)
   const [activitySortOrder, setActivitySortOrder] = useState<'desc' | 'asc'>('desc')
@@ -225,6 +233,25 @@ function ClientDetailPageClient({ clientId }: { clientId: string }) {
   // 종료 사유 모달 상태
   const [showCloseReasonDialog, setShowCloseReasonDialog] = useState(false)
   const [pendingStageChange, setPendingStageChange] = useState<string | null>(null)
+
+  // 계약 확정 정보 모달 상태
+  const [showContractConfirmDialog, setShowContractConfirmDialog] = useState(false)
+  const [contractConfirmData, setContractConfirmData] = useState({
+    target: "",
+    name: "",
+    status: "",
+    needs: "",
+    inflow_source: "",
+    conditions: "",
+    cost: "",
+    invoice_date: "",
+    contract_date: "",
+    work_start_date: "",
+    notes: "-",
+    reason_ids: [] as string[],
+  })
+  const [copiedContractId, setCopiedContractId] = useState<string | null>(null)
+  const [contractReasonOptions, setContractReasonOptions] = useState<{ id: string; value: string }[]>([])
 
   // 계약 이력 상태
   const [contracts, setContracts] = useState<any[]>([])
@@ -258,9 +285,11 @@ function ClientDetailPageClient({ clientId }: { clientId: string }) {
     notes: "",
   })
 
-  const supabase = createBrowserClient() // supabase 클라이언트 한번만 생성
+  // 과거 프로젝트 (연결된 deals)
+  const [linkedDeals, setLinkedDeals] = useState<any[]>([])
 
-  // resolvedId를 useEffect 외부에서 선언
+  const supabase = createBrowserClient()
+
   const resolvedId = clientId
 
   // isClosedStage 변수 정의
@@ -271,18 +300,34 @@ function ClientDetailPageClient({ clientId }: { clientId: string }) {
     dealData.stage === "S5_contract"
 
   const loadActivities = async () => {
-    const { data, error } = await supabase
-      .from("client_activities")
-      .select("*")
-      .eq("client_id", resolvedId)
-      .order("activity_date", { ascending: false })
+    const [activitiesRes, quotationsRes] = await Promise.all([
+      supabase
+        .from("client_activities")
+        .select("*")
+        .eq("client_id", resolvedId)
+        .order("activity_date", { ascending: false }),
+      supabase
+        .from("quotations")
+        .select("*")
+        .eq("client_id", resolvedId),
+    ])
 
-    if (error) {
-      console.error("[v0] activities 로드 오류:", error)
+    if (activitiesRes.error) {
+      console.error("[v0] activities 로드 오류:", activitiesRes.error)
       return
     }
 
-    const parsedActivities = (data || []).map((activity: any) => {
+    const quotationsByActivity = new Map<string, any[]>()
+    ;(quotationsRes.data || []).forEach((q: any) => {
+      const actId = q.client_activity_id || q.activity_id
+      if (actId) {
+        const arr = quotationsByActivity.get(actId) || []
+        arr.push(q)
+        quotationsByActivity.set(actId, arr)
+      }
+    })
+
+    const parsedActivities = (activitiesRes.data || []).map((activity: any) => {
       let parsedAttachments: any[] = []
 
       if (activity.attachments) {
@@ -298,9 +343,12 @@ function ClientDetailPageClient({ clientId }: { clientId: string }) {
         }
       }
 
+      const actQuotations = quotationsByActivity.get(activity.id) || []
       return {
         ...activity,
         attachments: parsedAttachments,
+        quotation: actQuotations.length > 0 ? actQuotations[0] : null,
+        quotations: actQuotations,
       }
     })
 
@@ -393,6 +441,26 @@ function ClientDetailPageClient({ clientId }: { clientId: string }) {
     setOpportunities(data || [])
   }, [resolvedId, supabase])
 
+  // === 과거 프로젝트(연결된 deals) 로드 ===
+  const loadLinkedDeals = useCallback(async () => {
+    if (!dealData.account_id) return
+    try {
+      const { data, error } = await supabase
+        .from("deals")
+        .select("id, deal_name, stage, needs_summary, amount_range, first_contact_date, assigned_to, grade, priority, created_at, updated_at")
+        .eq("account_id", dealData.account_id)
+        .order("created_at", { ascending: false })
+
+      if (error) {
+        console.error("연결된 거래 로드 오류:", error)
+        return
+      }
+      setLinkedDeals(data || [])
+    } catch (err) {
+      console.error("연결된 거래 로드 예외:", err)
+    }
+  }, [dealData.account_id, supabase])
+
   useEffect(() => {
     if (!resolvedId) return
 
@@ -400,20 +468,27 @@ function ClientDetailPageClient({ clientId }: { clientId: string }) {
       const { data } = await supabase.from("settings").select("*")
 
       if (data) {
-        // needs, source, channel, grade 옵션들을 value와 label을 가진 객체 배열로 변환
         setNeedsOptions(data.filter((s) => s.category === "needs").map((s) => ({ value: s.value, label: s.value })))
         setSourceOptions(data.filter((s) => s.category === "source").map((s) => s.value))
         setChannelOptions(data.filter((s) => s.category === "channel").map((s) => s.value))
         setGradeOptions(data.filter((s) => s.category === "grade").map((s) => s.value))
+        setCategoryOptions(data.filter((s) => s.category === "deal_category").map((s) => s.value))
         setServiceTypeOptions(data.filter((s) => s.category === "service_type").map((s) => s.value))
+        setContractReasonOptions(data.filter((s: any) => s.category === "contract_reason").map((s: any) => ({ id: s.id, value: s.value })))
       }
     }
 
-    fetchSettings() // settings 로드
-    loadDealData() // deal 데이터 로드
-    loadContracts() // 계약 이력 로드
-    loadOpportunities() // 영업 기회 로드
-  }, [resolvedId, supabase, clientId, loadContracts, loadOpportunities]) // resolvedId, supabase, clientId 변경 시 다시 로드
+    fetchSettings()
+    loadDealData()
+    loadContracts()
+    loadOpportunities()
+  }, [resolvedId, supabase, clientId, loadContracts, loadOpportunities])
+
+  useEffect(() => {
+    if (dealData.account_id) {
+      loadLinkedDeals()
+    }
+  }, [dealData.account_id, loadLinkedDeals])
 
   // Activities 아이콘 매핑 함수
   const getActivityIcon = (type: string) => {
@@ -466,11 +541,27 @@ function ClientDetailPageClient({ clientId }: { clientId: string }) {
   // 단계 변경 핸들러 - 종료 단계일 경우 모달 표시
   const handleStageChange = (newStage: string) => {
     if (newStage === "S6_complete" || newStage === "S6_closed") {
-      // 종료 단계로 변경 시 모달 열기
       setPendingStageChange(newStage)
       setShowCloseReasonDialog(true)
+    } else if (newStage === "S5_complete") {
+      setPendingStageChange(newStage)
+      const today = new Date().toISOString().split("T")[0].replace(/-/g, ".")
+      setContractConfirmData({
+        target: dealData.company || "플루타",
+        name: dealData.account?.company_name || dealData.deal_name || "",
+        status: `거래확정 ( ${today.slice(5).replace(".", ".")} 확정 )`,
+        needs: dealData.needs_summary?.replace(/,/g, ", ") || "",
+        inflow_source: dealData.inflow_source || "",
+        conditions: "",
+        cost: dealData.amount_range ? `${dealData.amount_range} ( vat별도 )` : "",
+        invoice_date: "",
+        contract_date: today,
+        work_start_date: "",
+        notes: "-",
+        reason_ids: [],
+      })
+      setShowContractConfirmDialog(true)
     } else {
-      // 다른 단계는 바로 변경
       handleUpdateDeal({ stage: newStage })
     }
   }
@@ -484,6 +575,92 @@ function ClientDetailPageClient({ clientId }: { clientId: string }) {
       })
       setPendingStageChange(null)
     }
+  }
+
+  // 계약 확정 저장 핸들러
+  const handleContractConfirm = async () => {
+    if (pendingStageChange) {
+      await handleUpdateDeal({
+        stage: pendingStageChange,
+        contract_info: contractConfirmData,
+      })
+      setPendingStageChange(null)
+    } else {
+      await handleUpdateDeal({ contract_info: contractConfirmData })
+    }
+    setShowContractConfirmDialog(false)
+  }
+
+  const getReasonNames = (ids: string[] = []) => {
+    return ids.map(id => contractReasonOptions.find(r => r.id === id)?.value || "").filter(Boolean).join(", ")
+  }
+
+  const getContractPlainText = (info: any = contractConfirmData) => {
+    const reasonText = getReasonNames(info.reason_ids || [])
+    return `[ 계약 확정 ]\n대        상 : ${info.target}\n명        칭 : ${info.name}\n현        황 : ${info.status}\n니        즈 : ${info.needs}\n유입경로 : ${info.inflow_source}\n조        건 : ${info.conditions}\n비        용 : ${info.cost}\n계  산  서 : ${info.invoice_date}\n계  약  일 : ${info.contract_date}\n업무시작 : ${info.work_start_date}\n결정사유 : ${reasonText || "-"}\n비        고 : ${info.notes}`
+  }
+
+  const getContractHtml = (info: any = contractConfirmData) => {
+    const reasonText = getReasonNames(info.reason_ids || [])
+    const lines = [
+      { label: "[ 계약 확정 ]", value: "" },
+      { label: "대        상", value: info.target },
+      { label: "명        칭", value: info.name },
+      { label: "현        황", value: info.status },
+      { label: "니        즈", value: info.needs },
+      { label: "유입경로", value: info.inflow_source },
+      { label: "조        건", value: info.conditions },
+      { label: "비        용", value: info.cost },
+      { label: "계  산  서", value: info.invoice_date },
+      { label: "계  약  일", value: info.contract_date },
+      { label: "업무시작", value: info.work_start_date },
+      { label: "결정사유", value: reasonText || "-" },
+      { label: "비        고", value: info.notes },
+    ]
+    return lines.map(l =>
+      l.value === "" ? `<b>${l.label}</b>` : `<b>${l.label}</b> : ${l.value}`
+    ).join("<br>")
+  }
+
+  const copyContractText = async (info?: any, contractId?: string) => {
+    const plain = getContractPlainText(info)
+    const html = getContractHtml(info)
+    const markCopied = () => {
+      setCopiedContractId(contractId || "default")
+      setTimeout(() => setCopiedContractId(null), 2000)
+    }
+
+    try {
+      if (navigator.clipboard && typeof ClipboardItem !== "undefined") {
+        const item = new ClipboardItem({
+          "text/plain": new Blob([plain], { type: "text/plain" }),
+          "text/html": new Blob([html], { type: "text/html" }),
+        })
+        await navigator.clipboard.write([item])
+        markCopied()
+        return
+      }
+    } catch { /* fallback */ }
+
+    const el = document.createElement("div")
+    el.innerHTML = html
+    el.style.position = "fixed"
+    el.style.left = "-9999px"
+    el.style.whiteSpace = "pre"
+    document.body.appendChild(el)
+    const range = document.createRange()
+    range.selectNodeContents(el)
+    const sel = window.getSelection()
+    sel?.removeAllRanges()
+    sel?.addRange(range)
+    try {
+      document.execCommand("copy")
+      markCopied()
+    } catch {
+      window.prompt("Ctrl+C로 복사하세요:", plain)
+    }
+    sel?.removeAllRanges()
+    document.body.removeChild(el)
   }
 
   const handleUpdateAccount = async (updates: any) => {
@@ -657,7 +834,7 @@ function ClientDetailPageClient({ clientId }: { clientId: string }) {
       if (pendingQuotation) {
         const { error: quotationError } = await supabase
           .from("quotations")
-          .update({ activity_id: activity.id })
+          .update({ client_activity_id: activity.id })
           .eq("id", pendingQuotation.quotationId)
 
         if (quotationError) {
@@ -1046,6 +1223,44 @@ function ClientDetailPageClient({ clientId }: { clientId: string }) {
     loadOpportunities()
   }
 
+  const handleConvertOpportunityToDeal = async (opp: any) => {
+    if (!confirm(`"${opp.title}" 기회를 신규 거래로 전환하시겠습니까?`)) return
+
+    const { data: newDeal, error } = await supabase
+      .from("deals")
+      .insert({
+        account_id: dealData.account_id,
+        deal_name: opp.title,
+        stage: "S0_new_lead",
+        amount_range: opp.expected_amount || null,
+        needs_summary: opp.description || null,
+        company: dealData.company || "",
+        assigned_to: dealData.assigned_to || "",
+        linked_client_id: resolvedId,
+        notes: opp.notes || null,
+      })
+      .select("id")
+      .single()
+
+    if (error) {
+      console.error("거래 전환 오류:", error)
+      alert("거래 전환에 실패했습니다.")
+      return
+    }
+
+    if (newDeal) {
+      await supabase
+        .from("client_opportunities")
+        .update({ converted_deal_id: newDeal.id, status: "성사" })
+        .eq("id", opp.id)
+
+      loadOpportunities()
+      loadLinkedDeals()
+      alert("신규 거래로 전환되었습니다.")
+      router.push(`/deals/${newDeal.id}`)
+    }
+  }
+
   // 만료 임박 판단 (30일 이내)
   const isExpiringContract = (endDate: string) => {
     if (!endDate) return false
@@ -1113,7 +1328,7 @@ function ClientDetailPageClient({ clientId }: { clientId: string }) {
 
   const handleTabChange = (tab: string) => {
     setActiveTab(tab)
-    const newUrl = `/clients/${clientId}${tab === "activity" ? "" : `?tab=${tab}`}`
+    const newUrl = `/clients/${clientId}${tab === "opportunities" ? "" : `?tab=${tab}`}`
     router.replace(newUrl, { scroll: false })
   }
 
@@ -1171,83 +1386,37 @@ function ClientDetailPageClient({ clientId }: { clientId: string }) {
             <Separator className="my-6" />
 
             <div className="space-y-4">
-              <h3 className="font-semibold text-foreground">거래 정보</h3>
+              <h3 className="font-semibold text-foreground">거래처 현황</h3>
 
-              <div>
-                <label className="text-xs text-muted-foreground">니즈 축약</label>
-                <div className="mt-1">
-                  <Popover>
-                    <PopoverTrigger asChild>
-                      <Button variant="outline" className="w-full justify-start text-left font-normal bg-transparent">
-                        {dealData.needs_summary ? dealData.needs_summary.split(",").join(", ") : "니즈를 선택하세요"}
-                      </Button>
-                    </PopoverTrigger>
-                    <PopoverContent className="w-[300px] p-0" align="start">
-                      <Command>
-                        <CommandInput placeholder="니즈 검색..." />
-                        <CommandList style={{ maxHeight: "300px", overflowY: "auto" }}>
-                          <CommandEmpty>니즈를 찾을 수 없습니다.</CommandEmpty>
-                          <CommandGroup>
-                            {needsOptions.map((option) => {
-                              const isSelected = dealData.needs_summary?.split(",").includes(option.value) || false
-                              return (
-                                <CommandItem
-                                  key={option.value}
-                                  onSelect={() => {
-                                    const currentNeeds = dealData.needs_summary?.split(",").filter(Boolean) || []
-                                    let newNeeds: string[]
-                                    if (isSelected) {
-                                      newNeeds = currentNeeds.filter((n) => n !== option.value)
-                                    } else {
-                                      newNeeds = [...currentNeeds, option.value]
-                                    }
-                                    handleUpdateDeal({ needs_summary: newNeeds.join(",") })
-                                  }}
-                                  className="cursor-pointer"
-                                >
-                                  <input
-                                    type="checkbox"
-                                    checked={isSelected}
-                                    onChange={() => {}}
-                                    className="mr-2 w-4 h-4 rounded border-gray-300"
-                                  />
-                                  {option.label}
-                                </CommandItem>
-                              )
-                            })}
-                          </CommandGroup>
-                        </CommandList>
-                      </Command>
-                    </PopoverContent>
-                  </Popover>
+              <div className="grid grid-cols-2 gap-3">
+                <div className="p-3 rounded-lg bg-orange-50 dark:bg-orange-950/20 border border-orange-200 dark:border-orange-800">
+                  <p className="text-[10px] text-orange-600 dark:text-orange-400 font-medium">진행 중 기회</p>
+                  <p className="text-lg font-bold text-orange-700 dark:text-orange-300">
+                    {opportunities.filter(o => !["성사", "무산"].includes(o.status)).length}건
+                  </p>
                 </div>
-              </div>
-
-              <div>
-                <label className="text-xs text-muted-foreground">유입 경로</label>
-                <div className="mt-1">
-                  <SearchableSelect
-                    value={dealData.inflow_source || ""}
-                    onValueChange={(value) => handleUpdateDeal({ inflow_source: value })}
-                    options={sourceOptions}
-                    placeholder="유입 경로 선택..."
-                    searchPlaceholder="유입 경로 검색..."
-                    emptyText="결과 없음"
-                  />
+                <div className="p-3 rounded-lg bg-green-50 dark:bg-green-950/20 border border-green-200 dark:border-green-800">
+                  <p className="text-[10px] text-green-600 dark:text-green-400 font-medium">계약 이력</p>
+                  <p className="text-lg font-bold text-green-700 dark:text-green-300">
+                    {contracts.length}건
+                  </p>
                 </div>
-              </div>
-
-              <div>
-                <label className="text-xs text-muted-foreground">문의 창구</label>
-                <div className="mt-1">
-                  <SearchableSelect
-                    value={dealData.inquiry_channel || ""}
-                    onValueChange={(value) => handleUpdateDeal({ inquiry_channel: value })}
-                    options={channelOptions}
-                    placeholder="문의 창구 선택..."
-                    searchPlaceholder="문의 창구 검색..."
-                    emptyText="결과 없음"
-                  />
+                <div className="p-3 rounded-lg bg-blue-50 dark:bg-blue-950/20 border border-blue-200 dark:border-blue-800">
+                  <p className="text-[10px] text-blue-600 dark:text-blue-400 font-medium">과거 프로젝트</p>
+                  <p className="text-lg font-bold text-blue-700 dark:text-blue-300">
+                    {linkedDeals.length}건
+                  </p>
+                </div>
+                <div className="p-3 rounded-lg bg-purple-50 dark:bg-purple-950/20 border border-purple-200 dark:border-purple-800">
+                  <p className="text-[10px] text-purple-600 dark:text-purple-400 font-medium">마지막 활동</p>
+                  <p className="text-sm font-bold text-purple-700 dark:text-purple-300">
+                    {activities.length > 0 ? (() => {
+                      const lastDate = activities[0]?.activity_date || activities[0]?.created_at
+                      if (!lastDate) return "-"
+                      const d = new Date(lastDate)
+                      return `${d.getMonth() + 1}.${d.getDate()}`
+                    })() : "-"}
+                  </p>
                 </div>
               </div>
 
@@ -1286,28 +1455,33 @@ function ClientDetailPageClient({ clientId }: { clientId: string }) {
             <Tabs value={activeTab} onValueChange={handleTabChange} className="space-y-4">
               <div className="border-b px-6">
                 <TabsList className="h-12">
-                  <TabsTrigger value="activity" className="gap-2">
-                    <MessageSquare className="h-4 w-4" />
-                    활동
-                  </TabsTrigger>
-                  <TabsTrigger value="contracts" className="gap-2">
-                    <Briefcase className="h-4 w-4" />
-                    계약 이력
-                    {contracts.filter(c => c.end_date && isExpiringContract(c.end_date) && c.status === "진행중").length > 0 && (
-                      <span className="ml-1 h-2 w-2 rounded-full bg-amber-500 animate-pulse" />
-                    )}
-                  </TabsTrigger>
                   <TabsTrigger value="opportunities" className="gap-2">
                     <TrendingUp className="h-4 w-4" />
-                    영업 기회
+                    영업기회 활동
                     {opportunities.filter(o => !["성사", "무산"].includes(o.status)).length > 0 && (
                       <span className="ml-1 text-xs bg-primary/10 text-primary px-1.5 py-0.5 rounded-full">
                         {opportunities.filter(o => !["성사", "무산"].includes(o.status)).length}
                       </span>
                     )}
                   </TabsTrigger>
-                  <TabsTrigger value="info" className="gap-2">
+                  <TabsTrigger value="projects" className="gap-2">
+                    <Briefcase className="h-4 w-4" />
+                    과거 프로젝트
+                    {linkedDeals.length > 0 && (
+                      <span className="ml-1 text-xs bg-muted text-muted-foreground px-1.5 py-0.5 rounded-full">
+                        {linkedDeals.length}
+                      </span>
+                    )}
+                  </TabsTrigger>
+                  <TabsTrigger value="contracts" className="gap-2">
                     <FileText className="h-4 w-4" />
+                    계약 이력
+                    {contracts.filter(c => c.end_date && isExpiringContract(c.end_date) && c.status === "진행중").length > 0 && (
+                      <span className="ml-1 h-2 w-2 rounded-full bg-amber-500 animate-pulse" />
+                    )}
+                  </TabsTrigger>
+                  <TabsTrigger value="info" className="gap-2">
+                    <Users className="h-4 w-4" />
                     정보
                   </TabsTrigger>
                 </TabsList>
@@ -1391,6 +1565,83 @@ function ClientDetailPageClient({ clientId }: { clientId: string }) {
                   </Card>
                 </TabsContent>
 
+                {/* 과거 프로젝트 탭 */}
+                <TabsContent value="projects" className="space-y-6">
+                  <Card>
+                    <CardHeader className="pb-3">
+                      <CardTitle className="text-base">과거 프로젝트</CardTitle>
+                      <p className="text-xs text-muted-foreground mt-1">이 거래처와 진행했거나 진행 중인 모든 프로젝트(거래) 목록입니다.</p>
+                    </CardHeader>
+                    <CardContent>
+                      {linkedDeals.length === 0 ? (
+                        <p className="text-center text-muted-foreground py-8 text-sm">연결된 프로젝트가 없습니다.</p>
+                      ) : (
+                        <div className="space-y-3">
+                          {linkedDeals.map((deal: any) => {
+                            const stageMap: Record<string, string> = {
+                              S0_new_lead: "S0 신규유입", S1_qualified: "S1 유효리드",
+                              S2_consultation: "S2 상담완료", S2_contact: "S2 상담완료",
+                              S3_proposal: "S3 제안발송",
+                              S4_decision: "S4 결정대기", S4_negotiation: "S4 결정대기",
+                              S5_complete: "S5 계약완료", S5_contract: "S5 계약완료",
+                              S6_complete: "S6 종료", S6_closed: "S6 종료",
+                              S7_recontact: "S7 재접촉",
+                            }
+                            const stageLabel = stageMap[deal.stage] || deal.stage
+                            const isComplete = deal.stage?.startsWith("S5")
+                            const isClosed = deal.stage?.startsWith("S6")
+                            const isActive = !isComplete && !isClosed
+
+                            return (
+                              <div
+                                key={deal.id}
+                                className={cn(
+                                  "border rounded-lg p-4 cursor-pointer transition-colors hover:bg-muted/50",
+                                  isComplete && "border-green-200 bg-green-50/30 dark:border-green-800 dark:bg-green-950/10",
+                                  isClosed && "border-muted bg-muted/20 opacity-70",
+                                  isActive && "border-blue-200 bg-blue-50/30 dark:border-blue-800 dark:bg-blue-950/10"
+                                )}
+                                onClick={() => router.push(`/deals/${deal.id}`)}
+                              >
+                                <div className="flex items-start justify-between">
+                                  <div className="flex-1">
+                                    <div className="flex items-center gap-2 mb-1.5">
+                                      <h4 className="font-semibold text-sm">{deal.deal_name || "이름 없음"}</h4>
+                                      <Badge variant="outline" className={cn(
+                                        "text-[10px] h-5",
+                                        isComplete && "border-green-300 text-green-700",
+                                        isClosed && "border-muted text-muted-foreground",
+                                        isActive && "border-blue-300 text-blue-700"
+                                      )}>
+                                        {stageLabel}
+                                      </Badge>
+                                    </div>
+                                    <div className="grid grid-cols-2 gap-x-6 gap-y-1 text-xs text-muted-foreground">
+                                      {deal.needs_summary && (
+                                        <div>니즈: <span className="text-foreground">{deal.needs_summary}</span></div>
+                                      )}
+                                      {deal.amount_range && (
+                                        <div>금액: <span className="text-foreground font-medium">{deal.amount_range}</span></div>
+                                      )}
+                                      {deal.first_contact_date && (
+                                        <div>첫 문의: {deal.first_contact_date}</div>
+                                      )}
+                                      {deal.assigned_to && (
+                                        <div>담당자: {deal.assigned_to}</div>
+                                      )}
+                                    </div>
+                                  </div>
+                                  <ChevronRight className="h-4 w-4 text-muted-foreground mt-1" />
+                                </div>
+                              </div>
+                            )
+                          })}
+                        </div>
+                      )}
+                    </CardContent>
+                  </Card>
+                </TabsContent>
+
                 {/* 계약 이력 탭 */}
                 <TabsContent value="contracts" className="space-y-6">
                   <Card>
@@ -1433,30 +1684,83 @@ function ClientDetailPageClient({ clientId }: { clientId: string }) {
                                       <Badge variant="outline" className="text-xs">{contract.service_type}</Badge>
                                     )}
                                   </div>
-                                  <div className="grid grid-cols-2 gap-x-6 gap-y-1 text-sm text-muted-foreground">
-                                    {contract.contract_amount && (
-                                      <div>금액: <span className="text-foreground font-medium">{contract.contract_amount}</span></div>
-                                    )}
-                                    {contract.contract_date && (
-                                      <div>계약일: {contract.contract_date}</div>
-                                    )}
-                                    {contract.start_date && (
-                                      <div>시작일: {contract.start_date}</div>
-                                    )}
-                                    {contract.end_date && (
-                                      <div className="flex items-center gap-1">
-                                        종료일: {contract.end_date}
-                                        {isExpiringContract(contract.end_date) && contract.status === "진행중" && (
-                                          <AlertTriangle className="h-3.5 w-3.5 text-amber-500" />
+
+                                  {contract.contract_info ? (
+                                    <div className="mt-2">
+                                      <div className="p-3 bg-green-50 dark:bg-green-950/30 border border-green-200 dark:border-green-800 rounded-md text-xs space-y-1">
+                                        {[
+                                          { key: "target", label: "대        상" },
+                                          { key: "name", label: "명        칭" },
+                                          { key: "status", label: "현        황" },
+                                          { key: "needs", label: "니        즈" },
+                                          { key: "inflow_source", label: "유입경로" },
+                                          { key: "conditions", label: "조        건" },
+                                          { key: "cost", label: "비        용" },
+                                          { key: "invoice_date", label: "계  산  서" },
+                                          { key: "contract_date", label: "계  약  일" },
+                                          { key: "work_start_date", label: "업무시작" },
+                                          { key: "reason_ids", label: "결정사유" },
+                                          { key: "notes", label: "비        고" },
+                                        ].map(({ key, label }) => (
+                                          <div key={key} className="flex gap-2">
+                                            <span className="font-semibold whitespace-pre text-green-800 dark:text-green-200 shrink-0">{label}</span>
+                                            <span className="text-green-700 dark:text-green-300">: {
+                                              key === "reason_ids"
+                                                ? (contract.contract_info.reason_names || getReasonNames(contract.contract_info.reason_ids || []) || "-")
+                                                : contract.contract_info[key] || "-"
+                                            }</span>
+                                          </div>
+                                        ))}
+                                      </div>
+                                      <Button
+                                        variant="outline"
+                                        size="sm"
+                                        className="mt-2 h-7 gap-1 text-xs"
+                                        onClick={() => copyContractText(contract.contract_info, contract.id)}
+                                      >
+                                        {copiedContractId === contract.id ? <Check className="h-3 w-3" /> : <Copy className="h-3 w-3" />}
+                                        {copiedContractId === contract.id ? "복사됨" : "복사"}
+                                      </Button>
+                                    </div>
+                                  ) : (
+                                    <>
+                                      <div className="grid grid-cols-2 gap-x-6 gap-y-1 text-sm text-muted-foreground">
+                                        {contract.contract_amount && (
+                                          <div>금액: <span className="text-foreground font-medium">{contract.contract_amount}</span></div>
+                                        )}
+                                        {contract.contract_date && (
+                                          <div>계약일: {contract.contract_date}</div>
+                                        )}
+                                        {contract.start_date && (
+                                          <div>시작일: {contract.start_date}</div>
+                                        )}
+                                        {contract.end_date && (
+                                          <div className="flex items-center gap-1">
+                                            종료일: {contract.end_date}
+                                            {isExpiringContract(contract.end_date) && contract.status === "진행중" && (
+                                              <AlertTriangle className="h-3.5 w-3.5 text-amber-500" />
+                                            )}
+                                          </div>
                                         )}
                                       </div>
-                                    )}
-                                  </div>
-                                  {contract.notes && (
-                                    <p className="text-xs text-muted-foreground mt-2 whitespace-pre-wrap">{contract.notes}</p>
+                                      {contract.notes && (
+                                        <p className="text-xs text-muted-foreground mt-2 whitespace-pre-wrap">{contract.notes}</p>
+                                      )}
+                                    </>
                                   )}
                                 </div>
                                 <div className="flex gap-1 ml-2">
+                                  {contract.linked_deal_id && (
+                                    <Button
+                                      variant="ghost"
+                                      size="sm"
+                                      className="h-8 w-8 p-0"
+                                      onClick={() => router.push(`/deals/${contract.linked_deal_id}`)}
+                                      title="연결된 거래 보기"
+                                    >
+                                      <ChevronRight className="h-3.5 w-3.5" />
+                                    </Button>
+                                  )}
                                   <Button
                                     variant="ghost"
                                     size="sm"
@@ -1483,11 +1787,12 @@ function ClientDetailPageClient({ clientId }: { clientId: string }) {
                   </Card>
                 </TabsContent>
 
-                {/* 영업 기회 탭 */}
+                {/* 영업기회 활동 탭 */}
                 <TabsContent value="opportunities" className="space-y-6">
+                  {/* 영업 기회 카드 */}
                   <Card>
-                    <CardHeader className="flex flex-row items-center justify-between">
-                      <CardTitle>영업 기회</CardTitle>
+                    <CardHeader className="flex flex-row items-center justify-between pb-3">
+                      <CardTitle className="text-base">영업 기회</CardTitle>
                       <Button
                         size="sm"
                         onClick={() => {
@@ -1501,13 +1806,17 @@ function ClientDetailPageClient({ clientId }: { clientId: string }) {
                     </CardHeader>
                     <CardContent>
                       {opportunities.length === 0 ? (
-                        <p className="text-center text-muted-foreground py-8">등록된 영업 기회가 없습니다.</p>
+                        <p className="text-center text-muted-foreground py-6 text-sm">등록된 영업 기회가 없습니다. 업셀/크로스셀/재계약 기회를 추가하세요.</p>
                       ) : (
                         <div className="space-y-3">
                           {opportunities.map((opp) => (
                             <div
                               key={opp.id}
-                              className="border rounded-lg p-4 transition-colors hover:bg-muted/50"
+                              className={cn(
+                                "border rounded-lg p-4 transition-colors hover:bg-muted/50",
+                                opp.status === "성사" && "border-green-200 bg-green-50/50 dark:border-green-800 dark:bg-green-950/20",
+                                opp.status === "무산" && "border-muted bg-muted/30 opacity-60"
+                              )}
                             >
                               <div className="flex items-start justify-between">
                                 <div className="flex-1">
@@ -1540,6 +1849,28 @@ function ClientDetailPageClient({ clientId }: { clientId: string }) {
                                   {opp.notes && (
                                     <p className="text-xs text-muted-foreground mt-2 whitespace-pre-wrap">{opp.notes}</p>
                                   )}
+                                  {opp.status === "성사" && !opp.converted_deal_id && (
+                                    <Button
+                                      size="sm"
+                                      variant="outline"
+                                      className="mt-3 text-xs gap-1.5 text-green-700 border-green-300 hover:bg-green-50"
+                                      onClick={() => handleConvertOpportunityToDeal(opp)}
+                                    >
+                                      <Plus className="h-3.5 w-3.5" />
+                                      신규 거래로 전환
+                                    </Button>
+                                  )}
+                                  {opp.converted_deal_id && (
+                                    <Button
+                                      size="sm"
+                                      variant="ghost"
+                                      className="mt-3 text-xs gap-1.5 text-blue-600"
+                                      onClick={() => router.push(`/deals/${opp.converted_deal_id}`)}
+                                    >
+                                      <Briefcase className="h-3.5 w-3.5" />
+                                      연결된 거래 보기
+                                    </Button>
+                                  )}
                                 </div>
                                 <div className="flex gap-1 ml-2">
                                   <Button
@@ -1566,13 +1897,12 @@ function ClientDetailPageClient({ clientId }: { clientId: string }) {
                       )}
                     </CardContent>
                   </Card>
-                </TabsContent>
 
-                <TabsContent value="activity" className="space-y-6">
+                  {/* 활동 타임라인 */}
                   <Card>
                     <CardHeader className="flex flex-row items-center justify-between">
                       <div className="flex items-center gap-3">
-                        <CardTitle>활동 타임라인</CardTitle>
+                        <CardTitle className="text-base">활동 타임라인</CardTitle>
                         <Button
                           variant="outline"
                           size="sm"
@@ -1685,11 +2015,55 @@ function ClientDetailPageClient({ clientId }: { clientId: string }) {
                                 </div>
 
                                 <Textarea
-                                  placeholder="활동 내용 입력..."
+                                  placeholder="활동 내용 입력... (이미지를 Ctrl+V로 붙여넣을 수 있습니다)"
                                   value={newActivity.content}
                                   onChange={(e) => setNewActivity({ ...newActivity, content: e.target.value })}
+                                  onPaste={(e) => {
+                                    const items = e.clipboardData.items
+                                    const imageFiles: File[] = []
+                                    for (const item of Array.from(items)) {
+                                      if (item.type.startsWith("image/")) {
+                                        const file = item.getAsFile()
+                                        if (file) {
+                                          const ext = file.type.split("/")[1] || "png"
+                                          const named = new File([file], `pasted-image-${Date.now()}.${ext}`, { type: file.type })
+                                          imageFiles.push(named)
+                                        }
+                                      }
+                                    }
+                                    if (imageFiles.length > 0) {
+                                      e.preventDefault()
+                                      setNewActivity((prev: any) => ({ ...prev, attachments: [...prev.attachments, ...imageFiles] }))
+                                    }
+                                  }}
                                   className="min-h-[100px]"
                                 />
+
+                                {newActivity.attachments.some((f: File) => f.type?.startsWith("image/")) && (
+                                  <div className="flex flex-wrap gap-2">
+                                    {newActivity.attachments.filter((f: File) => f.type?.startsWith("image/")).map((file: File, idx: number) => (
+                                      <div key={idx} className="relative group">
+                                        <img
+                                          src={URL.createObjectURL(file)}
+                                          alt={file.name}
+                                          className="h-20 w-20 object-cover rounded border"
+                                        />
+                                        <Button
+                                          variant="ghost"
+                                          size="sm"
+                                          className="absolute -top-1 -right-1 h-5 w-5 p-0 bg-destructive text-destructive-foreground rounded-full opacity-0 group-hover:opacity-100 transition-opacity"
+                                          onClick={() => {
+                                            const allIdx = newActivity.attachments.indexOf(file)
+                                            const newFiles = newActivity.attachments.filter((_: any, i: number) => i !== allIdx)
+                                            setNewActivity({ ...newActivity, attachments: newFiles })
+                                          }}
+                                        >
+                                          <X className="h-3 w-3" />
+                                        </Button>
+                                      </div>
+                                    ))}
+                                  </div>
+                                )}
 
                                 <div>
                                   <Label className="mb-2">첨부파일</Label>
@@ -1698,13 +2072,13 @@ function ClientDetailPageClient({ clientId }: { clientId: string }) {
                                     multiple
                                     onChange={(e) => {
                                       const files = Array.from(e.target.files || [])
-                                      setNewActivity({ ...newActivity, attachments: files })
+                                      setNewActivity((prev: any) => ({ ...prev, attachments: [...prev.attachments, ...files] }))
                                     }}
                                     className="cursor-pointer"
                                   />
-                                  {newActivity.attachments.length > 0 && (
+                                  {newActivity.attachments.filter((f: File) => !f.type?.startsWith("image/")).length > 0 && (
                                     <div className="mt-2 space-y-1">
-                                      {newActivity.attachments.map((file, idx) => (
+                                      {newActivity.attachments.filter((f: File) => !f.type?.startsWith("image/")).map((file: File, idx: number) => (
                                         <div
                                           key={idx}
                                           className="text-xs text-muted-foreground flex items-center gap-2"
@@ -1716,7 +2090,8 @@ function ClientDetailPageClient({ clientId }: { clientId: string }) {
                                             size="sm"
                                             className="h-5 w-5 p-0"
                                             onClick={() => {
-                                              const newFiles = newActivity.attachments.filter((_, i) => i !== idx)
+                                              const allIdx = newActivity.attachments.indexOf(file)
+                                              const newFiles = newActivity.attachments.filter((_: any, i: number) => i !== allIdx)
                                               setNewActivity({ ...newActivity, attachments: newFiles })
                                             }}
                                           >
@@ -2108,41 +2483,79 @@ function ClientDetailPageClient({ clientId }: { clientId: string }) {
                                             {activity.assigned_to}
                                           </div>
 
-                                          {/* 활동 타임라인에서 견적서 표시 */}
-                                          {activity.quotation && (
-                                            <div className="mt-3 p-3 bg-purple-50 border border-purple-200 rounded-lg">
-                                              <div className="flex items-center justify-between">
-                                                <div>
-                                                  <p className="text-sm font-semibold text-purple-900">
-                                                    💰 견적서: {activity.quotation.quotation_number}
-                                                  </p>
-                                                  <p className="text-xs text-purple-700">
-                                                    ₩{activity.quotation.total_amount.toLocaleString("ko-KR")} (
-                                                    {activity.quotation.company})
-                                                  </p>
+                                          {/* 활동 타임라인에서 견적서 표시 (다중) */}
+                                          {activity.quotations && activity.quotations.length > 0 && (
+                                            <div className="mt-3 space-y-2">
+                                              {activity.quotations.map((q: any) => (
+                                                <div key={q.id} className="p-3 bg-purple-50 border border-purple-200 rounded-lg">
+                                                  <div className="flex items-center justify-between">
+                                                    <div>
+                                                      <p className="text-sm font-semibold text-purple-900">
+                                                        💰 견적서: {q.quotation_number}
+                                                      </p>
+                                                      <p className="text-xs text-purple-700">
+                                                        ₩{q.total_amount?.toLocaleString("ko-KR")} ({q.company})
+                                                      </p>
+                                                    </div>
+                                                    <Button
+                                                      variant="outline"
+                                                      size="sm"
+                                                      onClick={(e) => {
+                                                        e.stopPropagation()
+                                                        setSelectedQuotation(q)
+                                                        setShowQuotationDetail(true)
+                                                      }}
+                                                    >
+                                                      견적서 보기
+                                                    </Button>
+                                                  </div>
                                                 </div>
-                                                <Button
-                                                  variant="outline"
-                                                  size="sm"
-                                                  onClick={(e) => {
-                                                    e.stopPropagation()
-                                                    setSelectedQuotation(activity.quotation)
-                                                    setShowQuotationDetail(true)
-                                                  }}
-                                                >
-                                                  견적서 보기
-                                                </Button>
-                                              </div>
+                                              ))}
                                             </div>
                                           )}
+                                          <div className="mt-2" onClick={(e) => e.stopPropagation()}>
+                                            <Button
+                                              variant="ghost"
+                                              size="sm"
+                                              className="h-7 text-xs text-muted-foreground hover:text-purple-700 gap-1"
+                                              onClick={() => {
+                                                setQuotationTargetActivityId(activity.id)
+                                                setShowQuotationDialog(true)
+                                              }}
+                                            >
+                                              <Plus className="h-3 w-3" />
+                                              견적서 추가
+                                            </Button>
+                                          </div>
 
                                           {activity.attachments && activity.attachments.length > 0 && (
-                                            <div className="mt-2 space-y-1">
-                                              {activity.attachments.map((att: any, idx: number) => (
+                                            <div className="mt-2 space-y-2" onClick={(e) => e.stopPropagation()}>
+                                              {activity.attachments.filter((att: any) => /\.(jpg|jpeg|png|gif|webp|bmp)$/i.test(att.name)).length > 0 && (
+                                                <div className="flex flex-wrap gap-2">
+                                                  {activity.attachments.filter((att: any) => /\.(jpg|jpeg|png|gif|webp|bmp)$/i.test(att.name)).map((att: any, idx: number) => (
+                                                    <div key={idx} className="relative group">
+                                                      <a href={att.url} target="_blank" rel="noopener noreferrer">
+                                                        <img src={att.url} alt={att.name} className="h-24 max-w-[200px] object-cover rounded border hover:opacity-80 transition-opacity" />
+                                                      </a>
+                                                      <Button
+                                                        variant="ghost"
+                                                        size="sm"
+                                                        className="absolute top-0.5 right-0.5 h-5 w-5 p-0 bg-black/50 text-white rounded-full opacity-0 group-hover:opacity-100 transition-opacity hover:bg-destructive"
+                                                        onClick={(e) => {
+                                                          e.stopPropagation()
+                                                          handleDeleteAttachment(activity.id, att.url)
+                                                        }}
+                                                      >
+                                                        <X className="h-3 w-3" />
+                                                      </Button>
+                                                    </div>
+                                                  ))}
+                                                </div>
+                                              )}
+                                              {activity.attachments.filter((att: any) => !/\.(jpg|jpeg|png|gif|webp|bmp)$/i.test(att.name)).map((att: any, idx: number) => (
                                                 <div
                                                   key={idx}
                                                   className="flex items-center gap-2 text-xs"
-                                                  onClick={(e) => e.stopPropagation()}
                                                 >
                                                   <FileText className="h-3 w-3" />
                                                   <a
@@ -2297,67 +2710,100 @@ function ClientDetailPageClient({ clientId }: { clientId: string }) {
                 </div>
                 <div className="col-span-2">
                   <label className="text-xs text-muted-foreground">거래 예상 금액</label>
-                  <div className="mt-1 space-y-2">
-                    <select
-                      className="w-full px-3 py-2 text-sm border rounded-md bg-background"
-                      value={
-                        [
-                          "500만원 이하",
-                          "500 ~ 1000만원",
-                          "1000 ~ 2000만원",
-                          "2000 ~ 3000만원",
-                          "3000만원 이상",
-                          "1억 이상",
-                          "미입력 / 내부 검토",
-                          "미확정",
-                        ].includes(dealData.amount_range || "")
-                          ? dealData.amount_range
-                          : ""
-                      }
-                      onChange={(e) => {
-                        const newAmount = e.target.value
-                        handleUpdateDeal({ amount_range: newAmount })
-                      }}
-                    >
-                      <option value="">선택 또는 직접 입력</option>
-                      <option value="500만원 이하">500만원 이하</option>
-                      <option value="500 ~ 1000만원">500 ~ 1000만원</option>
-                      <option value="1000 ~ 2000만원">1000 ~ 2000만원</option>
-                      <option value="2000 ~ 3000만원">2000 ~ 3000만원</option>
-                      <option value="3000만원 이상">3000만원 이상</option>
-                      <option value="1억 이상">1억 이상</option>
-                      <option value="미입력 / 내부 검토">미입력 / 내부 검토</option>
-                      <option value="미확정">미확정</option>
-                    </select>
-                    <Input
-                      type="text"
-                      placeholder="직접 입력 (예: 1,500,000)"
-                      className="w-full text-sm bg-background"
-                      value={
-                        dealData.amount_range &&
-                        ![
-                          "500만원 이하",
-                          "500 ~ 1000만원",
-                          "1000 ~ 2000만원",
-                          "2000 ~ 3000만원",
-                          "3000만원 이상",
-                          "1억 이상",
-                          "미입력 / 내부 검토",
-                          "미확정",
-                        ].includes(dealData.amount_range)
-                          ? dealData.amount_range
-                          : ""
-                      }
-                      onChange={(e) => {
-                        const formatted = formatNumberWithCommas(e.target.value)
-                        setDealData((prev) => ({ ...prev, amount_range: formatted }))
-                      }}
-                      onBlur={(e) => {
-                        if (e.target.value) {
-                          handleUpdateDeal({ amount_range: e.target.value })
-                        }
-                      }}
-                    />
+                  <div className="mt-1">
+                    <div className="flex border rounded-md overflow-hidden mb-2">
+                      <button
+                        type="button"
+                        className={`flex-1 py-1.5 text-xs font-medium transition-colors ${
+                          (dealData.deal_type || "one_time") === "one_time"
+                            ? "bg-primary text-primary-foreground"
+                            : "bg-muted/50 text-muted-foreground hover:bg-muted"
+                        }`}
+                        onClick={() => {
+                          setDealData((prev: any) => ({ ...prev, deal_type: "one_time" }))
+                          handleUpdateDeal({ deal_type: "one_time" })
+                        }}
+                      >
+                        건별
+                      </button>
+                      <button
+                        type="button"
+                        className={`flex-1 py-1.5 text-xs font-medium transition-colors ${
+                          dealData.deal_type === "recurring"
+                            ? "bg-primary text-primary-foreground"
+                            : "bg-muted/50 text-muted-foreground hover:bg-muted"
+                        }`}
+                        onClick={() => {
+                          setDealData((prev: any) => ({ ...prev, deal_type: "recurring" }))
+                          handleUpdateDeal({ deal_type: "recurring" })
+                        }}
+                      >
+                        월정액
+                      </button>
+                    </div>
+                    {(dealData.deal_type || "one_time") === "one_time" ? (
+                      <Input
+                        type="text"
+                        placeholder="금액 입력 (예: 1,500,000)"
+                        className="w-full text-sm bg-background"
+                        value={dealData.amount_range || ""}
+                        onChange={(e) => {
+                          const formatted = formatNumberWithCommas(e.target.value)
+                          setDealData((prev: any) => ({ ...prev, amount_range: formatted }))
+                        }}
+                        onBlur={(e) => {
+                          if (e.target.value) {
+                            handleUpdateDeal({ amount_range: e.target.value })
+                          }
+                        }}
+                      />
+                    ) : (
+                      <div className="space-y-2">
+                        <div className="flex items-center gap-2">
+                          <Input
+                            type="text"
+                            placeholder="월 금액"
+                            className="flex-1 text-sm bg-background"
+                            value={dealData.monthly_amount || ""}
+                            onChange={(e) => {
+                              const formatted = formatNumberWithCommas(e.target.value)
+                              const numericMonthly = Number(e.target.value.replace(/[^0-9]/g, "")) || 0
+                              const months = dealData.duration_months || 0
+                              const total = numericMonthly * months
+                              const totalFormatted = total > 0 ? total.toLocaleString("ko-KR") : ""
+                              setDealData((prev: any) => ({ ...prev, monthly_amount: formatted, amount_range: totalFormatted }))
+                            }}
+                            onBlur={() => {
+                              handleUpdateDeal({ monthly_amount: dealData.monthly_amount, amount_range: dealData.amount_range })
+                            }}
+                          />
+                          <span className="text-xs text-muted-foreground whitespace-nowrap">×</span>
+                          <Input
+                            type="number"
+                            placeholder="개월"
+                            className="w-20 text-sm bg-background"
+                            min={1}
+                            value={dealData.duration_months || ""}
+                            onChange={(e) => {
+                              const months = parseInt(e.target.value) || 0
+                              const numericMonthly = Number((dealData.monthly_amount || "").replace(/[^0-9]/g, "")) || 0
+                              const total = numericMonthly * months
+                              const totalFormatted = total > 0 ? total.toLocaleString("ko-KR") : ""
+                              setDealData((prev: any) => ({ ...prev, duration_months: months || "", amount_range: totalFormatted }))
+                            }}
+                            onBlur={() => {
+                              handleUpdateDeal({ duration_months: dealData.duration_months || null, amount_range: dealData.amount_range })
+                            }}
+                          />
+                          <span className="text-xs text-muted-foreground whitespace-nowrap">개월</span>
+                        </div>
+                        {dealData.monthly_amount && dealData.duration_months ? (
+                          <div className="text-xs text-muted-foreground bg-muted/50 rounded px-2 py-1.5">
+                            총 예상 금액: <span className="font-semibold text-foreground">{dealData.amount_range || "0"}</span>원
+                          </div>
+                        ) : null}
+                      </div>
+                    )}
                   </div>
                 </div>
                 {/* S6_종료 단계일 때는 다음 연락일 비활성화 */}
@@ -2424,6 +2870,61 @@ function ClientDetailPageClient({ clientId }: { clientId: string }) {
                     }}
                   />
                 </div>
+
+                {/* 계약 확정 정보 */}
+                {dealData.contract_info && (
+                  <div className="col-span-2 mt-2 pt-4 border-t">
+                    <h4 className="text-sm font-semibold text-foreground mb-3 flex items-center gap-2">
+                      <Check className="h-4 w-4 text-green-500" />
+                      계약 확정
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="ml-auto h-6 px-2 gap-1 text-xs"
+                        onClick={() => copyContractText(dealData.contract_info, "sidebar")}
+                      >
+                        {copiedContractId === "sidebar" ? <Check className="h-3 w-3" /> : <Copy className="h-3 w-3" />}
+                        {copiedContractId === "sidebar" ? "복사됨" : "복사"}
+                      </Button>
+                    </h4>
+                    <div className="p-3 bg-green-50 dark:bg-green-950/30 border border-green-200 dark:border-green-800 rounded-md text-xs space-y-1">
+                      {[
+                        { key: "target", label: "대        상" },
+                        { key: "name", label: "명        칭" },
+                        { key: "status", label: "현        황" },
+                        { key: "needs", label: "니        즈" },
+                        { key: "inflow_source", label: "유입경로" },
+                        { key: "conditions", label: "조        건" },
+                        { key: "cost", label: "비        용" },
+                        { key: "invoice_date", label: "계  산  서" },
+                        { key: "contract_date", label: "계  약  일" },
+                        { key: "work_start_date", label: "업무시작" },
+                        { key: "reason_ids", label: "결정사유" },
+                        { key: "notes", label: "비        고" },
+                      ].map(({ key, label }) => (
+                        <div key={key} className="flex gap-2">
+                          <span className="font-semibold whitespace-pre text-green-800 dark:text-green-200 shrink-0">{label}</span>
+                          <span className="text-green-700 dark:text-green-300">: {
+                            key === "reason_ids"
+                              ? getReasonNames(dealData.contract_info.reason_ids || []) || "-"
+                              : dealData.contract_info[key] || "-"
+                          }</span>
+                        </div>
+                      ))}
+                    </div>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="w-full mt-2 text-xs"
+                      onClick={() => {
+                        setContractConfirmData({ ...dealData.contract_info, reason_ids: dealData.contract_info.reason_ids || [] })
+                        setShowContractConfirmDialog(true)
+                      }}
+                    >
+                      수정
+                    </Button>
+                  </div>
+                )}
               </div>
             </div>
           </div>
@@ -2431,10 +2932,19 @@ function ClientDetailPageClient({ clientId }: { clientId: string }) {
       </div>
       <CreateQuotationDialog
         open={showQuotationDialog}
-        onOpenChange={setShowQuotationDialog}
+        onOpenChange={(open) => {
+          setShowQuotationDialog(open)
+          if (!open) setQuotationTargetActivityId(null)
+        }}
         clientId={resolvedId}
+        activityId={quotationTargetActivityId || undefined}
         onSuccess={(quotationId, totalAmount) => {
-          setPendingQuotation({ quotationId, totalAmount })
+          if (quotationTargetActivityId) {
+            loadActivities()
+            setQuotationTargetActivityId(null)
+          } else {
+            setPendingQuotation({ quotationId, totalAmount })
+          }
         }}
       />
       {/* 견적서 상세 다이얼로그 */}
@@ -2443,7 +2953,8 @@ function ClientDetailPageClient({ clientId }: { clientId: string }) {
           open={showQuotationDetail}
           onOpenChange={setShowQuotationDetail}
           quotation={selectedQuotation}
-          clientName={dealData.account?.company_name || ""} // Pass company name here
+          clientName={dealData.account?.company_name || ""}
+          onDelete={() => { loadActivities(); setSelectedQuotation(null) }}
         />
       )}
       
@@ -2459,6 +2970,94 @@ function ClientDetailPageClient({ clientId }: { clientId: string }) {
         onConfirm={handleCloseReasonConfirm}
         dealName={dealData.deal_name}
       />
+
+      {/* 계약 확정 정보 다이얼로그 */}
+      <Dialog open={showContractConfirmDialog} onOpenChange={(open) => {
+        setShowContractConfirmDialog(open)
+        if (!open) setPendingStageChange(null)
+      }}>
+        <DialogContent className="!max-w-[420px] max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>계약 확정 정보 작성</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-2.5">
+            {[
+              { key: "target", label: "대상" },
+              { key: "name", label: "명칭" },
+              { key: "status", label: "현황" },
+              { key: "needs", label: "니즈" },
+              { key: "inflow_source", label: "유입경로" },
+              { key: "conditions", label: "조건" },
+              { key: "cost", label: "비용" },
+              { key: "invoice_date", label: "계산서" },
+              { key: "contract_date", label: "계약일" },
+              { key: "work_start_date", label: "업무시작" },
+              { key: "notes", label: "비고" },
+            ].map(({ key, label }) => (
+              <div key={key} className="flex items-center gap-2">
+                <label className="text-xs font-semibold w-14 shrink-0 text-right">{label}</label>
+                <Input
+                  className="flex-1 text-sm h-8"
+                  value={(contractConfirmData as any)[key] || ""}
+                  onChange={(e) => setContractConfirmData(prev => ({ ...prev, [key]: e.target.value }))}
+                  placeholder={key === "conditions" ? "예: 선금 50% / 완납금 50%" : key === "invoice_date" || key === "work_start_date" ? "예: 2026.02.19" : ""}
+                />
+              </div>
+            ))}
+
+            <div className="pt-1">
+              <label className="text-xs font-semibold">결정 사유</label>
+              <div className="flex flex-wrap gap-1.5 mt-1.5">
+                {contractReasonOptions.map((reason) => {
+                  const selected = contractConfirmData.reason_ids.includes(reason.id)
+                  return (
+                    <button
+                      key={reason.id}
+                      type="button"
+                      className={`px-2.5 py-1 text-xs rounded-md border transition-colors ${
+                        selected
+                          ? "bg-primary text-primary-foreground border-primary"
+                          : "bg-background text-muted-foreground border-border hover:bg-muted"
+                      }`}
+                      onClick={() => {
+                        setContractConfirmData(prev => ({
+                          ...prev,
+                          reason_ids: selected
+                            ? prev.reason_ids.filter(id => id !== reason.id)
+                            : [...prev.reason_ids, reason.id]
+                        }))
+                      }}
+                    >
+                      {reason.value}
+                    </button>
+                  )
+                })}
+              </div>
+            </div>
+
+            <div className="p-2.5 bg-muted/50 rounded-lg text-xs whitespace-pre-line font-mono leading-relaxed">
+              {getContractPlainText()}
+            </div>
+
+            <div className="flex gap-2">
+              <Button
+                variant="outline"
+                className="flex-1 gap-1"
+                onClick={() => copyContractText()}
+              >
+                {copiedContractId === "default" ? <Check className="h-4 w-4" /> : <Copy className="h-4 w-4" />}
+                {copiedContractId === "default" ? "복사됨!" : "복사"}
+              </Button>
+              <Button
+                className="flex-1"
+                onClick={handleContractConfirm}
+              >
+                저장 및 계약 완료
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
 
       {/* 계약 추가/수정 다이얼로그 */}
       <Dialog open={showContractDialog} onOpenChange={(open) => {

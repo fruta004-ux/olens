@@ -6,16 +6,24 @@ import { CrmHeader } from "@/components/crm-header"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Badge } from "@/components/ui/badge"
-import { Calendar, TrendingUp, Users, Filter, ChevronLeft, ChevronRight, CalendarIcon, X, Building2 } from "lucide-react"
+import { Calendar, TrendingUp, Users, Filter, ChevronLeft, ChevronRight, CalendarIcon, X, Building2, Tag, ExternalLink } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
 import { Calendar as CalendarComponent } from "@/components/ui/calendar"
+import { useRouter } from "next/navigation"
 import { createClient } from "@/lib/supabase/client"
 import { cn } from "@/lib/utils"
 import { format } from "date-fns"
 import { ko } from "date-fns/locale"
+
+const parseLocalDate = (dateString: string): Date => {
+  if (!dateString) return new Date()
+  const datePart = dateString.split("T")[0]
+  const [year, month, day] = datePart.split("-").map(Number)
+  return new Date(year, month - 1, day)
+}
 
 type Deal = {
   id: string
@@ -27,6 +35,7 @@ type Deal = {
   assigned_to: string | null
   amount_range: string | null
   company: string | null
+  category: string | null
 }
 
 type CalendarDay = {
@@ -41,8 +50,17 @@ export default function StatisticsPage() {
   const [activeTab, setActiveTab] = useState("calendar")
   const [currentDate, setCurrentDate] = useState(new Date())
   
+  const router = useRouter()
+
   // 회사 필터
   const [selectedCompany, setSelectedCompany] = useState<string>("all")
+  
+  // 항목 필터 (다중 선택)
+  const [selectedCategories, setSelectedCategories] = useState<string[]>([])
+  const CATEGORY_OPTIONS = ["마케팅", "홈페이지", "디자인", "개발", "영상"]
+  const toggleCategory = (cat: string) => {
+    setSelectedCategories(prev => prev.includes(cat) ? prev.filter(c => c !== cat) : [...prev, cat])
+  }
   
   // 날짜 범위 필터
   const [startDate, setStartDate] = useState<Date | undefined>(undefined)
@@ -69,7 +87,8 @@ export default function StatisticsPage() {
           needs_summary,
           assigned_to,
           amount_range,
-          company
+          company,
+          category
         `)
         .order("first_contact_date", { ascending: false })
 
@@ -93,11 +112,21 @@ export default function StatisticsPage() {
     return deal.company === selectedCompany
   })
 
+  // 항목 필터 적용 (다중선택 대응)
+  const categoryFilteredDeals = companyFilteredDeals.filter(deal => {
+    if (selectedCategories.length === 0) return true
+    const dealCats = deal.category ? deal.category.split(",").map(c => c.trim()) : []
+    if (selectedCategories.includes("none")) {
+      if (!deal.category || dealCats.every(c => !CATEGORY_OPTIONS.includes(c))) return true
+    }
+    return selectedCategories.some(sc => sc !== "none" && dealCats.includes(sc))
+  })
+
   // 날짜 범위에 따라 필터된 거래 목록
-  const deals = companyFilteredDeals.filter(deal => {
+  const deals = categoryFilteredDeals.filter(deal => {
     if (!deal.first_contact_date) return false
     
-    const dealDate = new Date(deal.first_contact_date)
+    const dealDate = parseLocalDate(deal.first_contact_date)
     dealDate.setHours(0, 0, 0, 0)
     
     if (startDate) {
@@ -116,7 +145,7 @@ export default function StatisticsPage() {
   })
 
   // 날짜 필터가 적용되지 않은 경우 전체 표시 (first_contact_date가 없는 것도 포함)
-  const dealsForStats = (startDate || endDate) ? deals : companyFilteredDeals
+  const dealsForStats = (startDate || endDate) ? deals : categoryFilteredDeals
 
   // 날짜 범위 초기화
   const clearDateFilter = () => {
@@ -129,6 +158,7 @@ export default function StatisticsPage() {
     setStartDate(undefined)
     setEndDate(undefined)
     setSelectedCompany("all")
+    setSelectedCategories([])
   }
 
   // 빠른 날짜 범위 설정
@@ -182,8 +212,8 @@ export default function StatisticsPage() {
     const current = new Date(startDateCal)
     
     while (current <= endDateCal) {
-      const dateStr = current.toISOString().split("T")[0]
-      const dayDeals = companyFilteredDeals.filter(deal => {
+      const dateStr = `${current.getFullYear()}-${String(current.getMonth() + 1).padStart(2, "0")}-${String(current.getDate()).padStart(2, "0")}`
+      const dayDeals = categoryFilteredDeals.filter(deal => {
         if (!deal.first_contact_date) return false
         const dealDate = deal.first_contact_date.split("T")[0]
         return dealDate === dateStr
@@ -246,7 +276,7 @@ export default function StatisticsPage() {
     
     targetDeals.forEach(deal => {
       if (deal.first_contact_date) {
-        const date = new Date(deal.first_contact_date)
+        const date = parseLocalDate(deal.first_contact_date)
         const key = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}`
         stats[key] = (stats[key] || 0) + 1
       }
@@ -273,18 +303,47 @@ export default function StatisticsPage() {
     setCurrentDate(new Date())
   }
 
+  // 항목별 통계 (다중선택 comma-separated 대응, 중복 포함)
+  const getCategoryStats = () => {
+    const stats: Record<string, number> = {}
+    const targetDeals = dealsForStats
+    
+    CATEGORY_OPTIONS.forEach(cat => { stats[cat] = 0 })
+    stats["미분류"] = 0
+    
+    targetDeals.forEach(deal => {
+      if (deal.category) {
+        const cats = deal.category.split(",").map(c => c.trim()).filter(Boolean)
+        const validCats = cats.filter(c => CATEGORY_OPTIONS.includes(c))
+        if (validCats.length > 0) {
+          validCats.forEach(cat => { stats[cat] = (stats[cat] || 0) + 1 })
+        } else {
+          stats["미분류"] = (stats["미분류"] || 0) + 1
+        }
+      } else {
+        stats["미분류"] = (stats["미분류"] || 0) + 1
+      }
+    })
+    
+    const total = targetDeals.length
+    const order = [...CATEGORY_OPTIONS, "미분류"]
+    return order
+      .map(category => ({ category, count: stats[category] || 0, percentage: total > 0 ? Math.round(((stats[category] || 0) / total) * 100) : 0 }))
+  }
+
   const calendarData = generateCalendarData()
   const inflowStats = getInflowSourceStats()
   const needsStats = getNeedsSummaryStats()
   const monthlyStats = getMonthlyStats()
+  const categoryStats = getCategoryStats()
 
   // 요일 헤더
   const weekDays = ["일", "월", "화", "수", "목", "금", "토"]
 
   // 현재 월의 총 문의 수
-  const currentMonthDeals = companyFilteredDeals.filter(deal => {
+  const currentMonthDeals = categoryFilteredDeals.filter(deal => {
     if (!deal.first_contact_date) return false
-    const date = new Date(deal.first_contact_date)
+    const date = parseLocalDate(deal.first_contact_date)
     return date.getFullYear() === currentDate.getFullYear() && 
            date.getMonth() === currentDate.getMonth()
   })
@@ -292,7 +351,8 @@ export default function StatisticsPage() {
   // 필터 적용 여부
   const isFiltered = startDate || endDate
   const isCompanyFiltered = selectedCompany !== "all"
-  const hasAnyFilter = isFiltered || isCompanyFiltered
+  const isCategoryFiltered = selectedCategories.length > 0
+  const hasAnyFilter = isFiltered || isCompanyFiltered || isCategoryFiltered
 
   // 회사별 딜 수 계산
   const companyStats = {
@@ -331,7 +391,7 @@ export default function StatisticsPage() {
           <div className="mb-6">
             <h1 className="text-3xl font-bold text-foreground">통계</h1>
             <p className="mt-1 text-sm text-muted-foreground">
-              첫 문의 기준 캘린더, 유입 경로, 니즈 축약 통계를 확인하세요
+              첫 문의 기준 캘린더, 유입 경로, 니즈 축약, 항목 통계를 확인하세요
             </p>
           </div>
 
@@ -373,6 +433,39 @@ export default function StatisticsPage() {
                     onClick={() => setSelectedCompany("none")}
                   >
                     미지정
+                  </Button>
+                </div>
+              </div>
+
+              {/* 항목 필터 */}
+              <div className="flex flex-wrap items-center gap-4">
+                <div className="flex items-center gap-2">
+                  <Label className="text-sm font-medium whitespace-nowrap">항목 선택</Label>
+                </div>
+                <div className="flex items-center gap-2 flex-wrap">
+                  <Button
+                    variant={selectedCategories.length === 0 ? "default" : "outline"}
+                    size="sm"
+                    onClick={() => setSelectedCategories([])}
+                  >
+                    전체
+                  </Button>
+                  {CATEGORY_OPTIONS.map((cat) => (
+                    <Button
+                      key={cat}
+                      variant={selectedCategories.includes(cat) ? "default" : "outline"}
+                      size="sm"
+                      onClick={() => toggleCategory(cat)}
+                    >
+                      {cat}
+                    </Button>
+                  ))}
+                  <Button
+                    variant={selectedCategories.includes("none") ? "default" : "outline"}
+                    size="sm"
+                    onClick={() => toggleCategory("none")}
+                  >
+                    미분류
                   </Button>
                 </div>
               </div>
@@ -489,6 +582,11 @@ export default function StatisticsPage() {
                       {selectedCompany === "none" ? "미지정" : selectedCompany}
                     </Badge>
                   )}
+                  {isCategoryFiltered && selectedCategories.map(cat => (
+                    <Badge key={cat} variant="secondary" className="text-sm bg-blue-100 text-blue-700">
+                      {cat === "none" ? "미분류" : cat}
+                    </Badge>
+                  ))}
                   {isFiltered && (
                     <Badge variant="secondary" className="text-sm">
                       {startDate && format(startDate, "yyyy.MM.dd", { locale: ko })}
@@ -604,6 +702,10 @@ export default function StatisticsPage() {
               <TabsTrigger value="needs" className="gap-2">
                 <Filter className="h-4 w-4" />
                 니즈 축약
+              </TabsTrigger>
+              <TabsTrigger value="category" className="gap-2">
+                <Tag className="h-4 w-4" />
+                항목
               </TabsTrigger>
             </TabsList>
 
@@ -870,6 +972,122 @@ export default function StatisticsPage() {
                                   외 {relatedDeals.length - 3}건
                                 </div>
                               )}
+                            </div>
+                          </div>
+                        )
+                      })}
+                    </div>
+                  </CardContent>
+                </Card>
+              </div>
+            </TabsContent>
+
+            {/* 항목 탭 */}
+            <TabsContent value="category">
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                <Card>
+                  <CardHeader>
+                    <CardTitle>항목별 통계</CardTitle>
+                    <p className="text-sm text-muted-foreground">
+                      {isFiltered ? "필터된 기간" : "전체"} 거래의 항목 분류
+                    </p>
+                  </CardHeader>
+                  <CardContent>
+                    <div className="space-y-4">
+                      {categoryStats.map((stat, index) => {
+                        const colorMap: Record<string, string> = {
+                          "영상": "from-red-500 to-red-600",
+                          "개발": "from-blue-500 to-blue-600",
+                          "홈페이지": "from-green-500 to-green-600",
+                          "마케팅": "from-amber-500 to-amber-600",
+                          "디자인": "from-purple-500 to-purple-600",
+                          "미분류": "from-gray-400 to-gray-500",
+                        }
+                        return (
+                          <div key={stat.category} className="space-y-2">
+                            <div className="flex items-center justify-between">
+                              <div className="flex items-center gap-2">
+                                <span className="text-sm font-medium text-muted-foreground w-6">
+                                  {index + 1}.
+                                </span>
+                                <span className={`font-medium ${stat.category === "미분류" ? "text-muted-foreground" : ""}`}>
+                                  {stat.category}
+                                </span>
+                              </div>
+                              <div className="flex items-center gap-2">
+                                <Badge variant="secondary">{stat.count}건</Badge>
+                                <span className="text-sm text-muted-foreground w-12 text-right">
+                                  {stat.percentage}%
+                                </span>
+                              </div>
+                            </div>
+                            <div className="h-2 bg-muted rounded-full overflow-hidden ml-8">
+                              <div 
+                                className={`h-full bg-gradient-to-r ${colorMap[stat.category] || "from-gray-400 to-gray-500"} rounded-full transition-all duration-500`}
+                                style={{ width: `${stat.percentage}%` }}
+                              />
+                            </div>
+                          </div>
+                        )
+                      })}
+                      
+                      {categoryStats.length === 0 && (
+                        <div className="text-center py-8 text-muted-foreground">
+                          항목 데이터가 없습니다.
+                        </div>
+                      )}
+                    </div>
+                  </CardContent>
+                </Card>
+
+                <Card>
+                  <CardHeader>
+                    <CardTitle>항목별 거래 목록</CardTitle>
+                    <p className="text-sm text-muted-foreground">
+                      각 항목에 해당하는 거래 (클릭하면 상세페이지로 이동)
+                    </p>
+                  </CardHeader>
+                  <CardContent>
+                    <div className="space-y-4 max-h-[600px] overflow-y-auto">
+                      {categoryStats.map((stat) => {
+                        const relatedDeals = dealsForStats.filter(deal => {
+                          if (stat.category === "미분류") {
+                            if (!deal.category) return true
+                            const cats = deal.category.split(",").map(c => c.trim()).filter(Boolean)
+                            return cats.every(c => !CATEGORY_OPTIONS.includes(c))
+                          }
+                          const dealCats = deal.category ? deal.category.split(",").map(c => c.trim()) : []
+                          return dealCats.includes(stat.category)
+                        })
+                        
+                        if (relatedDeals.length === 0) return null
+                        
+                        return (
+                          <div key={stat.category} className="border rounded-lg p-3">
+                            <div className="flex items-center justify-between mb-2">
+                              <span className={`font-semibold ${stat.category === "미분류" ? "text-muted-foreground" : ""}`}>
+                                {stat.category}
+                              </span>
+                              <Badge variant={stat.category === "미분류" ? "outline" : "secondary"}>
+                                {stat.count}건
+                              </Badge>
+                            </div>
+                            <div className="space-y-1">
+                              {relatedDeals.map(deal => (
+                                <div 
+                                  key={deal.id}
+                                  className="flex items-center gap-2 text-sm pl-2 border-l-2 border-muted py-1 hover:bg-muted/50 rounded-r cursor-pointer transition-colors"
+                                  onClick={() => router.push(`/deals/${deal.id}`)}
+                                >
+                                  <ExternalLink className="h-3 w-3 text-muted-foreground shrink-0" />
+                                  <span className="text-foreground hover:underline">{deal.deal_name}</span>
+                                  {deal.stage && (
+                                    <Badge variant="outline" className="text-[10px] px-1 py-0 h-4 ml-auto shrink-0">
+                                      {deal.stage}
+                                    </Badge>
+                                  )}
+                                </div>
+                              ))}
                             </div>
                           </div>
                         )

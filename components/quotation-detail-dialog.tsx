@@ -198,9 +198,15 @@ export function QuotationDetailDialog({ open, onOpenChange, quotation, clientNam
 
           {/* 비고 */}
           {quotation.notes && (
-            <div className="mb-4">
-              <h3 className="text-sm font-semibold mb-2">비고</h3>
-              <p className="text-sm text-gray-700 whitespace-pre-wrap">{quotation.notes}</p>
+            <div className="border-2 border-black mb-4">
+              <div className="flex">
+                <div className="bg-gray-100 px-3 py-2 font-semibold text-sm border-r-2 border-black flex items-start w-20 shrink-0">
+                  비고
+                </div>
+                <div className="px-3 py-2 flex-1">
+                  <p className="text-sm text-gray-700 whitespace-pre-wrap leading-relaxed">{quotation.notes}</p>
+                </div>
+              </div>
             </div>
           )}
         </div>
