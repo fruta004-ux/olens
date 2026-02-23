@@ -330,6 +330,8 @@ function DealDetailPageClient({ dealId }: { dealId: string }) {
     attachments: [],
   })
   const [isAddingActivity, setIsAddingActivity] = useState(false)
+  const [isDragOver, setIsDragOver] = useState(false)
+  const dragCounterRef = React.useRef(0)
   // editingActivity 상태를 객체로 변경하여 activity ID별 관리
   const [editingActivity, setEditingActivity] = useState<any>({})
   // BDTA 등급 가이드
@@ -2177,7 +2179,34 @@ function DealDetailPageClient({ dealId }: { dealId: string }) {
                 </TabsContent>
 
                 <TabsContent value="activity" className="space-y-6">
-                  <Card>
+                  <Card
+                    className={cn(isDragOver && "ring-2 ring-primary ring-offset-2 bg-primary/5 transition-all")}
+                    onDragEnter={(e) => {
+                      e.preventDefault()
+                      dragCounterRef.current++
+                      setIsDragOver(true)
+                    }}
+                    onDragOver={(e) => {
+                      e.preventDefault()
+                      e.dataTransfer.dropEffect = "copy"
+                    }}
+                    onDragLeave={(e) => {
+                      e.preventDefault()
+                      dragCounterRef.current--
+                      if (dragCounterRef.current === 0) setIsDragOver(false)
+                    }}
+                    onDrop={(e) => {
+                      e.preventDefault()
+                      dragCounterRef.current = 0
+                      setIsDragOver(false)
+                      const files = Array.from(e.dataTransfer.files)
+                      if (files.length === 0) return
+                      if (!dealData.showAddActivity) {
+                        setDealData((prev: any) => ({ ...prev, showAddActivity: true }))
+                      }
+                      setNewActivity((prev: any) => ({ ...prev, attachments: [...prev.attachments, ...files] }))
+                    }}
+                  >
                     <CardHeader className="flex flex-row items-center justify-between">
                       <div className="flex items-center gap-3">
                       <CardTitle>활동 타임라인</CardTitle>
@@ -2205,7 +2234,15 @@ function DealDetailPageClient({ dealId }: { dealId: string }) {
                         활동 추가
                       </Button>
                     </CardHeader>
-                    <CardContent>
+                    <CardContent className="relative">
+                      {isDragOver && (
+                        <div className="absolute inset-0 z-10 flex items-center justify-center bg-primary/10 border-2 border-dashed border-primary rounded-lg pointer-events-none">
+                          <div className="text-center">
+                            <FileText className="h-8 w-8 text-primary mx-auto mb-2" />
+                            <p className="text-sm font-medium text-primary">파일을 놓으면 첨부됩니다</p>
+                          </div>
+                        </div>
+                      )}
                       <div className="space-y-6">
                         {dealData.showAddActivity && (
                           <Card className="mb-4">

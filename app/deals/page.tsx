@@ -464,6 +464,7 @@ export default function DealsPage() {
           account_id: deal.account_id,
           company: deal.company || "",
           inflowSource: deal.inflow_source || "",
+          originType: deal.origin_type || null,
         }
       })
 
@@ -493,6 +494,7 @@ export default function DealsPage() {
     nextContact: deal.nextContact,
     company: deal.company,
     inflowSource: deal.inflowSource,
+    originType: deal.originType,
   }))
 
   const amountRangeOptions = [
@@ -1491,6 +1493,16 @@ const renderCell = (columnId: string, deal: any, nextContactStatus: any) => {
         <div className="flex items-center justify-center gap-2">
           <Building2 className="h-4 w-4 text-muted-foreground" />
           <span className="font-medium">{deal.name}</span>
+          {deal.originType && (
+            <Badge className={cn(
+              "text-[10px] px-1.5 py-0 h-5 font-medium shrink-0",
+              deal.originType === "업셀" && "bg-violet-100 text-violet-700 hover:bg-violet-100",
+              deal.originType === "크로스셀" && "bg-sky-100 text-sky-700 hover:bg-sky-100",
+              deal.originType === "재계약" && "bg-emerald-100 text-emerald-700 hover:bg-emerald-100",
+            )}>
+              {deal.originType}
+            </Badge>
+          )}
         </div>
       )
     case "needsSummary":
