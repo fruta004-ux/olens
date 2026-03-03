@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useRef, useCallback, Suspense } from "react";
+import React, { useState, useEffect, useRef, useCallback, Suspense } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import { CrmSidebar } from "@/components/crm-sidebar";
@@ -278,12 +278,15 @@ function DashboardPage() {
     const [snapshotToOpen, setSnapshotToOpen] = useState(false);
     const [trendUnit, setTrendUnit] = useState<"daily" | "weekly" | "monthly">("daily");
 
-    // 비교 날짜
-    const [compareDate1, setCompareDate1] = useState<Date | undefined>(undefined);
-    const [compareDate2, setCompareDate2] = useState<Date | undefined>(undefined);
-    const [compareDateOpen1, setCompareDateOpen1] = useState(false);
-    const [compareDateOpen2, setCompareDateOpen2] = useState(false);
-    const [compareData, setCompareData] = useState<{ date1: Record<string, number>; date2: Record<string, number> } | null>(null);
+    // 토글 확장 행
+    const [expandedRows, setExpandedRows] = useState<Set<string>>(new Set());
+
+    // 비교: 주차 단위
+    const [compareWeek1, setCompareWeek1] = useState<Date | undefined>(undefined);
+    const [compareWeek2, setCompareWeek2] = useState<Date | undefined>(undefined);
+    const [compareWeekOpen1, setCompareWeekOpen1] = useState(false);
+    const [compareWeekOpen2, setCompareWeekOpen2] = useState(false);
+    const [compareData, setCompareData] = useState<{ date1: Record<string, number>; date2: Record<string, number>; amount1: Record<string, number>; amount2: Record<string, number> } | null>(null);
 
     const toDateStr = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 
@@ -297,17 +300,51 @@ function DashboardPage() {
       }
     };
 
-    const groupByDate = (data: any[]): Record<string, Record<string, number>> => {
-      const dateMap: Record<string, Record<string, number>> = {};
+    const groupByDate = (data: any[]): Record<string, { counts: Record<string, number>; amounts: Record<string, number> }> => {
+      const dateMap: Record<string, { counts: Record<string, number>; amounts: Record<string, number> }> = {};
       data.forEach((row: any) => {
         const date = row.snapshot_date;
         const stageKey = normalizeStageKey(row.stage);
         if (!dateMap[date]) {
-          dateMap[date] = { S0: 0, S1: 0, S2: 0, S3: 0, S4: 0, S5: 0, S6: 0, S7: 0 };
+          dateMap[date] = {
+            counts: { S0: 0, S1: 0, S2: 0, S3: 0, S4: 0, S5: 0, S6: 0, S7: 0 },
+            amounts: { S0: 0, S1: 0, S2: 0, S3: 0, S4: 0, S5: 0, S6: 0, S7: 0 },
+          };
         }
-        dateMap[date][stageKey] = (dateMap[date][stageKey] || 0) + row.deal_count;
+        dateMap[date].counts[stageKey] = (dateMap[date].counts[stageKey] || 0) + row.deal_count;
+        dateMap[date].amounts[stageKey] = (dateMap[date].amounts[stageKey] || 0) + (Number(row.total_amount) || 0);
       });
       return dateMap;
+    };
+
+    const getMonday = (d: Date): Date => {
+      const date = new Date(d);
+      const day = date.getDay();
+      const diff = day === 0 ? -6 : 1 - day;
+      date.setDate(date.getDate() + diff);
+      return date;
+    };
+
+    const getSunday = (monday: Date): Date => {
+      const d = new Date(monday);
+      d.setDate(d.getDate() + 6);
+      return d;
+    };
+
+    const formatAmount = (amount: number): string => {
+      if (amount >= 100000000) return `${(amount / 100000000).toFixed(1)}억`;
+      if (amount >= 10000) return `${Math.round(amount / 10000).toLocaleString()}만`;
+      if (amount > 0) return amount.toLocaleString();
+      return "-";
+    };
+
+    const toggleRow = (key: string) => {
+      setExpandedRows(prev => {
+        const next = new Set(prev);
+        if (next.has(key)) next.delete(key);
+        else next.add(key);
+        return next;
+      });
     };
 
     // 스냅샷 데이터 로드
@@ -321,7 +358,7 @@ function DashboardPage() {
 
         const { data, error } = await supabase
           .from("pipeline_snapshots")
-          .select("snapshot_date, stage, deal_count")
+          .select("snapshot_date, stage, deal_count, total_amount")
           .gte("snapshot_date", fromStr)
           .lte("snapshot_date", toStr)
           .order("snapshot_date", { ascending: true });
@@ -338,50 +375,60 @@ function DashboardPage() {
         }
 
         const dateMap = groupByDate(data);
+
+        const buildRow = (dateLabel: string, fullDate: string, counts: Record<string, number>, amounts: Record<string, number>) => {
+          const coreKeys = ["S0", "S1", "S2", "S3", "S4"];
+          const extraKeys = ["S5", "S6", "S7"];
+          return {
+            date: dateLabel,
+            fullDate,
+            ...counts,
+            coreTotal: coreKeys.reduce((sum, k) => sum + (counts[k] || 0), 0),
+            extraTotal: extraKeys.reduce((sum, k) => sum + (counts[k] || 0), 0),
+            total: Object.values(counts).reduce((a, b) => a + b, 0),
+            amounts,
+            coreAmountTotal: coreKeys.reduce((sum, k) => sum + (amounts[k] || 0), 0),
+            extraAmountTotal: extraKeys.reduce((sum, k) => sum + (amounts[k] || 0), 0),
+          };
+        };
+
         let chartData: any[] = [];
 
         if (trendUnit === "daily") {
-          chartData = Object.entries(dateMap).map(([date, stages]) => ({
-            date: format(new Date(date + "T00:00:00"), "MM/dd"),
-            fullDate: date,
-            ...stages,
-            total: Object.values(stages).reduce((a, b) => a + b, 0),
-          }));
+          chartData = Object.entries(dateMap).map(([date, { counts, amounts }]) =>
+            buildRow(format(new Date(date + "T00:00:00"), "MM/dd"), date, counts, amounts)
+          );
         } else if (trendUnit === "weekly") {
-          const weekMap: Record<string, { date: string; stages: Record<string, number> }> = {};
-          Object.entries(dateMap).forEach(([date, stages]) => {
+          const weekMap: Record<string, { date: string; counts: Record<string, number>; amounts: Record<string, number> }> = {};
+          Object.entries(dateMap).forEach(([date, { counts, amounts }]) => {
             const d = new Date(date + "T00:00:00");
-            const weekStart = new Date(d);
-            weekStart.setDate(d.getDate() - d.getDay() + 1);
-            const weekKey = toDateStr(weekStart);
+            const monday = getMonday(d);
+            const weekKey = toDateStr(monday);
             if (!weekMap[weekKey] || date > weekMap[weekKey].date) {
-              weekMap[weekKey] = { date, stages };
+              weekMap[weekKey] = { date, counts, amounts };
             }
           });
           chartData = Object.entries(weekMap)
             .sort(([a], [b]) => a.localeCompare(b))
-            .map(([weekKey, { date, stages }]) => ({
-              date: format(new Date(weekKey + "T00:00:00"), "MM/dd") + "~",
-              fullDate: date,
-              ...stages,
-              total: Object.values(stages).reduce((a, b) => a + b, 0),
-            }));
+            .map(([weekKey, { date, counts, amounts }]) => {
+              const monday = new Date(weekKey + "T00:00:00");
+              const sunday = getSunday(monday);
+              const label = `${format(monday, "MM/dd")}~${format(sunday, "MM/dd")}`;
+              return buildRow(label, date, counts, amounts);
+            });
         } else {
-          const monthMap: Record<string, { date: string; stages: Record<string, number> }> = {};
-          Object.entries(dateMap).forEach(([date, stages]) => {
+          const monthMap: Record<string, { date: string; counts: Record<string, number>; amounts: Record<string, number> }> = {};
+          Object.entries(dateMap).forEach(([date, { counts, amounts }]) => {
             const monthKey = date.substring(0, 7);
             if (!monthMap[monthKey] || date > monthMap[monthKey].date) {
-              monthMap[monthKey] = { date, stages };
+              monthMap[monthKey] = { date, counts, amounts };
             }
           });
           chartData = Object.entries(monthMap)
             .sort(([a], [b]) => a.localeCompare(b))
-            .map(([monthKey, { date, stages }]) => ({
-              date: format(new Date(monthKey + "-01T00:00:00"), "yyyy.MM"),
-              fullDate: date,
-              ...stages,
-              total: Object.values(stages).reduce((a, b) => a + b, 0),
-            }));
+            .map(([monthKey, { date, counts, amounts }]) =>
+              buildRow(format(new Date(monthKey + "-01T00:00:00"), "yyyy.MM"), date, counts, amounts)
+            );
         }
 
         setSnapshotData(chartData);
@@ -393,19 +440,22 @@ function DashboardPage() {
       }
     };
 
-    // 비교 데이터 로드
     const loadCompareData = async () => {
-      if (!compareDate1 || !compareDate2) {
+      if (!compareWeek1 || !compareWeek2) {
         setCompareData(null);
         return;
       }
-      const d1Str = toDateStr(compareDate1);
-      const d2Str = toDateStr(compareDate2);
+      const mon1 = getMonday(compareWeek1);
+      const sun1 = getSunday(mon1);
+      const mon2 = getMonday(compareWeek2);
+      const sun2 = getSunday(mon2);
 
       const { data, error } = await supabase
         .from("pipeline_snapshots")
-        .select("snapshot_date, stage, deal_count")
-        .in("snapshot_date", [d1Str, d2Str]);
+        .select("snapshot_date, stage, deal_count, total_amount")
+        .or(
+          `and(snapshot_date.gte.${toDateStr(mon1)},snapshot_date.lte.${toDateStr(sun1)}),and(snapshot_date.gte.${toDateStr(mon2)},snapshot_date.lte.${toDateStr(sun2)})`
+        );
 
       if (error || !data) {
         setCompareData(null);
@@ -413,15 +463,41 @@ function DashboardPage() {
       }
 
       const empty = (): Record<string, number> => ({ S0: 0, S1: 0, S2: 0, S3: 0, S4: 0, S5: 0, S6: 0, S7: 0 });
-      const result = { date1: empty(), date2: empty() };
+      const result = { date1: empty(), date2: empty(), amount1: empty(), amount2: empty() };
+
+      const w1Start = toDateStr(mon1);
+      const w1End = toDateStr(sun1);
+      const w2Start = toDateStr(mon2);
+      const w2End = toDateStr(sun2);
+
+      const latestByWeek: Record<string, Record<string, { count: number; amount: number }>> = { w1: {}, w2: {} };
+
       data.forEach((row: any) => {
         const key = normalizeStageKey(row.stage);
-        if (row.snapshot_date === d1Str) {
-          result.date1[key] = (result.date1[key] || 0) + row.deal_count;
-        } else if (row.snapshot_date === d2Str) {
-          result.date2[key] = (result.date2[key] || 0) + row.deal_count;
+        const d = row.snapshot_date;
+        if (d >= w1Start && d <= w1End) {
+          if (!latestByWeek.w1[key] || d > (latestByWeek.w1[key] as any).date) {
+            latestByWeek.w1[key] = { count: row.deal_count, amount: Number(row.total_amount) || 0 };
+            (latestByWeek.w1[key] as any).date = d;
+          }
+        }
+        if (d >= w2Start && d <= w2End) {
+          if (!latestByWeek.w2[key] || d > (latestByWeek.w2[key] as any).date) {
+            latestByWeek.w2[key] = { count: row.deal_count, amount: Number(row.total_amount) || 0 };
+            (latestByWeek.w2[key] as any).date = d;
+          }
         }
       });
+
+      Object.entries(latestByWeek.w1).forEach(([key, val]) => {
+        result.date1[key] = val.count;
+        result.amount1[key] = val.amount;
+      });
+      Object.entries(latestByWeek.w2).forEach(([key, val]) => {
+        result.date2[key] = val.count;
+        result.amount2[key] = val.amount;
+      });
+
       setCompareData(result);
     };
 
@@ -447,7 +523,7 @@ function DashboardPage() {
     // 비교 데이터 로드
     useEffect(() => {
       loadCompareData();
-    }, [compareDate1, compareDate2]);
+    }, [compareWeek1, compareWeek2]);
     
     const loadPipelineData = async () => {
       setIsLoading(true);
@@ -1127,64 +1203,112 @@ function DashboardPage() {
 
                 {/* 데이터 테이블 */}
                 <div className="rounded-lg border overflow-x-auto">
-                  <Table className="min-w-[800px]">
+                  <Table className="min-w-[900px]">
                     <TableHeader>
                       <TableRow>
-                        <TableHead className="text-center text-xs w-[90px]">날짜</TableHead>
-                        {Object.entries(STAGE_LABELS).map(([key, label]) => (
+                        <TableHead className="text-center text-xs w-[120px]">날짜</TableHead>
+                        {["S0", "S1", "S2", "S3", "S4"].map((key) => (
                           <TableHead key={key} className="text-center text-xs">
-                            <div className="flex flex-col items-center gap-0.5">
-                              <span className="inline-flex items-center gap-1">
-                                <span
-                                  className="inline-block w-2 h-2 rounded-full"
-                                  style={{ backgroundColor: STAGE_COLORS[key] }}
-                                />
-                                {label}
-                              </span>
-                            </div>
+                            <span className="inline-flex items-center gap-1">
+                              <span className="inline-block w-2 h-2 rounded-full" style={{ backgroundColor: STAGE_COLORS[key] }} />
+                              {STAGE_LABELS[key]}
+                            </span>
                           </TableHead>
                         ))}
-                        <TableHead className="text-center text-xs font-bold">합계</TableHead>
+                        <TableHead className="text-center text-xs font-bold bg-blue-50 dark:bg-blue-950/30">S0~S4</TableHead>
+                        {["S5", "S6", "S7"].map((key) => (
+                          <TableHead key={key} className="text-center text-xs">
+                            <span className="inline-flex items-center gap-1">
+                              <span className="inline-block w-2 h-2 rounded-full" style={{ backgroundColor: STAGE_COLORS[key] }} />
+                              {STAGE_LABELS[key]}
+                            </span>
+                          </TableHead>
+                        ))}
+                        <TableHead className="text-center text-xs font-bold bg-orange-50 dark:bg-orange-950/30">S5~S7</TableHead>
                       </TableRow>
                     </TableHeader>
                     <TableBody>
-                      {snapshotData.map((row, idx) => {
+                      {snapshotData.map((row: any, idx: number) => {
                         const prevRow = idx > 0 ? snapshotData[idx - 1] : null;
+                        const isExpanded = expandedRows.has(row.fullDate);
+                        const hasAmounts = row.amounts && Object.values(row.amounts as Record<string, number>).some((v: number) => v > 0);
+
+                        const renderDiff = (current: number, prev: number | null) => {
+                          if (prev === null) return null;
+                          const diff = current - prev;
+                          if (diff === 0) return null;
+                          return (
+                            <span className={cn("ml-1 text-[10px]", diff > 0 ? "text-green-600" : "text-red-500")}>
+                              {diff > 0 ? "+" : ""}{diff}
+                            </span>
+                          );
+                        };
+
                         return (
-                          <TableRow key={row.fullDate}>
-                            <TableCell className="text-center text-xs font-medium">
-                              {row.date}
-                            </TableCell>
-                            {Object.keys(STAGE_LABELS).map((key) => {
-                              const current = row[key] || 0;
-                              const prev = prevRow ? (prevRow[key] || 0) : null;
-                              const diff = prev !== null ? current - prev : null;
-                              return (
-                                <TableCell key={key} className="text-center text-xs">
-                                  <span>{current}</span>
-                                  {diff !== null && diff !== 0 && (
-                                    <span className={cn(
-                                      "ml-1 text-[10px]",
-                                      diff > 0 ? "text-green-600" : "text-red-500"
-                                    )}>
-                                      {diff > 0 ? "+" : ""}{diff}
-                                    </span>
-                                  )}
-                                </TableCell>
-                              );
-                            })}
-                            <TableCell className="text-center text-xs font-bold">
-                              {row.total}
-                              {prevRow && (row.total - prevRow.total) !== 0 && (
-                                <span className={cn(
-                                  "ml-1 text-[10px]",
-                                  (row.total - prevRow.total) > 0 ? "text-green-600" : "text-red-500"
-                                )}>
-                                  {(row.total - prevRow.total) > 0 ? "+" : ""}{row.total - prevRow.total}
+                          <React.Fragment key={row.fullDate}>
+                            <TableRow
+                              className={cn("cursor-pointer hover:bg-muted/50 transition-colors", isExpanded && "bg-muted/30")}
+                              onClick={() => toggleRow(row.fullDate)}
+                            >
+                              <TableCell className="text-center text-xs font-medium">
+                                <span className="inline-flex items-center gap-1">
+                                  {isExpanded ? <ChevronDown className="h-3 w-3" /> : <ChevronRight className="h-3 w-3" />}
+                                  {row.date}
                                 </span>
-                              )}
-                            </TableCell>
-                          </TableRow>
+                              </TableCell>
+                              {["S0", "S1", "S2", "S3", "S4"].map((key) => {
+                                const current = row[key] || 0;
+                                const prev = prevRow ? (prevRow[key] || 0) : null;
+                                return (
+                                  <TableCell key={key} className="text-center text-xs">
+                                    <span>{current}</span>
+                                    {renderDiff(current, prev)}
+                                  </TableCell>
+                                );
+                              })}
+                              <TableCell className="text-center text-xs font-bold bg-blue-50/50 dark:bg-blue-950/20">
+                                {row.coreTotal}
+                                {renderDiff(row.coreTotal, prevRow?.coreTotal ?? null)}
+                              </TableCell>
+                              {["S5", "S6", "S7"].map((key) => {
+                                const current = row[key] || 0;
+                                const prev = prevRow ? (prevRow[key] || 0) : null;
+                                return (
+                                  <TableCell key={key} className="text-center text-xs">
+                                    <span>{current}</span>
+                                    {renderDiff(current, prev)}
+                                  </TableCell>
+                                );
+                              })}
+                              <TableCell className="text-center text-xs font-bold bg-orange-50/50 dark:bg-orange-950/20">
+                                {row.extraTotal}
+                                {renderDiff(row.extraTotal, prevRow?.extraTotal ?? null)}
+                              </TableCell>
+                            </TableRow>
+                            {isExpanded && (
+                              <TableRow className="bg-muted/20">
+                                <TableCell className="text-center text-[10px] text-muted-foreground font-medium">
+                                  <DollarSign className="h-3 w-3 inline mr-0.5" />금액
+                                </TableCell>
+                                {["S0", "S1", "S2", "S3", "S4"].map((key) => (
+                                  <TableCell key={key} className="text-center text-[10px] text-muted-foreground">
+                                    {hasAmounts ? formatAmount(row.amounts?.[key] || 0) : "-"}
+                                  </TableCell>
+                                ))}
+                                <TableCell className="text-center text-[10px] font-bold text-blue-600 dark:text-blue-400 bg-blue-50/50 dark:bg-blue-950/20">
+                                  {hasAmounts ? formatAmount(row.coreAmountTotal) : "-"}
+                                </TableCell>
+                                {["S5", "S6", "S7"].map((key) => (
+                                  <TableCell key={key} className="text-center text-[10px] text-muted-foreground">
+                                    {hasAmounts ? formatAmount(row.amounts?.[key] || 0) : "-"}
+                                  </TableCell>
+                                ))}
+                                <TableCell className="text-center text-[10px] font-bold text-orange-600 dark:text-orange-400 bg-orange-50/50 dark:bg-orange-950/20">
+                                  {hasAmounts ? formatAmount(row.extraAmountTotal) : "-"}
+                                </TableCell>
+                              </TableRow>
+                            )}
+                          </React.Fragment>
                         );
                       })}
                     </TableBody>
@@ -1195,50 +1319,55 @@ function DashboardPage() {
           </CardContent>
         </Card>
 
-        {/* 날짜 비교 섹션 */}
+        {/* 주차별 비교 섹션 */}
         <Card>
           <CardHeader className="pb-3">
             <div className="flex flex-col gap-3">
               <CardTitle className="text-base flex items-center gap-2">
                 <ArrowUpDown className="h-4 w-4" />
-                날짜별 비교
+                주차별 비교
               </CardTitle>
+              <p className="text-xs text-muted-foreground">날짜를 선택하면 해당 날짜가 속한 주(월~일)의 마지막 스냅샷으로 비교합니다.</p>
               <div className="flex flex-wrap items-center gap-2">
-                <Popover open={compareDateOpen1} onOpenChange={setCompareDateOpen1}>
+                <Popover open={compareWeekOpen1} onOpenChange={setCompareWeekOpen1}>
                   <PopoverTrigger asChild>
-                    <Button variant="outline" size="sm" className="h-8 text-xs gap-1.5 min-w-[120px]">
+                    <Button variant="outline" size="sm" className="h-8 text-xs gap-1.5 min-w-[160px]">
                       <CalendarIcon className="h-3.5 w-3.5" />
-                      {compareDate1 ? format(compareDate1, "yyyy.MM.dd") : "기준 날짜"}
+                      {compareWeek1
+                        ? `${format(getMonday(compareWeek1), "MM/dd")}~${format(getSunday(getMonday(compareWeek1)), "MM/dd")} (기준)`
+                        : "기준 주차 선택"}
                     </Button>
                   </PopoverTrigger>
                   <PopoverContent className="w-auto p-0" align="start">
                     <Calendar
                       mode="single"
-                      selected={compareDate1}
-                      onSelect={(d) => { setCompareDate1(d || undefined); setCompareDateOpen1(false); }}
+                      selected={compareWeek1}
+                      onSelect={(d) => { setCompareWeek1(d || undefined); setCompareWeekOpen1(false); }}
                       locale={ko}
                     />
                   </PopoverContent>
                 </Popover>
                 <span className="text-xs text-muted-foreground font-medium">vs</span>
-                <Popover open={compareDateOpen2} onOpenChange={setCompareDateOpen2}>
+                <Popover open={compareWeekOpen2} onOpenChange={setCompareWeekOpen2}>
                   <PopoverTrigger asChild>
-                    <Button variant="outline" size="sm" className="h-8 text-xs gap-1.5 min-w-[120px]">
+                    <Button variant="outline" size="sm" className="h-8 text-xs gap-1.5 min-w-[160px]">
                       <CalendarIcon className="h-3.5 w-3.5" />
-                      {compareDate2 ? format(compareDate2, "yyyy.MM.dd") : "비교 날짜"}
+                      {compareWeek2
+                        ? `${format(getMonday(compareWeek2), "MM/dd")}~${format(getSunday(getMonday(compareWeek2)), "MM/dd")} (비교)`
+                        : "비교 주차 선택"}
                     </Button>
                   </PopoverTrigger>
                   <PopoverContent className="w-auto p-0" align="start">
                     <Calendar
                       mode="single"
-                      selected={compareDate2}
-                      onSelect={(d) => { setCompareDate2(d || undefined); setCompareDateOpen2(false); }}
+                      selected={compareWeek2}
+                      onSelect={(d) => { setCompareWeek2(d || undefined); setCompareWeekOpen2(false); }}
                       locale={ko}
                     />
                   </PopoverContent>
                 </Popover>
-                {(compareDate1 || compareDate2) && (
-                  <Button variant="ghost" size="sm" className="h-7 text-xs px-2" onClick={() => { setCompareDate1(undefined); setCompareDate2(undefined); setCompareData(null); }}>
+                {(compareWeek1 || compareWeek2) && (
+                  <Button variant="ghost" size="sm" className="h-7 text-xs px-2" onClick={() => { setCompareWeek1(undefined); setCompareWeek2(undefined); setCompareData(null); }}>
                     초기화
                   </Button>
                 )}
@@ -1246,99 +1375,153 @@ function DashboardPage() {
             </div>
           </CardHeader>
           <CardContent>
-            {!compareDate1 || !compareDate2 ? (
+            {!compareWeek1 || !compareWeek2 ? (
               <div className="flex flex-col items-center justify-center py-8 text-muted-foreground">
                 <ArrowUpDown className="h-6 w-6 mb-2 opacity-50" />
-                <p className="text-sm">두 날짜를 선택하면 단계별 건수 변화를 비교할 수 있습니다.</p>
+                <p className="text-sm">두 주차를 선택하면 단계별 건수/금액 변화를 비교할 수 있습니다.</p>
               </div>
             ) : !compareData ? (
               <div className="flex items-center justify-center py-8 text-muted-foreground text-sm">
                 데이터 로딩 중...
               </div>
-            ) : (
-              <div className="rounded-lg border overflow-x-auto">
-                <Table className="min-w-[800px]">
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead className="text-center text-xs w-[120px]">구분</TableHead>
-                      {Object.entries(STAGE_LABELS).map(([key, label]) => (
-                        <TableHead key={key} className="text-center text-xs">
-                          <div className="flex flex-col items-center gap-0.5">
+            ) : (() => {
+              const coreKeys = ["S0", "S1", "S2", "S3", "S4"];
+              const extraKeys = ["S5", "S6", "S7"];
+              const coreTotal1 = coreKeys.reduce((s, k) => s + (compareData.date1[k] || 0), 0);
+              const coreTotal2 = coreKeys.reduce((s, k) => s + (compareData.date2[k] || 0), 0);
+              const extraTotal1 = extraKeys.reduce((s, k) => s + (compareData.date1[k] || 0), 0);
+              const extraTotal2 = extraKeys.reduce((s, k) => s + (compareData.date2[k] || 0), 0);
+              const coreAmtTotal1 = coreKeys.reduce((s, k) => s + (compareData.amount1[k] || 0), 0);
+              const coreAmtTotal2 = coreKeys.reduce((s, k) => s + (compareData.amount2[k] || 0), 0);
+              const extraAmtTotal1 = extraKeys.reduce((s, k) => s + (compareData.amount1[k] || 0), 0);
+              const extraAmtTotal2 = extraKeys.reduce((s, k) => s + (compareData.amount2[k] || 0), 0);
+              const hasAmounts = Object.values(compareData.amount1).some(v => v > 0) || Object.values(compareData.amount2).some(v => v > 0);
+              const w1Label = `${format(getMonday(compareWeek1), "MM/dd")}~${format(getSunday(getMonday(compareWeek1)), "MM/dd")}`;
+              const w2Label = `${format(getMonday(compareWeek2), "MM/dd")}~${format(getSunday(getMonday(compareWeek2)), "MM/dd")}`;
+
+              return (
+                <div className="rounded-lg border overflow-x-auto">
+                  <Table className="min-w-[900px]">
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead className="text-center text-xs w-[140px]">구분</TableHead>
+                        {coreKeys.map((key) => (
+                          <TableHead key={key} className="text-center text-xs">
                             <span className="inline-flex items-center gap-1">
-                              <span
-                                className="inline-block w-2 h-2 rounded-full"
-                                style={{ backgroundColor: STAGE_COLORS[key] }}
-                              />
-                              {label}
+                              <span className="inline-block w-2 h-2 rounded-full" style={{ backgroundColor: STAGE_COLORS[key] }} />
+                              {STAGE_LABELS[key]}
                             </span>
-                          </div>
-                        </TableHead>
-                      ))}
-                      <TableHead className="text-center text-xs font-bold">합계</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    <TableRow>
-                      <TableCell className="text-center text-xs font-medium">
-                        {format(compareDate1, "MM/dd")} (기준)
-                      </TableCell>
-                      {Object.keys(STAGE_LABELS).map((key) => (
-                        <TableCell key={key} className="text-center text-xs">
-                          {compareData.date1[key] || 0}
-                        </TableCell>
-                      ))}
-                      <TableCell className="text-center text-xs font-bold">
-                        {Object.values(compareData.date1).reduce((a, b) => a + b, 0)}
-                      </TableCell>
-                    </TableRow>
-                    <TableRow>
-                      <TableCell className="text-center text-xs font-medium">
-                        {format(compareDate2, "MM/dd")} (비교)
-                      </TableCell>
-                      {Object.keys(STAGE_LABELS).map((key) => (
-                        <TableCell key={key} className="text-center text-xs">
-                          {compareData.date2[key] || 0}
-                        </TableCell>
-                      ))}
-                      <TableCell className="text-center text-xs font-bold">
-                        {Object.values(compareData.date2).reduce((a, b) => a + b, 0)}
-                      </TableCell>
-                    </TableRow>
-                    <TableRow className="bg-muted/30">
-                      <TableCell className="text-center text-xs font-bold">변화</TableCell>
-                      {Object.keys(STAGE_LABELS).map((key) => {
-                        const diff = (compareData.date2[key] || 0) - (compareData.date1[key] || 0);
-                        return (
-                          <TableCell key={key} className="text-center text-xs">
-                            <span className={cn(
-                              "font-bold",
-                              diff > 0 ? "text-green-600" : diff < 0 ? "text-red-500" : "text-muted-foreground"
-                            )}>
-                              {diff > 0 ? "+" : ""}{diff}
+                          </TableHead>
+                        ))}
+                        <TableHead className="text-center text-xs font-bold bg-blue-50 dark:bg-blue-950/30">S0~S4</TableHead>
+                        {extraKeys.map((key) => (
+                          <TableHead key={key} className="text-center text-xs">
+                            <span className="inline-flex items-center gap-1">
+                              <span className="inline-block w-2 h-2 rounded-full" style={{ backgroundColor: STAGE_COLORS[key] }} />
+                              {STAGE_LABELS[key]}
                             </span>
-                          </TableCell>
-                        );
-                      })}
-                      {(() => {
-                        const total1 = Object.values(compareData.date1).reduce((a, b) => a + b, 0);
-                        const total2 = Object.values(compareData.date2).reduce((a, b) => a + b, 0);
-                        const totalDiff = total2 - total1;
-                        return (
-                          <TableCell className="text-center text-xs">
-                            <span className={cn(
-                              "font-bold",
-                              totalDiff > 0 ? "text-green-600" : totalDiff < 0 ? "text-red-500" : "text-muted-foreground"
-                            )}>
-                              {totalDiff > 0 ? "+" : ""}{totalDiff}
-                            </span>
-                          </TableCell>
-                        );
-                      })()}
-                    </TableRow>
-                  </TableBody>
-                </Table>
-              </div>
-            )}
+                          </TableHead>
+                        ))}
+                        <TableHead className="text-center text-xs font-bold bg-orange-50 dark:bg-orange-950/30">S5~S7</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      <TableRow>
+                        <TableCell className="text-center text-xs font-medium">{w1Label} (기준)</TableCell>
+                        {coreKeys.map((key) => (
+                          <TableCell key={key} className="text-center text-xs">{compareData.date1[key] || 0}</TableCell>
+                        ))}
+                        <TableCell className="text-center text-xs font-bold bg-blue-50/50 dark:bg-blue-950/20">{coreTotal1}</TableCell>
+                        {extraKeys.map((key) => (
+                          <TableCell key={key} className="text-center text-xs">{compareData.date1[key] || 0}</TableCell>
+                        ))}
+                        <TableCell className="text-center text-xs font-bold bg-orange-50/50 dark:bg-orange-950/20">{extraTotal1}</TableCell>
+                      </TableRow>
+                      <TableRow>
+                        <TableCell className="text-center text-xs font-medium">{w2Label} (비교)</TableCell>
+                        {coreKeys.map((key) => (
+                          <TableCell key={key} className="text-center text-xs">{compareData.date2[key] || 0}</TableCell>
+                        ))}
+                        <TableCell className="text-center text-xs font-bold bg-blue-50/50 dark:bg-blue-950/20">{coreTotal2}</TableCell>
+                        {extraKeys.map((key) => (
+                          <TableCell key={key} className="text-center text-xs">{compareData.date2[key] || 0}</TableCell>
+                        ))}
+                        <TableCell className="text-center text-xs font-bold bg-orange-50/50 dark:bg-orange-950/20">{extraTotal2}</TableCell>
+                      </TableRow>
+                      <TableRow className="bg-muted/30">
+                        <TableCell className="text-center text-xs font-bold">변화</TableCell>
+                        {coreKeys.map((key) => {
+                          const diff = (compareData.date2[key] || 0) - (compareData.date1[key] || 0);
+                          return (
+                            <TableCell key={key} className="text-center text-xs">
+                              <span className={cn("font-bold", diff > 0 ? "text-green-600" : diff < 0 ? "text-red-500" : "text-muted-foreground")}>
+                                {diff > 0 ? "+" : ""}{diff}
+                              </span>
+                            </TableCell>
+                          );
+                        })}
+                        {(() => {
+                          const diff = coreTotal2 - coreTotal1;
+                          return (
+                            <TableCell className="text-center text-xs bg-blue-50/50 dark:bg-blue-950/20">
+                              <span className={cn("font-bold", diff > 0 ? "text-green-600" : diff < 0 ? "text-red-500" : "text-muted-foreground")}>
+                                {diff > 0 ? "+" : ""}{diff}
+                              </span>
+                            </TableCell>
+                          );
+                        })()}
+                        {extraKeys.map((key) => {
+                          const diff = (compareData.date2[key] || 0) - (compareData.date1[key] || 0);
+                          return (
+                            <TableCell key={key} className="text-center text-xs">
+                              <span className={cn("font-bold", diff > 0 ? "text-green-600" : diff < 0 ? "text-red-500" : "text-muted-foreground")}>
+                                {diff > 0 ? "+" : ""}{diff}
+                              </span>
+                            </TableCell>
+                          );
+                        })}
+                        {(() => {
+                          const diff = extraTotal2 - extraTotal1;
+                          return (
+                            <TableCell className="text-center text-xs bg-orange-50/50 dark:bg-orange-950/20">
+                              <span className={cn("font-bold", diff > 0 ? "text-green-600" : diff < 0 ? "text-red-500" : "text-muted-foreground")}>
+                                {diff > 0 ? "+" : ""}{diff}
+                              </span>
+                            </TableCell>
+                          );
+                        })()}
+                      </TableRow>
+                      {hasAmounts && (
+                        <>
+                          <TableRow className="border-t-2">
+                            <TableCell className="text-center text-[10px] text-muted-foreground font-medium">{w1Label} 금액</TableCell>
+                            {coreKeys.map((key) => (
+                              <TableCell key={key} className="text-center text-[10px] text-muted-foreground">{formatAmount(compareData.amount1[key] || 0)}</TableCell>
+                            ))}
+                            <TableCell className="text-center text-[10px] font-bold text-blue-600 bg-blue-50/50 dark:bg-blue-950/20">{formatAmount(coreAmtTotal1)}</TableCell>
+                            {extraKeys.map((key) => (
+                              <TableCell key={key} className="text-center text-[10px] text-muted-foreground">{formatAmount(compareData.amount1[key] || 0)}</TableCell>
+                            ))}
+                            <TableCell className="text-center text-[10px] font-bold text-orange-600 bg-orange-50/50 dark:bg-orange-950/20">{formatAmount(extraAmtTotal1)}</TableCell>
+                          </TableRow>
+                          <TableRow>
+                            <TableCell className="text-center text-[10px] text-muted-foreground font-medium">{w2Label} 금액</TableCell>
+                            {coreKeys.map((key) => (
+                              <TableCell key={key} className="text-center text-[10px] text-muted-foreground">{formatAmount(compareData.amount2[key] || 0)}</TableCell>
+                            ))}
+                            <TableCell className="text-center text-[10px] font-bold text-blue-600 bg-blue-50/50 dark:bg-blue-950/20">{formatAmount(coreAmtTotal2)}</TableCell>
+                            {extraKeys.map((key) => (
+                              <TableCell key={key} className="text-center text-[10px] text-muted-foreground">{formatAmount(compareData.amount2[key] || 0)}</TableCell>
+                            ))}
+                            <TableCell className="text-center text-[10px] font-bold text-orange-600 bg-orange-50/50 dark:bg-orange-950/20">{formatAmount(extraAmtTotal2)}</TableCell>
+                          </TableRow>
+                        </>
+                      )}
+                    </TableBody>
+                  </Table>
+                </div>
+              );
+            })()}
           </CardContent>
         </Card>
       </div>

@@ -73,6 +73,7 @@ const stage2SubMenus = [
   { name: "연락처", href: "/contacts", icon: Users, disabled: false },
   { name: "작업", href: "/tasks", icon: CheckSquare, disabled: false },
   { name: "견적서", href: "/quotations", icon: FileText, disabled: false },
+  { name: "계약서", href: "/contracts", icon: ScrollText, disabled: false },
   { name: "리포트", href: "/reports", icon: BarChart3, disabled: false },
   { name: "통계", href: "/statistics", icon: TrendingUp, disabled: false },
 ]

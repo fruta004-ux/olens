@@ -17,17 +17,30 @@ CREATE INDEX IF NOT EXISTS idx_pipeline_snapshots_date_stage ON public.pipeline_
 ALTER TABLE public.pipeline_snapshots ENABLE ROW LEVEL SECURITY;
 CREATE POLICY "Allow all access to pipeline_snapshots" ON public.pipeline_snapshots FOR ALL USING (true) WITH CHECK (true);
 
--- 스냅샷 수집 함수
+-- 스냅샷 수집 함수 (금액 포함)
 CREATE OR REPLACE FUNCTION take_pipeline_snapshot()
 RETURNS void AS $$
 BEGIN
-  INSERT INTO pipeline_snapshots (snapshot_date, stage, deal_count)
-  SELECT CURRENT_DATE, stage, COUNT(*)
+  INSERT INTO pipeline_snapshots (snapshot_date, stage, deal_count, total_amount)
+  SELECT 
+    CURRENT_DATE, 
+    stage, 
+    COUNT(*),
+    COALESCE(SUM(
+      CASE 
+        WHEN amount_range LIKE '%억%' THEN 
+          (regexp_replace(split_part(amount_range, '~', 1), '[^0-9]', '', 'g'))::bigint * 100000000
+        WHEN amount_range LIKE '%만%' THEN 
+          (regexp_replace(split_part(amount_range, '~', 1), '[^0-9]', '', 'g'))::bigint * 10000
+        ELSE 
+          COALESCE(NULLIF(regexp_replace(amount_range, '[^0-9]', '', 'g'), '')::bigint, 0)
+      END
+    ), 0)::text
   FROM deals
   WHERE stage IS NOT NULL
   GROUP BY stage
   ON CONFLICT (snapshot_date, stage)
-  DO UPDATE SET deal_count = EXCLUDED.deal_count, created_at = NOW();
+  DO UPDATE SET deal_count = EXCLUDED.deal_count, total_amount = EXCLUDED.total_amount, created_at = NOW();
 END;
 $$ LANGUAGE plpgsql;
 

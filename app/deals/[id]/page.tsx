@@ -42,6 +42,7 @@ import {
   RefreshCw,
   AlertCircle,
   ImageIcon,
+  ScrollText,
 } from "lucide-react"
 import Link from "next/link"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
@@ -781,6 +782,73 @@ function DealDetailPageClient({ dealId }: { dealId: string }) {
     }
   }, [dealData.account_id])
 
+  // 계약서 자동 생성 (S5 확정 시)
+  const autoCreateContractDraft = async () => {
+    try {
+      const { data: templates } = await supabase
+        .from("contract_templates")
+        .select("*")
+        .eq("is_active", true)
+        .order("display_order")
+
+      const needsStr = dealData.needs_summary || ""
+      let matchedCategory = "홈페이지"
+      if (needsStr.includes("마케팅")) matchedCategory = "마케팅"
+      else if (needsStr.includes("디자인")) matchedCategory = "디자인"
+      else if (needsStr.includes("앱")) matchedCategory = "앱개발"
+      else if (needsStr.includes("ERP") || needsStr.includes("커스텀")) matchedCategory = "ERP개발"
+      else if (needsStr.includes("영상")) matchedCategory = "영상"
+
+      const template = templates?.find((t: any) => t.category === matchedCategory) || templates?.[0]
+      if (!template) return
+
+      const { data: seals } = await supabase.from("company_seals").select("seal_url").eq("is_active", true).eq("company", dealData.company || "플루타").limit(1)
+      const sealUrl = seals?.[0]?.seal_url || ""
+
+      const now = new Date()
+      const dateStr = `${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, "0")}${String(now.getDate()).padStart(2, "0")}`
+      const seq = String(Math.floor(Math.random() * 999) + 1).padStart(3, "0")
+
+      const costRaw = contractFormData.cost || dealData.amount_range || ""
+      const costClean = costRaw.replace(/[^\d]/g, "")
+      const numericAmount = parseInt(costClean) || 0
+      const dep = numericAmount > 0 ? Math.round(numericAmount * 0.5 * 1.1) : 0
+      const bal = numericAmount > 0 ? Math.round(numericAmount * 0.5 * 1.1) : 0
+
+      await supabase.from("contracts").insert({
+        contract_number: `C-${dateStr}-${seq}`,
+        template_id: template.id,
+        deal_id: resolvedId,
+        category: matchedCategory,
+        title: template.title,
+        client_info: {
+          company_name: dealData.account?.company_name || "",
+          representative: dealData.account?.representative || "",
+          business_number: dealData.account?.business_number || "",
+          address: dealData.account?.address || "",
+        },
+        contract_data: {
+          content_description: needsStr.replace(/,/g, ", "),
+          amount: costRaw.includes("(") ? costRaw.split("(")[0].trim() : costRaw,
+          deposit_percent: "50%",
+          deposit_amount: dep > 0 ? dep.toLocaleString() : "",
+          balance_percent: "50%",
+          balance_amount: bal > 0 ? bal.toLocaleString() : "",
+          dev_start: contractFormData.work_start_date || "",
+          dev_end: "",
+        },
+        clauses: template.clauses || [],
+        bank_info: template.bank_info || {},
+        company_info: template.company_info || {},
+        seal_url: sealUrl,
+        status: "초안",
+        contract_date: contractFormData.contract_date || "",
+      })
+    } catch (err) {
+      console.error("계약서 자동 생성 실패:", err)
+    }
+  }
+
   // 계약 확정 저장 핸들러
   const handleContractConfirm = async () => {
     if (pendingStageChange) {
@@ -794,6 +862,8 @@ function DealDetailPageClient({ dealId }: { dealId: string }) {
       if (clientId) {
         setLinkedClientId(clientId)
       }
+
+      await autoCreateContractDraft()
     } else {
       await handleUpdateDeal({ contract_info: contractFormData })
     }
@@ -1919,6 +1989,15 @@ function DealDetailPageClient({ dealId }: { dealId: string }) {
               기존 거래처 보기
             </Button>
           )}
+          <Button
+            variant="outline"
+            size="sm"
+            className="w-full mt-1.5 text-xs gap-1.5 text-violet-600 border-violet-200 hover:bg-violet-50"
+            onClick={() => router.push("/contracts")}
+          >
+            <ScrollText className="h-3.5 w-3.5" />
+            계약서 관리
+          </Button>
         </div>
       )}
 
