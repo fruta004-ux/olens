@@ -817,22 +817,94 @@ function DashboardPage() {
           })}
         </div>
 
-        {/* 거래정보별 파이프라인 - S0~S4 + 종합 */}
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-          {(["S0", "S1", "S2", "S3", "S4", "total"] as const).map((stageKey) => {
-            const stageColorMap: Record<string, string> = { S0: "bg-slate-500", S1: "bg-blue-500", S2: "bg-violet-500", S3: "bg-amber-500", S4: "bg-purple-500", total: "bg-primary" };
-            const stageLabelMap: Record<string, string> = { S0: "S0 신규유입", S1: "S1 유효리드", S2: "S2 상담완료", S3: "S3 제안발송", S4: "S4 결정대기", total: "종합" };
+        {/* 종합 거래정보별 */}
+        {(() => {
+          const totalServices = data.serviceByStage["total"] || [];
+          const totalCount = totalServices.reduce((s, sv) => s + sv.count, 0);
+          const totalAmount = totalServices.reduce((s, sv) => s + sv.amount, 0);
+          return (
+            <Card className="border-2 border-primary/20">
+              <CardHeader className="pb-2">
+                <div className="flex items-center justify-between">
+                  <CardTitle className="text-base flex items-center gap-2">
+                    <div className="w-3 h-3 rounded-full bg-primary" />
+                    종합 거래정보별 파이프라인
+                  </CardTitle>
+                  <div className="flex items-center gap-3 text-sm">
+                    <span className="text-muted-foreground">{totalCount}건</span>
+                    <span className="font-bold">{formatWon(totalAmount)}</span>
+                  </div>
+                </div>
+              </CardHeader>
+              <CardContent>
+                <div className="grid grid-cols-3 md:grid-cols-6 gap-3">
+                  {totalServices.map((service) => {
+                    const cacheKey = `total_${service.name}`;
+                    const isExpanded = expandedService === cacheKey;
+                    const deals = serviceDeals[cacheKey] || [];
+                    return (
+                      <div key={service.name}>
+                        <div
+                          className={cn(
+                            "p-3 rounded-lg cursor-pointer transition-colors hover:bg-muted/50 text-center",
+                            isExpanded && "bg-muted/50 ring-1 ring-primary/30"
+                          )}
+                          onClick={() => loadServiceDeals(service.name, "total")}
+                        >
+                          <div className={`w-3 h-3 rounded-full ${service.color} mx-auto mb-1.5`} />
+                          <div className="font-medium text-xs">{service.name}</div>
+                          <div className="text-lg font-bold mt-1">{service.count}건</div>
+                          <div className="text-xs text-muted-foreground mt-0.5">
+                            {service.amount > 0 ? formatWon(service.amount) : "-"}
+                          </div>
+                        </div>
+                        {isExpanded && deals.length > 0 && (
+                          <div className="mt-1 space-y-1 max-h-[200px] overflow-y-auto">
+                            {deals.map((deal) => (
+                              <div
+                                key={deal.id}
+                                onClick={() => router.push(`/deals/${deal.id}`)}
+                                className="text-xs p-1.5 rounded bg-muted/30 hover:bg-muted/50 cursor-pointer flex justify-between"
+                              >
+                                <span className="truncate max-w-[100px]">{deal.deal_name || "이름 없음"}</span>
+                                <Badge variant="outline" className="text-[10px] h-4">{deal.stage?.split("_")[0]}</Badge>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              </CardContent>
+            </Card>
+          );
+        })()}
+
+        {/* S1~S4 거래정보별 - 2x2 */}
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          {(["S1", "S2", "S3", "S4"] as const).map((stageKey) => {
+            const stageColorMap: Record<string, string> = { S1: "bg-blue-500", S2: "bg-violet-500", S3: "bg-amber-500", S4: "bg-purple-500" };
+            const stageLabelMap: Record<string, string> = { S1: "S1 유효리드", S2: "S2 상담완료", S3: "S3 제안발송", S4: "S4 결정대기" };
             const services = data.serviceByStage[stageKey] || [];
+            const stageTotal = services.reduce((s, sv) => s + sv.count, 0);
+            const stageAmount = services.reduce((s, sv) => s + sv.amount, 0);
 
             return (
-              <Card key={stageKey} className={stageKey === "total" ? "md:col-span-2 lg:col-span-1 border-2 border-primary/20" : ""}>
+              <Card key={stageKey}>
                 <CardHeader className="pb-2">
-                  <CardTitle className="text-sm flex items-center gap-2">
-                    <div className={`w-3 h-3 rounded-full ${stageColorMap[stageKey]}`} />
-                    {stageLabelMap[stageKey]} 거래정보별
-                  </CardTitle>
+                  <div className="flex items-center justify-between">
+                    <CardTitle className="text-sm flex items-center gap-2">
+                      <div className={`w-3 h-3 rounded-full ${stageColorMap[stageKey]}`} />
+                      {stageLabelMap[stageKey]}
+                    </CardTitle>
+                    <div className="flex items-center gap-2 text-xs">
+                      <span className="text-muted-foreground">{stageTotal}건</span>
+                      <span className="font-bold">{stageAmount > 0 ? formatWon(stageAmount) : "-"}</span>
+                    </div>
+                  </div>
                 </CardHeader>
-                <CardContent className="space-y-2">
+                <CardContent className="space-y-1">
                   {services.map((service) => {
                     const cacheKey = `${stageKey}_${service.name}`;
                     const isExpanded = expandedService === cacheKey;
