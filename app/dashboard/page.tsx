@@ -643,9 +643,6 @@ function DashboardPage() {
           totalPipeline,
           targetPipeline: PIPELINE_TARGETS.total,
           stages: [
-            { id: "S0", name: "신규유입", count: stageAmounts.S0.count, amount: stageAmounts.S0.amount, target: 0, color: "bg-slate-500" },
-            { id: "S1", name: "유효리드", count: stageAmounts.S1.count, amount: stageAmounts.S1.amount, target: 0, color: "bg-blue-500" },
-            { id: "S2", name: "상담완료", count: stageAmounts.S2.count, amount: stageAmounts.S2.amount, target: 0, color: "bg-violet-500" },
             { id: "S3", name: "제안발송", count: stageAmounts.S3.count, amount: stageAmounts.S3.amount, target: PIPELINE_TARGETS.S3, color: "bg-amber-500" },
             { id: "S4", name: "결정대기", count: stageAmounts.S4.count, amount: stageAmounts.S4.amount, target: PIPELINE_TARGETS.S4, color: "bg-purple-500" },
             { id: "S5", name: "계약완료", count: stageAmounts.S5.count, amount: stageAmounts.S5.amount, target: PIPELINE_TARGETS.S5, color: "bg-green-500" },
@@ -831,7 +828,7 @@ function DashboardPage() {
           </div>
         </div>
 
-        {/* 전체 파이프라인 현황 + 단계별 카드 */}
+        {/* 전체 파이프라인 현황 + S3/S4/S5 카드 */}
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
           {/* 전체 파이프라인 현황 */}
           <Card className="col-span-2 lg:col-span-1">
