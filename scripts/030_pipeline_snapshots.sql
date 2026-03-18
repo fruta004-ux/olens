@@ -15,7 +15,11 @@ CREATE INDEX IF NOT EXISTS idx_pipeline_snapshots_date_stage ON public.pipeline_
 
 -- RLS
 ALTER TABLE public.pipeline_snapshots ENABLE ROW LEVEL SECURITY;
-CREATE POLICY "Allow all access to pipeline_snapshots" ON public.pipeline_snapshots FOR ALL USING (true) WITH CHECK (true);
+DO $$ BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE tablename = 'pipeline_snapshots' AND policyname = 'Allow all access to pipeline_snapshots') THEN
+    CREATE POLICY "Allow all access to pipeline_snapshots" ON public.pipeline_snapshots FOR ALL USING (true) WITH CHECK (true);
+  END IF;
+END $$;
 
 -- 스냅샷 수집 함수 (금액 포함)
 CREATE OR REPLACE FUNCTION take_pipeline_snapshot()
