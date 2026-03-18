@@ -110,7 +110,6 @@ interface PipelineData {
   totalPipeline: number;
   targetPipeline: number;
   stages: { id: string; name: string; count: number; amount: number; target: number; color: string }[];
-  needsCategories: string[];
   serviceByStage: Record<string, { name: string; amount: number; count: number; color: string }[]>;
   insights: { type: string; message: string }[];
 }
@@ -514,28 +513,22 @@ function DashboardPage() {
       loadCompareData();
     }, [compareWeek1, compareWeek2]);
     
-    const NEEDS_COLORS: Record<string, string> = {
+    const DEAL_CATEGORIES = ["마케팅", "홈페이지", "디자인", "개발", "영상"] as const;
+    const CATEGORY_COLORS: Record<string, string> = {
       "마케팅": "bg-purple-500",
       "홈페이지": "bg-cyan-500",
       "디자인": "bg-pink-500",
       "개발": "bg-orange-500",
       "영상": "bg-teal-500",
+      "미분류": "bg-gray-400",
     };
 
     const loadPipelineData = async () => {
       setIsLoading(true);
       try {
-        const { data: settingsData } = await supabase
-          .from("settings")
-          .select("value")
-          .eq("category", "needs")
-          .order("display_order");
-
-        const needsCategories = settingsData?.map((s: any) => s.value) || [];
-
         const { data: dealsData } = await supabase
           .from("deals")
-          .select("id, deal_name, needs_summary, stage, amount_range")
+          .select("id, deal_name, needs_summary, stage, amount_range, category")
           .not("stage", "is", null);
 
         const stageAmounts: Record<string, { count: number; amount: number }> = {
@@ -547,11 +540,11 @@ function DashboardPage() {
           S5: { count: 0, amount: 0 },
         };
 
-        const allCategories = [...needsCategories, "미분류"];
-        const emptyNeeds = () => Object.fromEntries(allCategories.map(c => [c, { amount: 0, count: 0 }]));
+        const allCategories = [...DEAL_CATEGORIES, "미분류"];
+        const emptyCats = () => Object.fromEntries(allCategories.map(c => [c, { amount: 0, count: 0 }]));
         const serviceByStageRaw: Record<string, Record<string, { amount: number; count: number }>> = {
-          S0: emptyNeeds(), S1: emptyNeeds(), S2: emptyNeeds(),
-          S3: emptyNeeds(), S4: emptyNeeds(), total: emptyNeeds(),
+          S0: emptyCats(), S1: emptyCats(), S2: emptyCats(),
+          S3: emptyCats(), S4: emptyCats(), total: emptyCats(),
         };
 
         dealsData?.forEach((deal: any) => {
@@ -568,8 +561,8 @@ function DashboardPage() {
           stageAmounts[stageKey].count++;
           stageAmounts[stageKey].amount += amount;
 
-          const needsValue = deal.needs_summary?.trim() || "";
-          const category = needsCategories.includes(needsValue) ? needsValue : "미분류";
+          const catValue = deal.category?.trim() || "";
+          const category = (DEAL_CATEGORIES as readonly string[]).includes(catValue) ? catValue : "미분류";
 
           if (serviceByStageRaw[stageKey]) {
             serviceByStageRaw[stageKey][category].amount += amount;
@@ -612,7 +605,7 @@ function DashboardPage() {
             name: cat,
             amount: serviceByStageRaw[stageKey][cat].amount,
             count: serviceByStageRaw[stageKey][cat].count,
-            color: NEEDS_COLORS[cat] || "bg-gray-400",
+            color: CATEGORY_COLORS[cat] || "bg-gray-400",
           }));
 
         setPipelineData({
@@ -623,7 +616,6 @@ function DashboardPage() {
             { id: "S4", name: "결정대기", count: stageAmounts.S4.count, amount: stageAmounts.S4.amount, target: PIPELINE_TARGETS.S4, color: "bg-purple-500" },
             { id: "S5", name: "계약완료", count: stageAmounts.S5.count, amount: stageAmounts.S5.amount, target: PIPELINE_TARGETS.S5, color: "bg-green-500" },
           ],
-          needsCategories: allCategories,
           serviceByStage: {
             S0: toServiceList("S0"),
             S1: toServiceList("S1"),
@@ -657,7 +649,7 @@ function DashboardPage() {
 
       let query = supabase
         .from("deals")
-        .select("id, deal_name, needs_summary, stage, amount_range, grade, priority")
+        .select("id, deal_name, needs_summary, stage, amount_range, grade, priority, category")
         .not("stage", "is", null);
 
       if (stageType !== "total") {
@@ -669,13 +661,12 @@ function DashboardPage() {
       const { data: deals, error } = await query;
 
       if (!error && deals) {
-        const needsCats = pipelineData?.needsCategories?.filter(c => c !== "미분류") || [];
         const filteredDeals = deals.filter((deal: any) => {
-          const needsValue = deal.needs_summary?.trim() || "";
+          const catValue = deal.category?.trim() || "";
           if (serviceName === "미분류") {
-            return !needsValue || !needsCats.includes(needsValue);
+            return !catValue || !(DEAL_CATEGORIES as readonly string[]).includes(catValue);
           }
-          return needsValue === serviceName;
+          return catValue === serviceName;
         });
         setServiceDeals(prev => ({ ...prev, [cacheKey]: filteredDeals }));
       }
