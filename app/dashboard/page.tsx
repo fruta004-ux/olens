@@ -78,12 +78,6 @@ const PIPELINE_TARGETS = {
   S3: 666000000,
   S4: 333000000,
   S5: 100000000,
-  services: {
-    "마케팅": 300000000,
-    "홈페이지": 400000000,
-    "ERP/커스텀": 300000000,
-    "미분류": 0, // 미분류는 목표 없음
-  }
 };
 
 // amount_range 문자열에서 금액 추출 (예: "1,000만원 ~ 3,000만원" -> 2000만원 평균)
@@ -112,22 +106,12 @@ function parseAmountRange(amountRange: string | null): number {
   return numbers[0] * multiplier;
 }
 
-interface ServiceTypeMapping {
-  [needValue: string]: string;
-}
-
 interface PipelineData {
   totalPipeline: number;
   targetPipeline: number;
   stages: { id: string; name: string; count: number; amount: number; target: number; color: string }[];
-  serviceByStage: {
-    S0: { name: string; amount: number; target: number; color: string }[];
-    S1: { name: string; amount: number; target: number; color: string }[];
-    S2: { name: string; amount: number; target: number; color: string }[];
-    S3: { name: string; amount: number; target: number; color: string }[];
-    S4: { name: string; amount: number; target: number; color: string }[];
-    total: { name: string; amount: number; target: number; color: string }[];
-  };
+  needsCategories: string[];
+  serviceByStage: Record<string, { name: string; amount: number; count: number; color: string }[]>;
   insights: { type: string; message: string }[];
 }
 
@@ -263,7 +247,6 @@ function DashboardPage() {
 
   const PipelineTab = () => {
     const [pipelineData, setPipelineData] = useState<PipelineData | null>(null);
-    const [serviceTypeMap, setServiceTypeMap] = useState<ServiceTypeMapping>({});
     const [showInsight, setShowInsight] = useState(false);
     const [expandedService, setExpandedService] = useState<string | null>(null);
     const [serviceDeals, setServiceDeals] = useState<Record<string, Deal[]>>({});
@@ -531,30 +514,30 @@ function DashboardPage() {
       loadCompareData();
     }, [compareWeek1, compareWeek2]);
     
+    const NEEDS_COLORS: Record<string, string> = {
+      "마케팅": "bg-purple-500",
+      "홈페이지": "bg-cyan-500",
+      "디자인": "bg-pink-500",
+      "개발": "bg-orange-500",
+      "영상": "bg-teal-500",
+    };
+
     const loadPipelineData = async () => {
       setIsLoading(true);
       try {
-        // 1. 니즈 축약의 서비스 타입 매핑 가져오기
         const { data: settingsData } = await supabase
           .from("settings")
-          .select("value, service_type")
-          .eq("category", "needs");
-        
-        const typeMap: ServiceTypeMapping = {};
-        settingsData?.forEach((s: any) => {
-          if (s.service_type) {
-            typeMap[s.value] = s.service_type;
-          }
-        });
-        setServiceTypeMap(typeMap);
-        
-        // 2. S0~S5 단계 딜 가져오기
+          .select("value")
+          .eq("category", "needs")
+          .order("display_order");
+
+        const needsCategories = settingsData?.map((s: any) => s.value) || [];
+
         const { data: dealsData } = await supabase
           .from("deals")
           .select("id, deal_name, needs_summary, stage, amount_range")
           .not("stage", "is", null);
-        
-        // 3. 단계별, 서비스별 금액 집계
+
         const stageAmounts: Record<string, { count: number; amount: number }> = {
           S0: { count: 0, amount: 0 },
           S1: { count: 0, amount: 0 },
@@ -563,82 +546,75 @@ function DashboardPage() {
           S4: { count: 0, amount: 0 },
           S5: { count: 0, amount: 0 },
         };
-        
-        const emptyService = () => ({ "마케팅": 0, "홈페이지": 0, "ERP/커스텀": 0, "미분류": 0 });
-        const serviceAmounts: Record<string, Record<string, number>> = {
-          S0: emptyService(),
-          S1: emptyService(),
-          S2: emptyService(),
-          S3: emptyService(),
-          S4: emptyService(),
-          total: emptyService(),
+
+        const allCategories = [...needsCategories, "미분류"];
+        const emptyNeeds = () => Object.fromEntries(allCategories.map(c => [c, { amount: 0, count: 0 }]));
+        const serviceByStageRaw: Record<string, Record<string, { amount: number; count: number }>> = {
+          S0: emptyNeeds(), S1: emptyNeeds(), S2: emptyNeeds(),
+          S3: emptyNeeds(), S4: emptyNeeds(), total: emptyNeeds(),
         };
-        
+
         dealsData?.forEach((deal: any) => {
           const amount = parseAmountRange(deal.amount_range);
           const stageKey = deal.stage?.startsWith("S0") ? "S0" :
                           deal.stage?.startsWith("S1") ? "S1" :
                           deal.stage?.startsWith("S2") ? "S2" :
-                          deal.stage?.startsWith("S3") ? "S3" : 
-                          deal.stage?.startsWith("S4") ? "S4" : 
+                          deal.stage?.startsWith("S3") ? "S3" :
+                          deal.stage?.startsWith("S4") ? "S4" :
                           deal.stage?.startsWith("S5") ? "S5" : null;
-          
+
           if (!stageKey || !stageAmounts[stageKey]) return;
-          
-          // 단계별 집계
+
           stageAmounts[stageKey].count++;
           stageAmounts[stageKey].amount += amount;
-          
-          // 서비스 타입 결정 (needs_summary의 첫 번째 니즈 기준)
-          let serviceType = "미분류"; // 기본값을 미분류로 변경
-          if (deal.needs_summary) {
-            const needs = deal.needs_summary.split(",");
-            for (const need of needs) {
-              if (typeMap[need.trim()]) {
-                serviceType = typeMap[need.trim()];
-                break;
-              }
-            }
-          }
-          
-          if (serviceAmounts[stageKey]) {
-            serviceAmounts[stageKey][serviceType] += amount;
-            serviceAmounts.total[serviceType] += amount;
+
+          const needsValue = deal.needs_summary?.trim() || "";
+          const category = needsCategories.includes(needsValue) ? needsValue : "미분류";
+
+          if (serviceByStageRaw[stageKey]) {
+            serviceByStageRaw[stageKey][category].amount += amount;
+            serviceByStageRaw[stageKey][category].count++;
+            serviceByStageRaw.total[category].amount += amount;
+            serviceByStageRaw.total[category].count++;
           }
         });
-        
-        // 4. 인사이트 생성
+
         const insights: { type: string; message: string }[] = [];
-        
+
         const totalPipeline = stageAmounts.S0.amount + stageAmounts.S1.amount + stageAmounts.S2.amount + stageAmounts.S3.amount + stageAmounts.S4.amount;
-        const s3Ratio = PIPELINE_TARGETS.S3 / stageAmounts.S3.amount;
-        const s4Ratio = PIPELINE_TARGETS.S4 / stageAmounts.S4.amount;
-        
+        const s3Ratio = stageAmounts.S3.amount > 0 ? PIPELINE_TARGETS.S3 / stageAmounts.S3.amount : 0;
+
         if (stageAmounts.S3.amount > 0 && s3Ratio > 2) {
           insights.push({
             type: "warning",
             message: `S3 파이프라인이 목표 대비 ${s3Ratio.toFixed(1)}배 부족합니다`
           });
         }
-        
-        // 서비스별 비중 분석
-        const maxService = Object.entries(serviceAmounts.total).sort((a, b) => b[1] - a[1])[0];
-        if (maxService && maxService[1] > 0) {
-          const ratio = (maxService[1] / totalPipeline * 100).toFixed(0);
+
+        const totalEntries = Object.entries(serviceByStageRaw.total).filter(([_, v]) => v.amount > 0);
+        const maxService = totalEntries.sort((a, b) => b[1].amount - a[1].amount)[0];
+        if (maxService && totalPipeline > 0) {
+          const ratio = (maxService[1].amount / totalPipeline * 100).toFixed(0);
           insights.push({
             type: "tip",
             message: `${maxService[0]} 비중이 ${ratio}%로 가장 높습니다`
           });
         }
-        
-        // 예상 매출 계산
+
         const expectedRevenue = stageAmounts.S3.amount * 0.1 + stageAmounts.S4.amount * 0.2;
         insights.push({
           type: "opportunity",
           message: `현재 파이프라인 기준 예상 매출: ${formatWon(expectedRevenue)}`
         });
-        
-        // 5. 파이프라인 데이터 설정
+
+        const toServiceList = (stageKey: string) =>
+          allCategories.map(cat => ({
+            name: cat,
+            amount: serviceByStageRaw[stageKey][cat].amount,
+            count: serviceByStageRaw[stageKey][cat].count,
+            color: NEEDS_COLORS[cat] || "bg-gray-400",
+          }));
+
         setPipelineData({
           totalPipeline,
           targetPipeline: PIPELINE_TARGETS.total,
@@ -647,43 +623,14 @@ function DashboardPage() {
             { id: "S4", name: "결정대기", count: stageAmounts.S4.count, amount: stageAmounts.S4.amount, target: PIPELINE_TARGETS.S4, color: "bg-purple-500" },
             { id: "S5", name: "계약완료", count: stageAmounts.S5.count, amount: stageAmounts.S5.amount, target: PIPELINE_TARGETS.S5, color: "bg-green-500" },
           ],
+          needsCategories: allCategories,
           serviceByStage: {
-            S0: [
-              { name: "마케팅", amount: serviceAmounts.S0["마케팅"], target: 0, color: "bg-purple-500" },
-              { name: "홈페이지", amount: serviceAmounts.S0["홈페이지"], target: 0, color: "bg-cyan-500" },
-              { name: "ERP/커스텀", amount: serviceAmounts.S0["ERP/커스텀"], target: 0, color: "bg-orange-500" },
-              { name: "미분류", amount: serviceAmounts.S0["미분류"], target: 0, color: "bg-gray-400" },
-            ],
-            S1: [
-              { name: "마케팅", amount: serviceAmounts.S1["마케팅"], target: 0, color: "bg-purple-500" },
-              { name: "홈페이지", amount: serviceAmounts.S1["홈페이지"], target: 0, color: "bg-cyan-500" },
-              { name: "ERP/커스텀", amount: serviceAmounts.S1["ERP/커스텀"], target: 0, color: "bg-orange-500" },
-              { name: "미분류", amount: serviceAmounts.S1["미분류"], target: 0, color: "bg-gray-400" },
-            ],
-            S2: [
-              { name: "마케팅", amount: serviceAmounts.S2["마케팅"], target: 0, color: "bg-purple-500" },
-              { name: "홈페이지", amount: serviceAmounts.S2["홈페이지"], target: 0, color: "bg-cyan-500" },
-              { name: "ERP/커스텀", amount: serviceAmounts.S2["ERP/커스텀"], target: 0, color: "bg-orange-500" },
-              { name: "미분류", amount: serviceAmounts.S2["미분류"], target: 0, color: "bg-gray-400" },
-            ],
-            S3: [
-              { name: "마케팅", amount: serviceAmounts.S3["마케팅"], target: PIPELINE_TARGETS.services["마케팅"] / 2, color: "bg-purple-500" },
-              { name: "홈페이지", amount: serviceAmounts.S3["홈페이지"], target: PIPELINE_TARGETS.services["홈페이지"] / 2, color: "bg-cyan-500" },
-              { name: "ERP/커스텀", amount: serviceAmounts.S3["ERP/커스텀"], target: PIPELINE_TARGETS.services["ERP/커스텀"] / 2, color: "bg-orange-500" },
-              { name: "미분류", amount: serviceAmounts.S3["미분류"], target: 0, color: "bg-gray-400" },
-            ],
-            S4: [
-              { name: "마케팅", amount: serviceAmounts.S4["마케팅"], target: PIPELINE_TARGETS.services["마케팅"] / 2, color: "bg-purple-500" },
-              { name: "홈페이지", amount: serviceAmounts.S4["홈페이지"], target: PIPELINE_TARGETS.services["홈페이지"] / 2, color: "bg-cyan-500" },
-              { name: "ERP/커스텀", amount: serviceAmounts.S4["ERP/커스텀"], target: PIPELINE_TARGETS.services["ERP/커스텀"] / 2, color: "bg-orange-500" },
-              { name: "미분류", amount: serviceAmounts.S4["미분류"], target: 0, color: "bg-gray-400" },
-            ],
-            total: [
-              { name: "마케팅", amount: serviceAmounts.total["마케팅"], target: PIPELINE_TARGETS.services["마케팅"], color: "bg-purple-500" },
-              { name: "홈페이지", amount: serviceAmounts.total["홈페이지"], target: PIPELINE_TARGETS.services["홈페이지"], color: "bg-cyan-500" },
-              { name: "ERP/커스텀", amount: serviceAmounts.total["ERP/커스텀"], target: PIPELINE_TARGETS.services["ERP/커스텀"], color: "bg-orange-500" },
-              { name: "미분류", amount: serviceAmounts.total["미분류"], target: 0, color: "bg-gray-400" },
-            ],
+            S0: toServiceList("S0"),
+            S1: toServiceList("S1"),
+            S2: toServiceList("S2"),
+            S3: toServiceList("S3"),
+            S4: toServiceList("S4"),
+            total: toServiceList("total"),
           },
           insights,
         });
@@ -695,59 +642,40 @@ function DashboardPage() {
     };
     
     // 서비스별 딜 목록 로드
-    const loadServiceDeals = async (serviceName: string, stageType: "S0" | "S1" | "S2" | "S3" | "S4" | "total") => {
+    const loadServiceDeals = async (serviceName: string, stageType: string) => {
       const cacheKey = `${stageType}_${serviceName}`;
-      
+
       if (expandedService === cacheKey) {
         setExpandedService(null);
         return;
       }
-      
+
       if (serviceDeals[cacheKey]) {
         setExpandedService(cacheKey);
         return;
       }
-      
-      const STAGE_FILTER_MAP: Record<string, string[]> = {
-        S0: ["S0_new_lead", "S0_신규 유입"],
-        S1: ["S1_qualified", "S1_유효 리드", "S1_유효리드"],
-        S2: ["S2_contact", "S2_consultation", "S2_상담 완료"],
-        S3: ["S3_proposal", "S3_제안 발송"],
-        S4: ["S4_negotiation", "S4_decision", "S4_결정 대기", "S4_협상"],
-      };
-      let stageFilter: string[] = [];
-      if (stageType === "total") {
-        stageFilter = Object.values(STAGE_FILTER_MAP).flat();
-      } else {
-        stageFilter = STAGE_FILTER_MAP[stageType] || [];
-      }
-      
-      const { data: deals, error } = await supabase
+
+      let query = supabase
         .from("deals")
         .select("id, deal_name, needs_summary, stage, amount_range, grade, priority")
-        .in("stage", stageFilter);
-      
+        .not("stage", "is", null);
+
+      if (stageType !== "total") {
+        query = query.like("stage", `${stageType}%`);
+      } else {
+        query = query.or("stage.like.S0%,stage.like.S1%,stage.like.S2%,stage.like.S3%,stage.like.S4%");
+      }
+
+      const { data: deals, error } = await query;
+
       if (!error && deals) {
-        // 서비스 타입으로 필터링
+        const needsCats = pipelineData?.needsCategories?.filter(c => c !== "미분류") || [];
         const filteredDeals = deals.filter((deal: any) => {
-          // 니즈가 없으면 미분류
-          if (!deal.needs_summary) return serviceName === "미분류";
-          
-          const needs = deal.needs_summary.split(",");
-          let foundType: string | null = null;
-          
-          for (const need of needs) {
-            const type = serviceTypeMap[need.trim()];
-            if (type) {
-              foundType = type;
-              break;
-            }
+          const needsValue = deal.needs_summary?.trim() || "";
+          if (serviceName === "미분류") {
+            return !needsValue || !needsCats.includes(needsValue);
           }
-          
-          // 매핑된 타입이 없으면 미분류
-          if (!foundType) return serviceName === "미분류";
-          
-          return foundType === serviceName;
+          return needsValue === serviceName;
         });
         setServiceDeals(prev => ({ ...prev, [cacheKey]: filteredDeals }));
       }
@@ -898,25 +826,23 @@ function DashboardPage() {
           })}
         </div>
 
-        {/* 서비스별 파이프라인 - S0~S4 + 종합 */}
+        {/* 거래정보별 파이프라인 - S0~S4 + 종합 */}
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
           {(["S0", "S1", "S2", "S3", "S4", "total"] as const).map((stageKey) => {
             const stageColorMap: Record<string, string> = { S0: "bg-slate-500", S1: "bg-blue-500", S2: "bg-violet-500", S3: "bg-amber-500", S4: "bg-purple-500", total: "bg-primary" };
             const stageLabelMap: Record<string, string> = { S0: "S0 신규유입", S1: "S1 유효리드", S2: "S2 상담완료", S3: "S3 제안발송", S4: "S4 결정대기", total: "종합" };
-            const services = data.serviceByStage[stageKey];
+            const services = data.serviceByStage[stageKey] || [];
 
             return (
               <Card key={stageKey} className={stageKey === "total" ? "md:col-span-2 lg:col-span-1 border-2 border-primary/20" : ""}>
                 <CardHeader className="pb-2">
                   <CardTitle className="text-sm flex items-center gap-2">
                     <div className={`w-3 h-3 rounded-full ${stageColorMap[stageKey]}`} />
-                    {stageLabelMap[stageKey]} 서비스별 파이프라인
+                    {stageLabelMap[stageKey]} 거래정보별
                   </CardTitle>
                 </CardHeader>
                 <CardContent className="space-y-2">
                   {services.map((service) => {
-                    const hasTarget = service.target > 0;
-                    const percentage = hasTarget ? (service.amount / service.target) * 100 : 0;
                     const cacheKey = `${stageKey}_${service.name}`;
                     const isExpanded = expandedService === cacheKey;
                     const deals = serviceDeals[cacheKey] || [];
@@ -930,7 +856,7 @@ function DashboardPage() {
                           )}
                           onClick={() => loadServiceDeals(service.name, stageKey)}
                         >
-                          <div className="flex items-center justify-between text-sm mb-1">
+                          <div className="flex items-center justify-between text-sm">
                             <span className="flex items-center gap-2">
                               {isExpanded ? (
                                 <ChevronDown className="h-3 w-3 text-muted-foreground" />
@@ -939,12 +865,12 @@ function DashboardPage() {
                               )}
                               <div className={`w-2 h-2 rounded-full ${service.color}`} />
                               <span className="font-medium text-xs">{service.name}</span>
+                              <Badge variant="secondary" className="text-[10px] px-1.5 h-4">{service.count}건</Badge>
                             </span>
                             <span className="font-medium text-xs">
-                              {formatWon(service.amount)}
+                              {service.amount > 0 ? formatWon(service.amount) : "-"}
                             </span>
                           </div>
-                          {hasTarget && <Progress value={Math.min(percentage, 100)} className="h-1.5" />}
                         </div>
                         {isExpanded && deals.length > 0 && (
                           <div className="ml-4 mt-1 mb-2 space-y-1 max-h-[200px] overflow-y-auto">
