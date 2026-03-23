@@ -543,7 +543,6 @@ function DashboardPage() {
         const allCategories = [...DEAL_CATEGORIES, "미분류"];
         const emptyCats = () => Object.fromEntries(allCategories.map(c => [c, { amount: 0, count: 0 }]));
         const serviceByStageRaw: Record<string, Record<string, { amount: number; count: number }>> = {
-          S0: emptyCats(), S1: emptyCats(), S2: emptyCats(),
           S3: emptyCats(), S4: emptyCats(), total: emptyCats(),
         };
 
@@ -574,7 +573,7 @@ function DashboardPage() {
 
         const insights: { type: string; message: string }[] = [];
 
-        const totalPipeline = stageAmounts.S0.amount + stageAmounts.S1.amount + stageAmounts.S2.amount + stageAmounts.S3.amount + stageAmounts.S4.amount;
+        const totalPipeline = stageAmounts.S3.amount + stageAmounts.S4.amount;
         const s3Ratio = stageAmounts.S3.amount > 0 ? PIPELINE_TARGETS.S3 / stageAmounts.S3.amount : 0;
 
         if (stageAmounts.S3.amount > 0 && s3Ratio > 2) {
@@ -617,9 +616,6 @@ function DashboardPage() {
             { id: "S5", name: "계약완료", count: stageAmounts.S5.count, amount: stageAmounts.S5.amount, target: PIPELINE_TARGETS.S5, color: "bg-green-500" },
           ],
           serviceByStage: {
-            S0: toServiceList("S0"),
-            S1: toServiceList("S1"),
-            S2: toServiceList("S2"),
             S3: toServiceList("S3"),
             S4: toServiceList("S4"),
             total: toServiceList("total"),
@@ -655,7 +651,7 @@ function DashboardPage() {
       if (stageType !== "total") {
         query = query.like("stage", `${stageType}%`);
       } else {
-        query = query.or("stage.like.S0%,stage.like.S1%,stage.like.S2%,stage.like.S3%,stage.like.S4%");
+        query = query.or("stage.like.S3%,stage.like.S4%");
       }
 
       const { data: deals, error } = await query;
@@ -881,11 +877,11 @@ function DashboardPage() {
           );
         })()}
 
-        {/* S1~S4 거래정보별 - 2x2 */}
+        {/* S3~S4 거래정보별 */}
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          {(["S1", "S2", "S3", "S4"] as const).map((stageKey) => {
-            const stageColorMap: Record<string, string> = { S1: "bg-blue-500", S2: "bg-violet-500", S3: "bg-amber-500", S4: "bg-purple-500" };
-            const stageLabelMap: Record<string, string> = { S1: "S1 유효리드", S2: "S2 상담완료", S3: "S3 제안발송", S4: "S4 결정대기" };
+          {(["S3", "S4"] as const).map((stageKey) => {
+            const stageColorMap: Record<string, string> = { S3: "bg-amber-500", S4: "bg-purple-500" };
+            const stageLabelMap: Record<string, string> = { S3: "S3 제안발송", S4: "S4 결정대기" };
             const services = data.serviceByStage[stageKey] || [];
             const stageTotal = services.reduce((s, sv) => s + sv.count, 0);
             const stageAmount = services.reduce((s, sv) => s + sv.amount, 0);
@@ -1852,7 +1848,7 @@ function DashboardPage() {
 
         <div className="flex-1 p-2 xl:p-6 space-y-4 xl:space-y-6">
           {/* 탭 */}
-          <Tabs value={activeTab} onValueChange={handleTabChange}>
+          <Tabs id="dashboard-tabs" value={activeTab} onValueChange={handleTabChange}>
             <TabsList className="grid w-full max-w-md grid-cols-2">
               <TabsTrigger value="pipeline" className="flex items-center gap-2">
                 <PieChart className="h-4 w-4" />

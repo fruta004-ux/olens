@@ -21,14 +21,24 @@ DO $$ BEGIN
   END IF;
 END $$;
 
--- 스냅샷 수집 함수 (금액 포함)
+-- 스냅샷 수집 함수 (금액 포함, stage 정규화)
 CREATE OR REPLACE FUNCTION take_pipeline_snapshot()
 RETURNS void AS $$
 BEGIN
   INSERT INTO pipeline_snapshots (snapshot_date, stage, deal_count, total_amount)
   SELECT 
     CURRENT_DATE, 
-    stage, 
+    CASE
+      WHEN stage LIKE 'S0%' THEN 'S0'
+      WHEN stage LIKE 'S1%' THEN 'S1'
+      WHEN stage LIKE 'S2%' THEN 'S2'
+      WHEN stage LIKE 'S3%' THEN 'S3'
+      WHEN stage LIKE 'S4%' THEN 'S4'
+      WHEN stage LIKE 'S5%' THEN 'S5'
+      WHEN stage LIKE 'S6%' THEN 'S6'
+      WHEN stage LIKE 'S7%' THEN 'S7'
+      ELSE stage
+    END AS normalized_stage,
     COUNT(*),
     COALESCE(SUM(
       CASE 
@@ -42,7 +52,7 @@ BEGIN
     ), 0)::text
   FROM deals
   WHERE stage IS NOT NULL
-  GROUP BY stage
+  GROUP BY normalized_stage
   ON CONFLICT (snapshot_date, stage)
   DO UPDATE SET deal_count = EXCLUDED.deal_count, total_amount = EXCLUDED.total_amount, created_at = NOW();
 END;
