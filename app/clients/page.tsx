@@ -258,7 +258,20 @@ export default function ClientsPage() {
 
         const totalAmount = myContracts.reduce((sum: number, c: any) => {
           if (!c.contract_amount) return sum
-          const num = parseInt(c.contract_amount.replace(/[^0-9]/g, ""), 10)
+          const raw = c.contract_amount
+          const hasEok = raw.includes("억")
+          const hasMan = raw.includes("만")
+
+          if (hasEok || hasMan) {
+            let total = 0
+            const eokMatch = raw.match(/([\d,.]+)\s*억/)
+            const manMatch = raw.match(/([\d,.]+)\s*만/)
+            if (eokMatch) total += parseFloat(eokMatch[1].replace(/,/g, "")) * 100000000
+            if (manMatch) total += parseFloat(manMatch[1].replace(/,/g, "")) * 10000
+            return sum + total
+          }
+
+          const num = parseInt(raw.replace(/[^0-9]/g, ""), 10)
           return sum + (isNaN(num) ? 0 : num)
         }, 0)
 
@@ -437,10 +450,8 @@ export default function ClientsPage() {
   }
 
   const formatAmount = (amount: number) => {
-    if (amount === 0) return "-"
-    if (amount >= 100000000) return `${(amount / 100000000).toFixed(1)}억`
-    if (amount >= 10000) return `${Math.round(amount / 10000).toLocaleString()}만`
-    return amount.toLocaleString()
+    if (amount <= 0) return "-"
+    return `${amount.toLocaleString()}원`
   }
 
   if (loading) {
