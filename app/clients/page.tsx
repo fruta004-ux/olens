@@ -258,7 +258,7 @@ export default function ClientsPage() {
 
         const totalAmount = myContracts.reduce((sum: number, c: any) => {
           if (!c.contract_amount) return sum
-          const raw = c.contract_amount
+          const raw = String(c.contract_amount)
           const hasEok = raw.includes("억")
           const hasMan = raw.includes("만")
 
@@ -266,12 +266,14 @@ export default function ClientsPage() {
             let total = 0
             const eokMatch = raw.match(/([\d,.]+)\s*억/)
             const manMatch = raw.match(/([\d,.]+)\s*만/)
-            if (eokMatch) total += parseFloat(eokMatch[1].replace(/,/g, "")) * 100000000
-            if (manMatch) total += parseFloat(manMatch[1].replace(/,/g, "")) * 10000
+            if (eokMatch) total += Math.round(parseFloat(eokMatch[1].replace(/,/g, "")) * 100000000)
+            if (manMatch) total += Math.round(parseFloat(manMatch[1].replace(/,/g, "")) * 10000)
             return sum + total
           }
 
-          const num = parseInt(raw.replace(/[^0-9]/g, ""), 10)
+          const cleaned = raw.replace(/[^0-9]/g, "")
+          if (!cleaned) return sum
+          const num = Number(cleaned)
           return sum + (isNaN(num) ? 0 : num)
         }, 0)
 
@@ -689,7 +691,13 @@ export default function ClientsPage() {
                     <TableRow
                       key={client.id}
                       className={cn("cursor-pointer hover:bg-secondary", client.hasExpiringContract && "bg-amber-50/30")}
-                      onClick={() => router.push(`/clients/${client.id}`)}
+                      onClick={(e) => {
+                        if (e.shiftKey) {
+                          window.open(`/clients/${client.id}`, '_blank')
+                          return
+                        }
+                        router.push(`/clients/${client.id}`)
+                      }}
                     >
                       <TableCell className="text-center w-12 text-xs text-muted-foreground">{index + 1}</TableCell>
 

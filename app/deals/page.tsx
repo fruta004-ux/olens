@@ -208,8 +208,18 @@ export default function DealsPage() {
     return []
   })
   const [settingsSourceOptions, setSettingsSourceOptions] = useState<string[]>([])
-  const [dateRangeStart, setDateRangeStart] = useState<string>("")
-  const [dateRangeEnd, setDateRangeEnd] = useState<string>("")
+  const [dateRangeStart, setDateRangeStart] = useState<string>(() => {
+    if (typeof window !== "undefined") {
+      return localStorage.getItem("deals-date-range-start") || ""
+    }
+    return ""
+  })
+  const [dateRangeEnd, setDateRangeEnd] = useState<string>(() => {
+    if (typeof window !== "undefined") {
+      return localStorage.getItem("deals-date-range-end") || ""
+    }
+    return ""
+  })
   const [isAddDealOpen, setIsAddDealOpen] = useState(false)
   const [activeTab, setActiveTab] = useState("all")
 
@@ -632,6 +642,8 @@ export default function DealsPage() {
       localStorage.removeItem("deals-needs-filter")
       localStorage.removeItem("deals-company-filter")
       localStorage.removeItem("deals-source-filter")
+      localStorage.removeItem("deals-date-range-start")
+      localStorage.removeItem("deals-date-range-end")
     }
   }
 
@@ -1310,7 +1322,14 @@ export default function DealsPage() {
                 <Input
                   type="date"
                   value={dateRangeStart}
-                  onChange={(e) => setDateRangeStart(e.target.value)}
+                  onChange={(e) => {
+                    setDateRangeStart(e.target.value)
+                    if (e.target.value) {
+                      localStorage.setItem("deals-date-range-start", e.target.value)
+                    } else {
+                      localStorage.removeItem("deals-date-range-start")
+                    }
+                  }}
                   className="w-36 h-8 text-sm"
                   placeholder="시작일"
                 />
@@ -1318,7 +1337,14 @@ export default function DealsPage() {
                 <Input
                   type="date"
                   value={dateRangeEnd}
-                  onChange={(e) => setDateRangeEnd(e.target.value)}
+                  onChange={(e) => {
+                    setDateRangeEnd(e.target.value)
+                    if (e.target.value) {
+                      localStorage.setItem("deals-date-range-end", e.target.value)
+                    } else {
+                      localStorage.removeItem("deals-date-range-end")
+                    }
+                  }}
                   className="w-36 h-8 text-sm"
                   placeholder="종료일"
                 />
@@ -1330,6 +1356,8 @@ export default function DealsPage() {
                     onClick={() => {
                       setDateRangeStart("")
                       setDateRangeEnd("")
+                      localStorage.removeItem("deals-date-range-start")
+                      localStorage.removeItem("deals-date-range-end")
                     }}
                   >
                     <X className="h-3 w-3" />
@@ -1382,7 +1410,11 @@ export default function DealsPage() {
                         <TableRow
                           key={deal.id}
                           className="cursor-pointer hover:bg-secondary"
-                          onClick={() => {
+                          onClick={(e) => {
+                            if (e.shiftKey) {
+                              window.open(`/deals/${deal.id}?tab=activity`, '_blank')
+                              return
+                            }
                             saveScrollPosition()
                             router.push(`/deals/${deal.id}?tab=activity`)
                           }}
