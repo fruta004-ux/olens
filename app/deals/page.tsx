@@ -147,7 +147,10 @@ const isChosungSearch = (text: string) => {
 export default function DealsPage() {
   const router = useRouter()
   const mainRef = useRef<HTMLElement>(null)
-  const [searchTerm, setSearchTerm] = useState("")
+  const searchInputRef = useRef<HTMLInputElement>(null)
+  const [appliedSearchTerm, setAppliedSearchTerm] = useState("")
+  const [currentPage, setCurrentPage] = useState(1)
+  const PAGE_SIZE = 100
   const [selectedStages, setSelectedStages] = useState<string[]>(() => {
     if (typeof window !== "undefined") {
       const saved = localStorage.getItem("deals-stage-filter")
@@ -486,7 +489,7 @@ export default function DealsPage() {
     }
   }
 
-  const dealsWithDisplayData = deals.map((deal: any) => ({
+  const dealsWithDisplayData = useMemo(() => deals.map((deal: any) => ({
     id: deal.id,
     name: deal.name,
     firstContact: deal.firstContact,
@@ -505,7 +508,7 @@ export default function DealsPage() {
     company: deal.company,
     inflowSource: deal.inflowSource,
     originType: deal.originType,
-  }))
+  })), [deals])
 
   const amountRangeOptions = [
     { id: "under500", label: "500만원 이하" },
@@ -562,6 +565,7 @@ export default function DealsPage() {
       }
       return newValue
     })
+    setCurrentPage(1)
   }
 
   const toggleAmountRange = (rangeId: string) => {
@@ -572,6 +576,7 @@ export default function DealsPage() {
       }
       return newValue
     })
+    setCurrentPage(1)
   }
 
   const toggleContact = (contactId: string) => {
@@ -582,6 +587,7 @@ export default function DealsPage() {
       }
       return newValue
     })
+    setCurrentPage(1)
   }
 
   const toggleNeeds = (needsId: string) => {
@@ -592,15 +598,16 @@ export default function DealsPage() {
       }
       return newValue
     })
+    setCurrentPage(1)
   }
 
   const toggleCompany = (companyId: string) => {
-    // "전체" 선택 시 다른 모든 필터 해제
     if (companyId === "__all__") {
       setSelectedCompanies([])
       if (typeof window !== "undefined") {
         localStorage.removeItem("deals-company-filter")
       }
+      setCurrentPage(1)
       return
     }
 
@@ -611,6 +618,7 @@ export default function DealsPage() {
       }
       return newValue
     })
+    setCurrentPage(1)
   }
 
   const toggleSource = (sourceId: string) => {
@@ -621,6 +629,7 @@ export default function DealsPage() {
       }
       return newValue
     })
+    setCurrentPage(1)
   }
 
   // 모든 필터 초기화
@@ -633,8 +642,10 @@ export default function DealsPage() {
     setSelectedSources([])
     setDateRangeStart("")
     setDateRangeEnd("")
-    setSearchTerm("")
+    if (searchInputRef.current) searchInputRef.current.value = ""
+    setAppliedSearchTerm("")
     setColumnSort(null)
+    setCurrentPage(1)
     if (typeof window !== "undefined") {
       localStorage.removeItem("deals-stage-filter")
       localStorage.removeItem("deals-amount-filter")
@@ -648,7 +659,7 @@ export default function DealsPage() {
   }
 
   // 필터가 적용되어 있는지 확인
-  const hasActiveFilters = selectedStages.length > 0 || selectedAmounts.length > 0 || selectedContacts.length > 0 || selectedNeeds.length > 0 || selectedCompanies.length > 0 || selectedSources.length > 0 || dateRangeStart || dateRangeEnd || searchTerm.length > 0
+  const hasActiveFilters = selectedStages.length > 0 || selectedAmounts.length > 0 || selectedContacts.length > 0 || selectedNeeds.length > 0 || selectedCompanies.length > 0 || selectedSources.length > 0 || dateRangeStart || dateRangeEnd || appliedSearchTerm.length > 0
 
   const filterByAmount = (deals: typeof dealsWithDisplayData) => {
     if (selectedAmounts.length === 0) return deals
@@ -765,15 +776,15 @@ export default function DealsPage() {
   }
 
   const filterBySearch = (deals: typeof dealsWithDisplayData) => {
-    if (!searchTerm) return deals
-    const search = searchTerm.toLowerCase()
+    if (!appliedSearchTerm) return deals
+    const search = appliedSearchTerm.toLowerCase()
 
-    if (isChosungSearch(searchTerm)) {
+    if (isChosungSearch(appliedSearchTerm)) {
       return deals.filter(
         (deal) =>
-          getChosung(deal.name).includes(searchTerm) ||
-          getChosung(deal.contact).includes(searchTerm) ||
-          getChosung(deal.stage).includes(searchTerm),
+          getChosung(deal.name).includes(appliedSearchTerm) ||
+          getChosung(deal.contact).includes(appliedSearchTerm) ||
+          getChosung(deal.stage).includes(appliedSearchTerm),
       )
     }
 
@@ -858,7 +869,16 @@ export default function DealsPage() {
     })
   }
 
-  const filteredDeals = sortByColumn(filterByDateRange(filterBySource(filterByCompany(filterByNeeds(filterBySearch(filterByContact(filterByAmount(filterByStage(dealsWithDisplayData)))))))))
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const filteredDeals = useMemo(() => 
+    sortByColumn(filterByDateRange(filterBySource(filterByCompany(filterByNeeds(filterBySearch(filterByContact(filterByAmount(filterByStage(dealsWithDisplayData)))))))))
+  , [dealsWithDisplayData, selectedStages, selectedAmounts, selectedContacts, selectedNeeds, selectedCompanies, selectedSources, appliedSearchTerm, dateRangeStart, dateRangeEnd, columnSort, sortBy, settingsNeedsOptions, settingsSourceOptions])
+
+  const isSearchActive = appliedSearchTerm.length > 0
+  const totalPages = isSearchActive ? 1 : Math.ceil(filteredDeals.length / PAGE_SIZE)
+  const paginatedDeals = isSearchActive
+    ? filteredDeals
+    : filteredDeals.slice((currentPage - 1) * PAGE_SIZE, currentPage * PAGE_SIZE)
 
   const handleSortChange = (newSortBy: 'nextContact' | 'firstContact') => {
     setSortBy(newSortBy)
@@ -867,13 +887,13 @@ export default function DealsPage() {
     }
   }
 
-  // 정렬 상태 변경 시 localStorage에 저장
   const handleColumnSort = (columnId: string) => {
     const newSort = columnSort?.column === columnId
       ? { column: columnId, direction: columnSort.direction === 'asc' ? 'desc' as const : 'asc' as const }
       : { column: columnId, direction: 'asc' as const }
     
     setColumnSort(newSort)
+    setCurrentPage(1)
     if (typeof window !== "undefined") {
       localStorage.setItem("oort-crm-column-sort", JSON.stringify(newSort))
     }
@@ -917,11 +937,31 @@ export default function DealsPage() {
               <div className="relative w-full xl:flex-1 min-w-0">
                 <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
                 <Input
-                  placeholder="거래 검색..."
-                  value={searchTerm}
-                  onChange={(e) => setSearchTerm(e.target.value)}
+                  ref={searchInputRef}
+                  placeholder="거래 검색... (엔터로 검색)"
+                  defaultValue=""
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") {
+                      setAppliedSearchTerm((e.target as HTMLInputElement).value)
+                      setCurrentPage(1)
+                    }
+                  }}
                   className="pl-9"
                 />
+                {appliedSearchTerm && (
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="absolute right-1 top-1/2 -translate-y-1/2 h-7 w-7 p-0 text-muted-foreground hover:text-foreground"
+                    onClick={() => {
+                      if (searchInputRef.current) searchInputRef.current.value = ""
+                      setAppliedSearchTerm("")
+                      setCurrentPage(1)
+                    }}
+                  >
+                    <X className="h-3.5 w-3.5" />
+                  </Button>
+                )}
               </div>
               
               <div className="flex flex-wrap items-center gap-2 xl:gap-4">
@@ -1308,10 +1348,16 @@ export default function DealsPage() {
                   <>
                     전체 <span className="font-semibold text-foreground">{deals.length}</span>개 중{" "}
                     <span className="font-semibold text-primary">{filteredDeals.length}</span>개 표시
+                    {isSearchActive && <span className="ml-1 text-xs">(검색: 전체 표시)</span>}
                   </>
                 ) : (
                   <>
                     전체 <span className="font-semibold text-foreground">{deals.length}</span>개
+                    {totalPages > 1 && (
+                      <span className="ml-1 text-xs">
+                        ({currentPage}/{totalPages} 페이지)
+                      </span>
+                    )}
                   </>
                 )}
               </div>
@@ -1404,8 +1450,9 @@ export default function DealsPage() {
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {filteredDeals.map((deal, index) => {
+                    {paginatedDeals.map((deal, index) => {
                       const nextContactStatus = getNextContactStatus(deal.nextContact)
+                      const globalIndex = isSearchActive ? index : (currentPage - 1) * PAGE_SIZE + index
                       return (
                         <TableRow
                           key={deal.id}
@@ -1428,7 +1475,7 @@ export default function DealsPage() {
                               )}
                             >
                               {column.id === "rowNumber" 
-                                ? index + 1 
+                                ? globalIndex + 1 
                                 : renderCell(column.id, deal, nextContactStatus)}
                             </TableCell>
                           ))}
@@ -1457,6 +1504,75 @@ export default function DealsPage() {
                     })}
                   </TableBody>
                 </Table>
+
+                {/* 페이지네이션 */}
+                {!isSearchActive && totalPages > 1 && (
+                  <div className="flex items-center justify-between pt-4 border-t mt-2">
+                    <div className="text-sm text-muted-foreground">
+                      {filteredDeals.length}개 중 {(currentPage - 1) * PAGE_SIZE + 1}-{Math.min(currentPage * PAGE_SIZE, filteredDeals.length)}
+                    </div>
+                    <div className="flex items-center gap-1">
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        disabled={currentPage === 1}
+                        onClick={() => { setCurrentPage(1); mainRef.current?.scrollTo(0, 0) }}
+                        className="h-8 px-2 text-xs"
+                      >
+                        처음
+                      </Button>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        disabled={currentPage === 1}
+                        onClick={() => { setCurrentPage(p => p - 1); mainRef.current?.scrollTo(0, 0) }}
+                        className="h-8 px-2 text-xs"
+                      >
+                        이전
+                      </Button>
+                      {Array.from({ length: totalPages }, (_, i) => i + 1)
+                        .filter(p => p === 1 || p === totalPages || Math.abs(p - currentPage) <= 2)
+                        .reduce<(number | string)[]>((acc, p, idx, arr) => {
+                          if (idx > 0 && p - (arr[idx - 1] as number) > 1) acc.push("...")
+                          acc.push(p)
+                          return acc
+                        }, [])
+                        .map((item, idx) =>
+                          typeof item === "string" ? (
+                            <span key={`ellipsis-${idx}`} className="px-1 text-muted-foreground text-xs">...</span>
+                          ) : (
+                            <Button
+                              key={item}
+                              variant={currentPage === item ? "default" : "outline"}
+                              size="sm"
+                              onClick={() => { setCurrentPage(item); mainRef.current?.scrollTo(0, 0) }}
+                              className="h-8 w-8 p-0 text-xs"
+                            >
+                              {item}
+                            </Button>
+                          )
+                        )}
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        disabled={currentPage === totalPages}
+                        onClick={() => { setCurrentPage(p => p + 1); mainRef.current?.scrollTo(0, 0) }}
+                        className="h-8 px-2 text-xs"
+                      >
+                        다음
+                      </Button>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        disabled={currentPage === totalPages}
+                        onClick={() => { setCurrentPage(totalPages); mainRef.current?.scrollTo(0, 0) }}
+                        className="h-8 px-2 text-xs"
+                      >
+                        마지막
+                      </Button>
+                    </div>
+                  </div>
+                )}
           </div>
         </main>
       </div>
