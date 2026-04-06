@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react"
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog"
 import { Button } from "@/components/ui/button"
-import { FileDown, Trash2 } from "lucide-react"
+import { FileDown, Trash2, Pencil } from "lucide-react"
 import { createBrowserClient } from "@/lib/supabase/client"
 
 // A4 인쇄용 스타일
@@ -92,6 +92,7 @@ interface QuotationViewDialogProps {
   }
   clientName?: string
   onDelete?: () => void
+  onEdit?: () => void
 }
 
 const COMPANY_INFO = {
@@ -119,7 +120,7 @@ const COMPANY_INFO = {
   },
 }
 
-export function QuotationViewDialog({ open, onOpenChange, quotation, clientName, onDelete }: QuotationViewDialogProps) {
+export function QuotationViewDialog({ open, onOpenChange, quotation, clientName, onDelete, onEdit }: QuotationViewDialogProps) {
   const companyInfo = COMPANY_INFO[quotation.company]
   const [deleting, setDeleting] = useState(false)
 
@@ -170,8 +171,61 @@ export function QuotationViewDialog({ open, onOpenChange, quotation, clientName,
     return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`
   }
 
+  const [savingPdf, setSavingPdf] = useState(false)
+
   const handlePrint = () => {
     window.print()
+  }
+
+  const handleSavePdf = async () => {
+    setSavingPdf(true)
+    try {
+      const html2canvas = (await import("html2canvas")).default
+      const { jsPDF } = await import("jspdf")
+
+      const printEl = document.querySelector(".print-page") as HTMLElement
+      if (!printEl) { alert("견적서 영역을 찾을 수 없습니다."); return }
+
+      const canvas = await html2canvas(printEl, {
+        scale: 2,
+        useCORS: true,
+        backgroundColor: "#ffffff",
+      })
+
+      const imgData = canvas.toDataURL("image/png")
+      const pdf = new jsPDF({ orientation: "portrait", unit: "mm", format: "a4" })
+      const pdfWidth = 210
+      const pdfHeight = 297
+      pdf.addImage(imgData, "PNG", 0, 0, pdfWidth, pdfHeight)
+
+      const fileName = `견적서_${quotation.quotation_number}_${clientName || ""}.pdf`
+
+      if ("showSaveFilePicker" in window) {
+        try {
+          const handle = await (window as any).showSaveFilePicker({
+            suggestedName: fileName,
+            types: [{ description: "PDF 파일", accept: { "application/pdf": [".pdf"] } }],
+          })
+          const writable = await handle.createWritable()
+          const pdfBlob = pdf.output("blob")
+          await writable.write(pdfBlob)
+          await writable.close()
+          alert("PDF가 저장되었습니다.")
+        } catch (err: any) {
+          if (err.name !== "AbortError") {
+            pdf.save(fileName)
+          }
+        }
+      } else {
+        pdf.save(fileName)
+      }
+    } catch (error) {
+      console.error("PDF 저장 실패:", error)
+      alert("PDF 저장에 실패했습니다. 인쇄를 사용해주세요.")
+      window.print()
+    } finally {
+      setSavingPdf(false)
+    }
   }
 
   const parseItems = () => {
@@ -214,9 +268,18 @@ export function QuotationViewDialog({ open, onOpenChange, quotation, clientName,
                 {deleting ? "삭제 중..." : "삭제"}
               </Button>
             )}
-            <Button onClick={handlePrint} className="gap-2">
+            {onEdit && (
+              <Button variant="outline" size="sm" onClick={onEdit} className="gap-1">
+                <Pencil className="h-4 w-4" />
+                수정
+              </Button>
+            )}
+            <Button variant="outline" onClick={handlePrint} className="gap-2">
+              인쇄
+            </Button>
+            <Button onClick={handleSavePdf} disabled={savingPdf} className="gap-2">
               <FileDown className="h-4 w-4" />
-              인쇄 / PDF 저장
+              {savingPdf ? "저장 중..." : "PDF 저장"}
             </Button>
           </div>
         </div>
@@ -351,17 +414,21 @@ export function QuotationViewDialog({ open, onOpenChange, quotation, clientName,
               <div className="border-t-2 border-black">
                 <table className="w-full text-xs border-collapse">
                   <tbody>
-                    <tr className="border-b border-gray-300">
-                      <td className="py-1 px-3 bg-gray-100 font-semibold w-28">공급가액</td>
-                      <td className="py-1 px-3 text-right font-semibold">₩ {formatNumber(quotation.supply_amount)}</td>
+                    <tr className="border-b-2 border-black bg-blue-50">
+                      <td className="py-2 px-3 font-bold text-sm w-28 border-r border-black">공급가액</td>
+                      <td className="py-2 px-3 text-right font-bold text-base tracking-wide">
+                        ₩ {formatNumber(quotation.supply_amount)}
+                      </td>
                     </tr>
                     <tr className="border-b border-gray-300">
-                      <td className="py-1 px-3 bg-gray-100 font-semibold">부가세 (10%)</td>
-                      <td className="py-1 px-3 text-right font-semibold">₩ {formatNumber(quotation.vat_amount)}</td>
+                      <td className="py-1 px-3 bg-gray-100 font-semibold text-xs border-r border-gray-400">부가세 (10%)</td>
+                      <td className="py-1 px-3 text-right font-medium text-xs text-gray-600">
+                        ₩ {formatNumber(quotation.vat_amount)}
+                      </td>
                     </tr>
                     <tr>
-                      <td className="py-1 px-3 bg-gray-100 font-semibold text-sm">총 액</td>
-                      <td className="py-1 px-3 text-right font-bold text-sm">
+                      <td className="py-1 px-3 bg-gray-100 font-semibold text-xs border-r border-gray-400">합 계</td>
+                      <td className="py-1 px-3 text-right font-semibold text-xs">
                         ₩ {formatNumber(quotation.total_amount)}
                       </td>
                     </tr>

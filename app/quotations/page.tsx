@@ -267,6 +267,10 @@ export default function QuotationsPage() {
           onOpenChange={setShowDetailDialog}
           quotation={selectedQuotation}
           clientName={selectedQuotation.deal_name !== "-" ? selectedQuotation.deal_name : selectedQuotation.client_name}
+          onEdit={() => {
+            setShowDetailDialog(false)
+            handleEditQuotation(selectedQuotation)
+          }}
         />
       )}
 

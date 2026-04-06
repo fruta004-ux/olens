@@ -458,21 +458,21 @@ export function CreateQuotationDialog({
             <div className="border-t-2 border-black">
               <table className="w-full text-xs border-collapse">
                 <tbody>
-                  <tr className="border-b border-gray-300">
-                    <td className="py-1.5 px-3 bg-gray-100 font-semibold w-28 border-r border-gray-400">공급가액</td>
-                    <td className={cn("py-1.5 px-3 text-right font-semibold", supplyAmount < 0 && "text-red-600")}>
+                  <tr className="border-b-2 border-black bg-blue-50">
+                    <td className="py-2 px-3 font-bold text-sm w-28 border-r border-black">공급가액</td>
+                    <td className={cn("py-2 px-3 text-right font-bold text-base tracking-wide", supplyAmount < 0 && "text-red-600")}>
                       ₩ {formatNumber(supplyAmount)}
                     </td>
                   </tr>
                   <tr className="border-b border-gray-300">
-                    <td className="py-1.5 px-3 bg-gray-100 font-semibold border-r border-gray-400">부가세 (10%)</td>
-                    <td className={cn("py-1.5 px-3 text-right font-semibold", taxAmount < 0 && "text-red-600")}>
+                    <td className="py-1.5 px-3 bg-gray-100 font-semibold text-xs border-r border-gray-400">부가세 (10%)</td>
+                    <td className={cn("py-1.5 px-3 text-right font-medium text-xs text-gray-600", taxAmount < 0 && "text-red-600")}>
                       ₩ {formatNumber(taxAmount)}
                     </td>
                   </tr>
                   <tr>
-                    <td className="py-1.5 px-3 bg-gray-100 font-semibold text-sm border-r border-gray-400">총 액</td>
-                    <td className={cn("py-1.5 px-3 text-right font-bold text-sm", totalAmount < 0 && "text-red-600")}>
+                    <td className="py-1.5 px-3 bg-gray-100 font-semibold text-xs border-r border-gray-400">합 계</td>
+                    <td className={cn("py-1.5 px-3 text-right font-semibold text-xs", totalAmount < 0 && "text-red-600")}>
                       ₩ {formatNumber(totalAmount)}
                     </td>
                   </tr>

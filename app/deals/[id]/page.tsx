@@ -357,6 +357,8 @@ function DealDetailPageClient({ dealId }: { dealId: string }) {
   const [selectedQuotation, setSelectedQuotation] = useState<any>(null)
   const [showQuotationDetail, setShowQuotationDetail] = useState(false)
   const [quotationTargetActivityId, setQuotationTargetActivityId] = useState<string | null>(null)
+  const [editingQuotationFromView, setEditingQuotationFromView] = useState<any>(null)
+  const [showEditQuotationFromViewDialog, setShowEditQuotationFromViewDialog] = useState(false)
   
   // 활동 정렬 순서 상태 (desc: 최신순, asc: 오래된순)
   const [activitySortOrder, setActivitySortOrder] = useState<'desc' | 'asc'>('desc')
@@ -3440,8 +3442,47 @@ function DealDetailPageClient({ dealId }: { dealId: string }) {
           quotation={selectedQuotation}
           clientName={dealData.account?.company_name || ""}
           onDelete={() => { loadActivities(); setSelectedQuotation(null) }}
+          onEdit={() => {
+            setShowQuotationDetail(false)
+            const items = Array.isArray(selectedQuotation.items)
+              ? selectedQuotation.items
+              : typeof selectedQuotation.items === "string"
+                ? JSON.parse(selectedQuotation.items)
+                : []
+            setEditingQuotationFromView({
+              id: selectedQuotation.id,
+              quotation_number: selectedQuotation.quotation_number,
+              company: selectedQuotation.company as "플루타" | "오코랩스",
+              title: selectedQuotation.title,
+              valid_until: selectedQuotation.valid_until,
+              notes: selectedQuotation.notes,
+              items: items.map((item: any, idx: number) => ({
+                id: `item-${idx}`,
+                name: item.name,
+                quantity: item.quantity,
+                unit_price: item.unit_price,
+                amount: item.amount,
+              })),
+            })
+            setShowEditQuotationFromViewDialog(true)
+          }}
         />
       )}
+      {/* 견적서 수정 다이얼로그 (보기에서 수정) */}
+      <CreateQuotationDialog
+        open={showEditQuotationFromViewDialog}
+        onOpenChange={(open) => {
+          setShowEditQuotationFromViewDialog(open)
+          if (!open) setEditingQuotationFromView(null)
+        }}
+        dealId={resolvedId}
+        editQuotation={editingQuotationFromView}
+        onSuccess={() => {
+          setShowEditQuotationFromViewDialog(false)
+          setEditingQuotationFromView(null)
+          loadActivities()
+        }}
+      />
       
       {/* 종료 사유 선택 다이얼로그 */}
       <CloseReasonDialog
