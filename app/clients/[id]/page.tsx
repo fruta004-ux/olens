@@ -62,6 +62,9 @@ import { CreateQuotationDialog } from "@/components/create-quotation-dialog"
 import { QuotationViewDialog } from "@/components/quotation-view-dialog"
 import { CloseReasonDialog } from "@/components/close-reason-dialog"
 import { getCloseReasonText } from "@/lib/close-reasons"
+import { BusinessRegistrationVerifyDialog, type BusinessRegistrationFields } from "@/components/business-registration-verify-dialog"
+import { parseContractConditions, inferProjectCategory, normalizeDateString } from "@/lib/parse-contract-conditions"
+import { Sparkles, Upload, Loader2 } from "lucide-react"
 
 const sanitizeFileName = (fileName: string): string => {
   // 파일명과 확장자 분리
@@ -181,12 +184,24 @@ export default function ClientDetailPage({ params }: { params: { id: string } })
 function ClientDetailPageClient({ clientId }: { clientId: string }) {
   const router = useRouter()
   const [activeTab, setActiveTab] = useState("opportunities")
+  const [focusBusinessReg, setFocusBusinessReg] = useState(false)
+  const businessRegCardRef = React.useRef<HTMLDivElement>(null)
   
   useEffect(() => {
     if (typeof window !== "undefined") {
       const params = new URLSearchParams(window.location.search)
       const tab = params.get("tab")
       if (tab) setActiveTab(tab)
+      const focus = params.get("focus")
+      if (focus === "business-reg") {
+        setFocusBusinessReg(true)
+        // 다음 틱에 스크롤 (탭 컨텐츠 마운트 후)
+        setTimeout(() => {
+          businessRegCardRef.current?.scrollIntoView({ behavior: "smooth", block: "start" })
+        }, 300)
+        // 4초 후 강조 해제
+        setTimeout(() => setFocusBusinessReg(false), 4000)
+      }
     }
   }, [])
   const [dealData, setDealData] = useState<any>({})
@@ -292,6 +307,13 @@ function ClientDetailPageClient({ clientId }: { clientId: string }) {
   // 과거 프로젝트 (연결된 deals)
   const [linkedDeals, setLinkedDeals] = useState<any[]>([])
 
+  // 사업자등록증 OCR 검증
+  const [showBusinessRegDialog, setShowBusinessRegDialog] = useState(false)
+  const [businessRegOcrLoading, setBusinessRegOcrLoading] = useState(false)
+  const [businessRegOcrResult, setBusinessRegOcrResult] = useState<Partial<BusinessRegistrationFields> | null>(null)
+  const [businessRegUploading, setBusinessRegUploading] = useState(false)
+  const businessRegInputRef = React.useRef<HTMLInputElement>(null)
+
   const supabase = createBrowserClient()
 
   const resolvedId = clientId
@@ -378,7 +400,16 @@ function ClientDetailPageClient({ clientId }: { clientId: string }) {
           business_number,
           industry,
           employee_count,
-          notes
+          notes,
+          corporate_number,
+          opening_date,
+          business_type,
+          business_item,
+          head_office_address,
+          issue_date,
+          tax_type,
+          business_registration_url,
+          business_registration_ocr
         ),
         contact:contacts!contact_id (
           id,
@@ -581,8 +612,112 @@ function ClientDetailPageClient({ clientId }: { clientId: string }) {
     }
   }
 
+  // 계약 확정 시점에 프로젝트 명세서 요청서 자동 생성
+  const createProjectSpecsFromContract = async (
+    contractId: string | null,
+    info: typeof contractConfirmData,
+    needsSummary: string
+  ): Promise<{ ok: boolean; tableMissing?: boolean }> => {
+    try {
+      const parsed = parseContractConditions(info.conditions || "", info.cost || "")
+      const category = inferProjectCategory(needsSummary || info.needs || "")
+      const dueDate =
+        normalizeDateString(info.invoice_date) ||
+        normalizeDateString(info.contract_date) ||
+        null
+
+      const rows = parsed.map((row) => ({
+        client_id: resolvedId,
+        account_id: dealData.account_id || null,
+        linked_contract_id: contractId,
+        linked_deal_id: null,
+        category,
+        project_name: info.name || dealData.deal_name || "",
+        cost_type: row.cost_type,
+        amount: row.amount,
+        payment_due_date: dueDate,
+        progress_status: "작성필요",
+        invoice_status: "발행필요",
+        invoice_issue_date: null,
+        notes: row.ratio_label ? `자동 생성: ${row.ratio_label}` : "자동 생성",
+        assigned_to: dealData.assigned_to || null,
+      }))
+
+      if (rows.length === 0) return { ok: true }
+
+      const { error } = await supabase.from("project_specs").insert(rows)
+      if (error) {
+        const detail = {
+          message: error.message,
+          code: (error as any).code,
+          details: (error as any).details,
+          hint: (error as any).hint,
+        }
+        console.error("[v0] project_specs 생성 오류:", detail)
+        const isMissing =
+          detail.code === "PGRST205" ||
+          detail.code === "42P01" ||
+          /relation .* does not exist/i.test(detail.message || "") ||
+          /Could not find the table/i.test(detail.message || "")
+        return { ok: false, tableMissing: isMissing }
+      }
+      return { ok: true }
+    } catch (err: any) {
+      console.error("[v0] project_specs 생성 예외:", err?.message || err)
+      return { ok: false }
+    }
+  }
+
+  // client_contracts 테이블에서 가장 최근의(또는 새) 계약 행에 contract_info를 동기화
+  const upsertClientContractInfo = async (info: typeof contractConfirmData): Promise<string | null> => {
+    try {
+      const reasonNames = getReasonNames(info.reason_ids || [])
+      // 최근 계약 한 건 조회
+      const { data: existing } = await supabase
+        .from("client_contracts")
+        .select("id")
+        .eq("client_id", resolvedId)
+        .order("created_at", { ascending: false })
+        .limit(1)
+
+      const payload: any = {
+        contract_name: info.name || dealData.deal_name || "계약",
+        contract_amount: info.cost || dealData.amount_range || "",
+        service_type: info.needs || dealData.needs_summary || "",
+        status: "진행중",
+        contract_info: { ...info, reason_names: reasonNames },
+        notes: info.notes || null,
+      }
+      if (info.contract_date) payload.contract_date = info.contract_date.replace(/\./g, "-")
+      if (info.work_start_date) payload.start_date = info.work_start_date.replace(/\./g, "-")
+
+      if (existing && existing.length > 0) {
+        const id = existing[0].id
+        const { error } = await supabase.from("client_contracts").update(payload).eq("id", id)
+        if (error) console.error("[v0] client_contracts 업데이트 오류:", error)
+        return id
+      }
+
+      const { data: inserted, error } = await supabase
+        .from("client_contracts")
+        .insert({ ...payload, client_id: resolvedId })
+        .select("id")
+        .single()
+      if (error) {
+        console.error("[v0] client_contracts 생성 오류:", error)
+        return null
+      }
+      return inserted?.id || null
+    } catch (err) {
+      console.error("[v0] upsertClientContractInfo 예외:", err)
+      return null
+    }
+  }
+
   // 계약 확정 저장 핸들러
   const handleContractConfirm = async () => {
+    const isStageTransition = !!pendingStageChange
+
     if (pendingStageChange) {
       await handleUpdateDeal({
         stage: pendingStageChange,
@@ -591,6 +726,41 @@ function ClientDetailPageClient({ clientId }: { clientId: string }) {
       setPendingStageChange(null)
     } else {
       await handleUpdateDeal({ contract_info: contractConfirmData })
+    }
+
+    // 신규 계약완료 단계 전환일 때만 명세서 자동 생성 (재편집 시 중복 방지)
+    if (isStageTransition) {
+      const contractId = await upsertClientContractInfo(contractConfirmData)
+      const result = await createProjectSpecsFromContract(
+        contractId,
+        contractConfirmData,
+        dealData.needs_summary || ""
+      )
+      if (result.tableMissing) {
+        alert(
+          "[안내] DB 마이그레이션이 아직 적용되지 않아 '프로젝트 명세서 요청서'를 자동 생성하지 못했습니다.\n\n" +
+            "Supabase SQL Editor에서 아래 두 파일을 실행해주세요:\n" +
+            "  • scripts/043_project_specs.sql\n" +
+            "  • scripts/044_account_business_fields.sql"
+        )
+      }
+      await loadContracts()
+
+      // 정보 탭으로 이동 + 사업자등록증 카드 강조
+      setActiveTab("info")
+      setFocusBusinessReg(true)
+      setTimeout(() => {
+        businessRegCardRef.current?.scrollIntoView({ behavior: "smooth", block: "start" })
+      }, 350)
+      setTimeout(() => setFocusBusinessReg(false), 4000)
+
+      // URL 동기화 (기록용, 새로고침 시 동작 일관성)
+      if (typeof window !== "undefined") {
+        const url = new URL(window.location.href)
+        url.searchParams.set("tab", "info")
+        url.searchParams.set("focus", "business-reg")
+        window.history.replaceState(null, "", url.toString())
+      }
     }
     setShowContractConfirmDialog(false)
   }
@@ -684,6 +854,91 @@ function ClientDetailPageClient({ clientId }: { clientId: string }) {
       ...prev,
       account: { ...prev.account, ...updates },
     }))
+  }
+
+  // 사업자등록증 업로드 → Supabase Storage 저장
+  const handleBusinessRegUpload = async (file: File) => {
+    if (!dealData.account_id) {
+      alert("거래처(account)가 없어 업로드할 수 없습니다.")
+      return
+    }
+    if (!/^image\//.test(file.type) && file.type !== "application/pdf") {
+      alert("이미지 또는 PDF 파일만 업로드 가능합니다.")
+      return
+    }
+    setBusinessRegUploading(true)
+    try {
+      const ext = file.name.split(".").pop() || "jpg"
+      const safeName = `${dealData.account_id}_${Date.now()}.${ext}`
+      const { error: upErr } = await supabase.storage
+        .from("business-registrations")
+        .upload(safeName, file, { upsert: true })
+      if (upErr) {
+        console.error("[BR] 업로드 실패:", upErr)
+        alert(`업로드 실패: ${upErr.message}`)
+        return
+      }
+      const { data: urlData } = supabase.storage.from("business-registrations").getPublicUrl(safeName)
+      const url = urlData.publicUrl
+      await handleUpdateAccount({ business_registration_url: url })
+      // 업로드 직후 OCR 검증 다이얼로그 자동 오픈
+      setBusinessRegOcrResult(null)
+      setShowBusinessRegDialog(true)
+    } finally {
+      setBusinessRegUploading(false)
+    }
+  }
+
+  const runBusinessRegOcr = async () => {
+    const url = dealData.account?.business_registration_url
+    if (!url) {
+      alert("업로드된 사업자등록증이 없습니다.")
+      return
+    }
+    setBusinessRegOcrLoading(true)
+    try {
+      const res = await fetch("/api/ocr-business-registration", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ imageUrl: url }),
+      })
+      const json = await res.json()
+      if (!res.ok || !json.ok) {
+        console.error("[BR] OCR 실패:", json)
+        alert(`OCR 실패: ${json.error || "알 수 없는 오류"}`)
+        return
+      }
+      const data = json.data || {}
+      // 날짜 필드 정규화
+      if (data.opening_date) data.opening_date = normalizeDateString(data.opening_date) || data.opening_date
+      if (data.issue_date) data.issue_date = normalizeDateString(data.issue_date) || data.issue_date
+      setBusinessRegOcrResult(data)
+    } catch (err: any) {
+      console.error("[BR] OCR 호출 오류:", err)
+      alert(`OCR 호출 오류: ${err?.message || err}`)
+    } finally {
+      setBusinessRegOcrLoading(false)
+    }
+  }
+
+  const applyBusinessRegFields = async (fields: BusinessRegistrationFields, ocrRaw: any) => {
+    const updates: Record<string, any> = {
+      company_name: fields.company_name || dealData.account?.company_name,
+      business_number: fields.business_number || null,
+      corporate_number: fields.corporate_number || null,
+      representative: fields.representative || null,
+      opening_date: normalizeDateString(fields.opening_date),
+      address: fields.address || dealData.account?.address || null,
+      head_office_address: fields.head_office_address || null,
+      business_type: fields.business_type || null,
+      business_item: fields.business_item || null,
+      issue_date: normalizeDateString(fields.issue_date),
+      tax_type: fields.tax_type || null,
+    }
+    if (ocrRaw) {
+      updates.business_registration_ocr = ocrRaw
+    }
+    await handleUpdateAccount(updates)
   }
 
   const handleUpdateAssignedTo = async (newAssignedTo: string) => {
@@ -1494,36 +1749,237 @@ function ClientDetailPageClient({ clientId }: { clientId: string }) {
 
               <div className="flex-1 overflow-auto p-6">
                 <TabsContent value="info" className="mt-0 space-y-6">
+                  {/* 사업자등록증 (OCR 자동 입력) */}
+                  <div ref={businessRegCardRef}>
+                    <Card
+                      className={cn(
+                        "transition-all",
+                        focusBusinessReg && "ring-2 ring-primary ring-offset-2 shadow-lg"
+                      )}
+                    >
+                      <CardHeader className="flex flex-row items-center justify-between pb-3">
+                        <div>
+                          <CardTitle className="text-base flex items-center gap-2">
+                            <FileText className="h-4 w-4" />
+                            사업자등록증
+                          </CardTitle>
+                          <p className="text-xs text-muted-foreground mt-1">
+                            이미지를 업로드하면 OCR로 정보를 자동 추출하고, 좌/우 비교로 검증할 수 있어요.
+                          </p>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <input
+                            ref={businessRegInputRef}
+                            type="file"
+                            accept="image/*,application/pdf"
+                            className="hidden"
+                            onChange={(e) => {
+                              const f = e.target.files?.[0]
+                              if (f) handleBusinessRegUpload(f)
+                              e.target.value = ""
+                            }}
+                          />
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={() => businessRegInputRef.current?.click()}
+                            disabled={businessRegUploading}
+                            className="gap-1.5"
+                          >
+                            {businessRegUploading ? (
+                              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                            ) : (
+                              <Upload className="h-3.5 w-3.5" />
+                            )}
+                            {dealData.account?.business_registration_url ? "다시 업로드" : "업로드"}
+                          </Button>
+                          {dealData.account?.business_registration_url && (
+                            <Button
+                              size="sm"
+                              className="gap-1.5"
+                              onClick={() => {
+                                setBusinessRegOcrResult(null)
+                                setShowBusinessRegDialog(true)
+                              }}
+                            >
+                              <Sparkles className="h-3.5 w-3.5" />
+                              OCR 검증
+                            </Button>
+                          )}
+                        </div>
+                      </CardHeader>
+                      <CardContent>
+                        {dealData.account?.business_registration_url ? (
+                          <div
+                            className="relative border rounded-lg overflow-hidden bg-muted/30 cursor-zoom-in group"
+                            onClick={() => {
+                              setBusinessRegOcrResult(null)
+                              setShowBusinessRegDialog(true)
+                            }}
+                          >
+                            <img
+                              src={dealData.account.business_registration_url}
+                              alt="사업자등록증"
+                              className="w-full max-h-[400px] object-contain"
+                            />
+                            <div className="absolute inset-0 bg-black/0 group-hover:bg-black/40 transition-colors flex items-center justify-center opacity-0 group-hover:opacity-100">
+                              <div className="text-white text-sm font-medium flex items-center gap-2">
+                                <Sparkles className="h-4 w-4" />
+                                클릭하여 확대 / OCR 검증
+                              </div>
+                            </div>
+                          </div>
+                        ) : (
+                          <div
+                            className={cn(
+                              "border-2 border-dashed rounded-lg p-10 text-center cursor-pointer transition-colors",
+                              "hover:border-primary hover:bg-primary/5",
+                              focusBusinessReg && "border-primary bg-primary/5"
+                            )}
+                            onClick={() => businessRegInputRef.current?.click()}
+                            onDragOver={(e) => {
+                              e.preventDefault()
+                              e.dataTransfer.dropEffect = "copy"
+                            }}
+                            onDrop={(e) => {
+                              e.preventDefault()
+                              const f = e.dataTransfer.files?.[0]
+                              if (f) handleBusinessRegUpload(f)
+                            }}
+                          >
+                            <Upload className="h-8 w-8 mx-auto text-muted-foreground mb-2" />
+                            <p className="text-sm font-medium">사업자등록증을 업로드하세요</p>
+                            <p className="text-xs text-muted-foreground mt-1">
+                              파일을 끌어다 놓거나 클릭해서 선택 · 이미지/PDF 지원
+                            </p>
+                          </div>
+                        )}
+                      </CardContent>
+                    </Card>
+                  </div>
+
+                  {/* 사업자 정보 */}
                   <Card>
                     <CardHeader>
-                      <CardTitle>연락처 정보</CardTitle>
+                      <CardTitle>사업자 정보</CardTitle>
                     </CardHeader>
                     <CardContent className="space-y-4">
                       <div className="grid grid-cols-2 gap-4">
                         <div className="col-span-2">
                           <EditableField
-                            label="상호명 / 브랜드명"
+                            label="상호 / 법인명"
                             field="company_name"
                             value={dealData.account?.company_name || ""}
                             isAccountField={true}
                           />
                         </div>
-                        <div className="col-span-2">
+                        <div>
                           <EditableField
-                            label="사업자번호"
+                            label="사업자등록번호"
                             field="business_number"
                             value={dealData.account?.business_number || ""}
                             isAccountField={true}
                           />
                         </div>
-                        <div className="col-span-2">
+                        <div>
+                          <EditableField
+                            label="법인등록번호"
+                            field="corporate_number"
+                            value={dealData.account?.corporate_number || ""}
+                            isAccountField={true}
+                          />
+                        </div>
+                        <div>
+                          <EditableField
+                            label="대표자"
+                            field="representative"
+                            value={dealData.account?.representative || ""}
+                            isAccountField={true}
+                          />
+                        </div>
+                        <div>
+                          <EditableField
+                            label="과세 유형"
+                            field="tax_type"
+                            value={dealData.account?.tax_type || ""}
+                            isAccountField={true}
+                          />
+                        </div>
+                        <div>
+                          <EditableField
+                            label="개업연월일"
+                            field="opening_date"
+                            value={dealData.account?.opening_date || ""}
+                            isAccountField={true}
+                          />
+                        </div>
+                        <div>
+                          <EditableField
+                            label="발급일자"
+                            field="issue_date"
+                            value={dealData.account?.issue_date || ""}
+                            isAccountField={true}
+                          />
+                        </div>
+                        <div>
+                          <EditableField
+                            label="업태"
+                            field="business_type"
+                            value={dealData.account?.business_type || ""}
+                            isAccountField={true}
+                          />
+                        </div>
+                        <div>
                           <EditableField
                             label="종목"
+                            field="business_item"
+                            value={dealData.account?.business_item || ""}
+                            isAccountField={true}
+                          />
+                        </div>
+                        <div className="col-span-2">
+                          <EditableField
+                            label="사업장 소재지"
+                            field="address"
+                            value={dealData.account?.address || ""}
+                            isAccountField={true}
+                          />
+                        </div>
+                        <div className="col-span-2">
+                          <EditableField
+                            label="본점 소재지"
+                            field="head_office_address"
+                            value={dealData.account?.head_office_address || ""}
+                            isAccountField={true}
+                          />
+                        </div>
+                        <div>
+                          <EditableField
+                            label="업종 (CRM 분류)"
                             field="industry"
                             value={dealData.account?.industry || ""}
                             isAccountField={true}
                           />
                         </div>
+                        <div>
+                          <EditableField
+                            label="웹사이트"
+                            field="website"
+                            value={dealData.account?.website || ""}
+                            isAccountField={true}
+                          />
+                        </div>
+                      </div>
+                    </CardContent>
+                  </Card>
+
+                  {/* 연락처 / 메모 */}
+                  <Card>
+                    <CardHeader>
+                      <CardTitle>연락처 / 메모</CardTitle>
+                    </CardHeader>
+                    <CardContent className="space-y-4">
+                      <div className="grid grid-cols-2 gap-4">
                         <div>
                           <EditableField
                             label="이메일"
@@ -1537,22 +1993,6 @@ function ClientDetailPageClient({ clientId }: { clientId: string }) {
                             label="전화번호"
                             field="phone"
                             value={dealData.account?.phone || ""}
-                            isAccountField={true}
-                          />
-                        </div>
-                        <div>
-                          <EditableField
-                            label="주소"
-                            field="address"
-                            value={dealData.account?.address || ""}
-                            isAccountField={true}
-                          />
-                        </div>
-                        <div>
-                          <EditableField
-                            label="웹사이트"
-                            field="website"
-                            value={dealData.account?.website || ""}
                             isAccountField={true}
                           />
                         </div>
@@ -3048,6 +3488,30 @@ function ClientDetailPageClient({ clientId }: { clientId: string }) {
         }}
         onConfirm={handleCloseReasonConfirm}
         dealName={dealData.deal_name}
+      />
+
+      {/* 사업자등록증 OCR 검증 다이얼로그 */}
+      <BusinessRegistrationVerifyDialog
+        open={showBusinessRegDialog}
+        onOpenChange={setShowBusinessRegDialog}
+        imageUrl={dealData.account?.business_registration_url || null}
+        initialData={{
+          company_name: dealData.account?.company_name || "",
+          business_number: dealData.account?.business_number || "",
+          corporate_number: dealData.account?.corporate_number || "",
+          representative: dealData.account?.representative || "",
+          opening_date: dealData.account?.opening_date || "",
+          address: dealData.account?.address || "",
+          head_office_address: dealData.account?.head_office_address || "",
+          business_type: dealData.account?.business_type || "",
+          business_item: dealData.account?.business_item || "",
+          issue_date: dealData.account?.issue_date || "",
+          tax_type: dealData.account?.tax_type || "",
+        }}
+        ocrData={businessRegOcrResult}
+        ocrLoading={businessRegOcrLoading}
+        onRunOcr={runBusinessRegOcr}
+        onApply={applyBusinessRegFields}
       />
 
       {/* 계약 확정 정보 다이얼로그 */}

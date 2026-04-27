@@ -19,6 +19,7 @@ import {
   FileText,
   History,
   ScrollText,
+  ClipboardList,
   BookOpen,
   ExternalLink,
   StickyNote,
@@ -43,7 +44,7 @@ const processStages = [
   { id: 0, name: "목표·기준 설정", enabled: true }, // 활성화
   { id: 1, name: "유입 설계", enabled: true }, // 활성화
   { id: 2, name: "영업 CRM", enabled: true },
-  { id: 3, name: "내부 전달", enabled: false },
+  { id: 3, name: "내부 전달", enabled: true }, // 활성화 (프로젝트 명세서)
   { id: 4, name: "실행·관리", enabled: false },
   { id: 5, name: "검수·종료", enabled: false },
   { id: 6, name: "회고·데이터", enabled: true }, // 활성화
@@ -76,6 +77,10 @@ const stage2SubMenus = [
   { name: "계약서", href: "/contracts", icon: ScrollText, disabled: false },
   { name: "리포트", href: "/reports", icon: BarChart3, disabled: false },
   { name: "통계", href: "/statistics", icon: TrendingUp, disabled: false },
+]
+
+const stage3SubMenus = [
+  { name: "프로젝트 명세서 요청서", href: "/project-specs", icon: ClipboardList },
 ]
 
 const stage6SubMenus = [
@@ -135,7 +140,7 @@ function CrmSidebarComponent() {
         <div className="space-y-0.5 px-1.5">
           {processStages.map((stage) => {
             const isExpanded = expandedStage === stage.id
-            const hasSubMenu = stage.id === 0 || stage.id === 1 || stage.id === 2 || stage.id === 6 || stage.id === 8
+            const hasSubMenu = stage.id === 0 || stage.id === 1 || stage.id === 2 || stage.id === 3 || stage.id === 6 || stage.id === 8
 
             return (
               <div key={stage.id}>
@@ -308,6 +313,30 @@ function CrmSidebarComponent() {
                               {(item as any).badge}
                             </Badge>
                           )}
+                        </Link>
+                      )
+                    })}
+                  </div>
+                )}
+
+                {stage.id === 3 && isExpanded && (
+                  <div className="ml-7 mt-1 space-y-0.5">
+                    {stage3SubMenus.map((item) => {
+                      const isActive = pathname === item.href
+                      return (
+                        <Link
+                          key={item.name}
+                          href={item.href}
+                          onClick={closeMobileMenu}
+                          className={cn(
+                            "flex items-center gap-2 rounded-md px-2 py-1.5 text-xs transition-colors",
+                            isActive
+                              ? "bg-primary/10 text-primary font-medium"
+                              : "text-muted-foreground hover:bg-secondary hover:text-foreground",
+                          )}
+                        >
+                          <item.icon className="h-3.5 w-3.5 flex-shrink-0" />
+                          <span>{item.name}</span>
                         </Link>
                       )
                     })}

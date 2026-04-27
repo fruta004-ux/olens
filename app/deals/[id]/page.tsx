@@ -59,6 +59,7 @@ import { QuotationViewDialog } from "@/components/quotation-view-dialog"
 import { CloseReasonDialog } from "@/components/close-reason-dialog"
 import { getCloseReasonText } from "@/lib/close-reasons"
 import { RecontactDialog } from "@/components/recontact-dialog"
+import { parseContractConditions, inferProjectCategory, normalizeDateString } from "@/lib/parse-contract-conditions"
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { getRecontactReasonText } from "@/lib/recontact-reasons"
 import {
@@ -851,6 +852,79 @@ function DealDetailPageClient({ dealId }: { dealId: string }) {
     }
   }
 
+  // 프로젝트 명세서 요청서 자동 생성 (S5 계약완료 시점에 1차 연동)
+  const createProjectSpecsFromContract = async (
+    clientId: string,
+    contractId: string | null,
+    info: typeof contractFormData,
+    needsSummary: string
+  ): Promise<{ ok: boolean; tableMissing?: boolean }> => {
+    try {
+      const parsed = parseContractConditions(info.conditions || "", info.cost || "")
+      const category = inferProjectCategory(needsSummary || info.needs || "")
+      const dueDate =
+        normalizeDateString(info.invoice_date) ||
+        normalizeDateString(info.contract_date) ||
+        null
+
+      const rows = parsed.map((row) => ({
+        client_id: clientId,
+        account_id: dealData.account_id || null,
+        linked_contract_id: contractId,
+        linked_deal_id: resolvedId,
+        category,
+        project_name: info.name || dealData.deal_name || "",
+        cost_type: row.cost_type,
+        amount: row.amount,
+        payment_due_date: dueDate,
+        progress_status: "작성필요",
+        invoice_status: "발행필요",
+        invoice_issue_date: null,
+        notes: row.ratio_label ? `자동 생성: ${row.ratio_label}` : "자동 생성",
+        assigned_to: dealData.assigned_to || null,
+      }))
+
+      if (rows.length === 0) return { ok: true }
+
+      const { error } = await supabase.from("project_specs").insert(rows)
+      if (error) {
+        const detail = {
+          message: error.message,
+          code: (error as any).code,
+          details: (error as any).details,
+          hint: (error as any).hint,
+        }
+        console.error("[v0] project_specs 생성 오류:", detail)
+        const isMissing =
+          detail.code === "PGRST205" ||
+          detail.code === "42P01" ||
+          /relation .* does not exist/i.test(detail.message || "") ||
+          /Could not find the table/i.test(detail.message || "")
+        return { ok: false, tableMissing: isMissing }
+      }
+      return { ok: true }
+    } catch (err: any) {
+      console.error("[v0] project_specs 생성 예외:", err?.message || err)
+      return { ok: false }
+    }
+  }
+
+  // 가장 최근 client_contracts 행 ID 조회 (linkToExistingClient에서 방금 생성한 것)
+  const findLatestClientContractId = async (clientId: string): Promise<string | null> => {
+    try {
+      const { data } = await supabase
+        .from("client_contracts")
+        .select("id")
+        .eq("client_id", clientId)
+        .eq("linked_deal_id", resolvedId)
+        .order("created_at", { ascending: false })
+        .limit(1)
+      return data?.[0]?.id || null
+    } catch {
+      return null
+    }
+  }
+
   // 계약 확정 저장 핸들러
   const handleContractConfirm = async () => {
     if (pendingStageChange) {
@@ -866,6 +940,32 @@ function DealDetailPageClient({ dealId }: { dealId: string }) {
       }
 
       await autoCreateContractDraft()
+
+      // 프로젝트 명세서 자동 생성 + 거래처 정보 탭으로 이동
+      if (clientId) {
+        const contractId = await findLatestClientContractId(clientId)
+        const result = await createProjectSpecsFromContract(
+          clientId,
+          contractId,
+          contractFormData,
+          dealData.needs_summary || ""
+        )
+
+        if (result.tableMissing) {
+          alert(
+            "[안내] DB 마이그레이션이 아직 적용되지 않아 '프로젝트 명세서 요청서'를 자동 생성하지 못했습니다.\n\n" +
+              "Supabase SQL Editor에서 아래 두 파일을 실행한 뒤 다시 S5 계약완료를 눌러주세요:\n" +
+              "  • scripts/043_project_specs.sql\n" +
+              "  • scripts/044_account_business_fields.sql"
+          )
+        }
+
+        setShowContractDialog(false)
+        setTimeout(() => {
+          router.push(`/clients/${clientId}?tab=info&focus=business-reg`)
+        }, 200)
+        return
+      }
     } else {
       await handleUpdateDeal({ contract_info: contractFormData })
     }
