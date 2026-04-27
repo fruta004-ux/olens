@@ -92,7 +92,8 @@ export function BusinessRegistrationVerifyDialog({
     }
   }, [open, initialData])
 
-  // OCR 결과 들어오면 diff 표시 상태 갱신 + 비어있는 필드는 자동 채움
+  // OCR 결과 들어오면 모든 필드를 OCR 값으로 자동 입력 (사용자는 검증만 수행)
+  // 기존 값과 다른 필드는 "OCR 변경" 배지로 표시
   useEffect(() => {
     if (!ocrData) return
     setForm((prev) => {
@@ -101,10 +102,9 @@ export function BusinessRegistrationVerifyDialog({
       for (const f of FIELD_DEFS) {
         const ocrVal = (ocrData as any)[f.key]
         const curVal = prev[f.key]
-        if (ocrVal && ocrVal !== curVal) {
-          newDiff[f.key] = true
-          // 빈 값일 때만 자동 채움 (사용자가 이미 입력한 값 보호)
-          if (!curVal) next[f.key] = ocrVal
+        if (ocrVal) {
+          if (ocrVal !== curVal) newDiff[f.key] = true
+          next[f.key] = ocrVal
         }
       }
       setDiffMode(newDiff)

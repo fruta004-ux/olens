@@ -870,27 +870,33 @@ function ClientDetailPageClient({ clientId }: { clientId: string }) {
     try {
       const ext = file.name.split(".").pop() || "jpg"
       const safeName = `${dealData.account_id}_${Date.now()}.${ext}`
-      const { error: upErr } = await supabase.storage
+      const { data: upData, error: upErr } = await supabase.storage
         .from("business-registrations")
-        .upload(safeName, file, { upsert: true })
+        .upload(safeName, file, { upsert: true, contentType: file.type || undefined })
       if (upErr) {
-        console.error("[BR] 업로드 실패:", upErr)
-        alert(`업로드 실패: ${upErr.message}`)
+        console.error("[BR] 업로드 실패 (full):", JSON.stringify(upErr, Object.getOwnPropertyNames(upErr)))
+        console.error("[BR] 업로드 실패 (raw):", upErr)
+        const msg = (upErr as any)?.message || (upErr as any)?.error || (upErr as any)?.statusCode || "원인 불명"
+        alert(`업로드 실패: ${msg}\n파일: ${safeName}\n크기: ${(file.size / 1024 / 1024).toFixed(2)}MB\nMIME: ${file.type}`)
         return
       }
       const { data: urlData } = supabase.storage.from("business-registrations").getPublicUrl(safeName)
       const url = urlData.publicUrl
       await handleUpdateAccount({ business_registration_url: url })
-      // 업로드 직후 OCR 검증 다이얼로그 자동 오픈
+      // 업로드 직후: 다이얼로그 즉시 오픈 + OCR 자동 실행 (사용자는 결과 확인/수정만)
       setBusinessRegOcrResult(null)
       setShowBusinessRegDialog(true)
+      // 업로드된 URL을 직접 넘겨서 state 갱신 race 방지
+      runBusinessRegOcr(url).catch((err) => {
+        console.error("[BR] 자동 OCR 실패:", err)
+      })
     } finally {
       setBusinessRegUploading(false)
     }
   }
 
-  const runBusinessRegOcr = async () => {
-    const url = dealData.account?.business_registration_url
+  const runBusinessRegOcr = async (overrideUrl?: string) => {
+    const url = overrideUrl || dealData.account?.business_registration_url
     if (!url) {
       alert("업로드된 사업자등록증이 없습니다.")
       return
@@ -909,7 +915,6 @@ function ClientDetailPageClient({ clientId }: { clientId: string }) {
         return
       }
       const data = json.data || {}
-      // 날짜 필드 정규화
       if (data.opening_date) data.opening_date = normalizeDateString(data.opening_date) || data.opening_date
       if (data.issue_date) data.issue_date = normalizeDateString(data.issue_date) || data.issue_date
       setBusinessRegOcrResult(data)
