@@ -389,8 +389,12 @@ function DealDetailPageClient({ dealId }: { dealId: string }) {
     reason_ids: [] as string[],
     // 정기 프로젝트 여부 — 체크 시 매월 갱신 후보에 등록됨
     is_recurring: false,
-    recurring_payment_day: "" as string, // 매월 며칠 (1~31)
+    recurring_payment_day: "" as string, // 매월 며칠 (입금 예정일, 1~31)
     recurring_monthly_amount: "" as string, // 월 금액 (콤마 포함 문자열)
+    recurring_invoice_issue_day: "" as string, // 매월 며칠 (계산서 발행일, 1~31)
+    recurring_payment_offset: "0" as string, // "0"=당월, "1"=익월
+    // 단건: 첫 회차의 계산서 발행 예정일 (입력 안 하면 invoice_date 폴백)
+    invoice_issue_due_date: "",
   })
   const [contractCopied, setContractCopied] = useState(false)
   const [contractReasonOptions, setContractReasonOptions] = useState<{ id: string; value: string }[]>([])
@@ -675,6 +679,9 @@ function DealDetailPageClient({ dealId }: { dealId: string }) {
         is_recurring: looksMonthly,
         recurring_payment_day: "",
         recurring_monthly_amount: dealData.monthly_amount || "",
+        recurring_invoice_issue_day: "",
+        recurring_payment_offset: "0",
+        invoice_issue_due_date: "",
       })
       setShowContractDialog(true)
     } else {
@@ -897,15 +904,32 @@ function DealDetailPageClient({ dealId }: { dealId: string }) {
         const monthlyAmount = recurringAmount ?? parsed[0]?.amount ?? null
 
         const paymentDay = parseInt(info.recurring_payment_day || "0", 10) || null
+        const invoiceIssueDay = parseInt(info.recurring_invoice_issue_day || "0", 10) || null
+        const paymentOffset = info.recurring_payment_offset === "1" ? 1 : 0
         const today = new Date()
         const startMonthKey = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, "0")}`
 
-        // 첫 달치 입금 예정일: 입력된 일자 기준, 없으면 contract_date의 일자
-        let firstDueDate: string | null = null
-        if (paymentDay) {
-          firstDueDate = buildMonthlyDueDate(today.getFullYear(), today.getMonth() + 1, paymentDay)
+        // 첫 달치 계산서 발행 예정일: 발행일이 있으면 이번 달 그 일자, 없으면 dueDate 폴백
+        let firstInvoiceDueDate: string | null = null
+        if (invoiceIssueDay) {
+          firstInvoiceDueDate = buildMonthlyDueDate(today.getFullYear(), today.getMonth() + 1, invoiceIssueDay)
         } else {
-          firstDueDate = dueDate
+          firstInvoiceDueDate = dueDate
+        }
+
+        // 첫 달치 입금 예정일: 발행 기준 + offset 적용
+        let firstPaymentDueDate: string | null = null
+        if (paymentDay) {
+          const targetMonth = today.getMonth() + 1 + paymentOffset
+          let targetYear = today.getFullYear()
+          let targetMonthAdj = targetMonth
+          if (targetMonthAdj > 12) {
+            targetYear += 1
+            targetMonthAdj -= 12
+          }
+          firstPaymentDueDate = buildMonthlyDueDate(targetYear, targetMonthAdj, paymentDay)
+        } else {
+          firstPaymentDueDate = dueDate
         }
 
         // 1) 마스터 생성
@@ -919,6 +943,8 @@ function DealDetailPageClient({ dealId }: { dealId: string }) {
             project_name: info.name || dealData.deal_name || "",
             monthly_amount: monthlyAmount,
             payment_day: paymentDay,
+            invoice_issue_day: invoiceIssueDay,
+            payment_offset_months: paymentOffset,
             cost_type: "월 대행비",
             assigned_to: dealData.assigned_to || null,
             finance_assigned_to: null,
@@ -955,7 +981,8 @@ function DealDetailPageClient({ dealId }: { dealId: string }) {
           project_name: info.name || dealData.deal_name || "",
           cost_type: "월 대행비",
           amount: monthlyAmount,
-          payment_due_date: firstDueDate,
+          payment_due_date: firstPaymentDueDate,
+          invoice_issue_due_date: firstInvoiceDueDate,
           progress_status: "작성필요",
           invoice_status: "발행필요",
           invoice_issue_date: null,
@@ -979,7 +1006,8 @@ function DealDetailPageClient({ dealId }: { dealId: string }) {
         return { ok: true }
       }
 
-      // ─── 단건 경로 (기존 동작 유지) ──────────────────────
+      // ─── 단건 경로 ─────────────────────────────────────────
+      // 단건은 "발행일"(invoice_date)을 발행 예정일로 사용. 입금 예정일도 동일하게 시작.
       const parsed = parseContractConditions(info.conditions || "", info.cost || "")
       const rows = parsed.map((row) => ({
         client_id: clientId,
@@ -991,6 +1019,7 @@ function DealDetailPageClient({ dealId }: { dealId: string }) {
         cost_type: row.cost_type,
         amount: row.amount,
         payment_due_date: dueDate,
+        invoice_issue_due_date: dueDate,
         progress_status: "작성필요",
         invoice_status: "발행필요",
         invoice_issue_date: null,
@@ -1078,7 +1107,8 @@ function DealDetailPageClient({ dealId }: { dealId: string }) {
               "  • scripts/044_account_business_fields.sql\n" +
               "  • scripts/045_account_brand_name.sql\n" +
               "  • scripts/046_project_specs_finance_assignee.sql\n" +
-              "  • scripts/047_recurring_projects.sql (정기 프로젝트 사용 시 필수)"
+              "  • scripts/047_recurring_projects.sql (정기 프로젝트 사용 시 필수)\n" +
+              "  • scripts/048_invoice_issue_due_date.sql (계산서 발행 예정일 기준 도입)"
           )
         }
 
@@ -2202,6 +2232,9 @@ function DealDetailPageClient({ dealId }: { dealId: string }) {
                 is_recurring: !!dealData.contract_info.is_recurring,
                 recurring_payment_day: dealData.contract_info.recurring_payment_day || "",
                 recurring_monthly_amount: dealData.contract_info.recurring_monthly_amount || dealData.monthly_amount || "",
+                recurring_invoice_issue_day: dealData.contract_info.recurring_invoice_issue_day || "",
+                recurring_payment_offset: dealData.contract_info.recurring_payment_offset || "0",
+                invoice_issue_due_date: dealData.contract_info.invoice_issue_due_date || "",
               })
               setShowContractDialog(true)
             }}
@@ -3780,7 +3813,7 @@ function DealDetailPageClient({ dealId }: { dealId: string }) {
             ))}
 
             {[
-              { key: "invoice_date", label: "계산서" },
+              { key: "invoice_date", label: "발행일" },
               { key: "contract_date", label: "계약일" },
               { key: "work_start_date", label: "업무시작" },
             ].map(({ key, label }) => {
@@ -3847,6 +3880,8 @@ function DealDetailPageClient({ dealId }: { dealId: string }) {
                       recurring_monthly_amount: e.target.checked
                         ? prev.recurring_monthly_amount || dealData.monthly_amount || ""
                         : "",
+                      recurring_invoice_issue_day: e.target.checked ? prev.recurring_invoice_issue_day || "" : "",
+                      recurring_payment_offset: e.target.checked ? prev.recurring_payment_offset || "0" : "0",
                     }))
                   }
                 />
@@ -3854,39 +3889,100 @@ function DealDetailPageClient({ dealId }: { dealId: string }) {
               </label>
 
               {contractFormData.is_recurring && (
-                <div className="flex items-center gap-2 mt-2.5 pl-[26px]">
-                  <span className="text-xs text-muted-foreground shrink-0">월</span>
-                  <Input
-                    className="w-[120px] h-7 text-xs"
-                    value={contractFormData.recurring_monthly_amount || ""}
-                    onChange={(e) => {
-                      const raw = e.target.value.replace(/[^0-9]/g, "")
-                      const formatted = raw ? Number(raw).toLocaleString("ko-KR") : ""
-                      setContractFormData((prev) => ({
-                        ...prev,
-                        recurring_monthly_amount: formatted,
-                      }))
-                    }}
-                    placeholder="금액"
-                  />
-                  <span className="text-xs text-muted-foreground shrink-0">원 / 매월</span>
-                  <Input
-                    type="number"
-                    min={1}
-                    max={31}
-                    className="w-16 h-7 text-xs text-center"
-                    value={contractFormData.recurring_payment_day || ""}
-                    onChange={(e) => {
-                      const v = e.target.value
-                      const n = v ? Math.min(31, Math.max(1, parseInt(v) || 0)) : ""
-                      setContractFormData((prev) => ({
-                        ...prev,
-                        recurring_payment_day: n ? String(n) : "",
-                      }))
-                    }}
-                    placeholder="일"
-                  />
-                  <span className="text-xs text-muted-foreground shrink-0">일 입금</span>
+                <div className="mt-2.5 pl-[26px] space-y-2">
+                  {/* 1줄: 월 금액 */}
+                  <div className="flex items-center gap-2">
+                    <span className="text-xs text-muted-foreground shrink-0 w-20">월 금액</span>
+                    <Input
+                      className="w-[140px] h-7 text-xs"
+                      value={contractFormData.recurring_monthly_amount || ""}
+                      onChange={(e) => {
+                        const raw = e.target.value.replace(/[^0-9]/g, "")
+                        const formatted = raw ? Number(raw).toLocaleString("ko-KR") : ""
+                        setContractFormData((prev) => ({
+                          ...prev,
+                          recurring_monthly_amount: formatted,
+                        }))
+                      }}
+                      placeholder="금액"
+                    />
+                    <span className="text-xs text-muted-foreground shrink-0">원 (VAT 별도)</span>
+                  </div>
+
+                  {/* 2줄: 계산서 발행일 */}
+                  <div className="flex items-center gap-2">
+                    <span className="text-xs text-muted-foreground shrink-0 w-20">계산서 발행</span>
+                    <span className="text-xs text-muted-foreground">매월</span>
+                    <Input
+                      type="number"
+                      min={1}
+                      max={31}
+                      className="w-16 h-7 text-xs text-center"
+                      value={contractFormData.recurring_invoice_issue_day || ""}
+                      onChange={(e) => {
+                        const v = e.target.value
+                        const n = v ? Math.min(31, Math.max(1, parseInt(v) || 0)) : ""
+                        setContractFormData((prev) => ({
+                          ...prev,
+                          recurring_invoice_issue_day: n ? String(n) : "",
+                        }))
+                      }}
+                      placeholder="일"
+                    />
+                    <span className="text-xs text-muted-foreground shrink-0">일</span>
+                  </div>
+
+                  {/* 3줄: 입금 시점 + 입금일 */}
+                  <div className="flex items-center gap-2">
+                    <span className="text-xs text-muted-foreground shrink-0 w-20">입금</span>
+                    <div className="inline-flex rounded border overflow-hidden">
+                      <button
+                        type="button"
+                        className={cn(
+                          "px-2.5 h-7 text-xs",
+                          contractFormData.recurring_payment_offset === "0"
+                            ? "bg-amber-500 text-white"
+                            : "bg-white text-muted-foreground hover:bg-muted"
+                        )}
+                        onClick={() =>
+                          setContractFormData((prev) => ({ ...prev, recurring_payment_offset: "0" }))
+                        }
+                      >
+                        당월
+                      </button>
+                      <button
+                        type="button"
+                        className={cn(
+                          "px-2.5 h-7 text-xs border-l",
+                          contractFormData.recurring_payment_offset === "1"
+                            ? "bg-amber-500 text-white"
+                            : "bg-white text-muted-foreground hover:bg-muted"
+                        )}
+                        onClick={() =>
+                          setContractFormData((prev) => ({ ...prev, recurring_payment_offset: "1" }))
+                        }
+                      >
+                        익월
+                      </button>
+                    </div>
+                    <Input
+                      type="number"
+                      min={1}
+                      max={31}
+                      className="w-16 h-7 text-xs text-center"
+                      value={contractFormData.recurring_payment_day || ""}
+                      onChange={(e) => {
+                        const v = e.target.value
+                        const n = v ? Math.min(31, Math.max(1, parseInt(v) || 0)) : ""
+                        setContractFormData((prev) => ({
+                          ...prev,
+                          recurring_payment_day: n ? String(n) : "",
+                        }))
+                      }}
+                      placeholder="일"
+                    />
+                    <span className="text-xs text-muted-foreground shrink-0">일</span>
+                  </div>
                 </div>
               )}
             </div>

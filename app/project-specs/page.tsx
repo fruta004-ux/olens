@@ -77,6 +77,7 @@ interface ProjectSpec {
   cost_type: CostType
   amount: number | null
   payment_due_date: string | null
+  invoice_issue_due_date: string | null
   progress_status: ProgressStatus
   invoice_issue_date: string | null
   invoice_status: InvoiceStatus
@@ -107,6 +108,8 @@ interface RecurringProject {
   project_name: string | null
   monthly_amount: number | null
   payment_day: number | null
+  invoice_issue_day: number | null
+  payment_offset_months: number  // 0=당월, 1=익월
   cost_type: CostType
   assigned_to: string | null
   finance_assigned_to: string | null
@@ -127,7 +130,9 @@ interface RenewalRow {
   category: Category
   cost_type: CostType
   amount: number | null
-  payment_day: number | null  // 매월 며칠
+  payment_day: number | null  // 매월 며칠 (입금 예정일)
+  invoice_issue_day: number | null  // 매월 며칠 (계산서 발행일)
+  payment_offset_months: number  // 0=당월, 1=익월 (발행 기준)
   assigned_to: string | null
   finance_assigned_to: string | null
   notes: string
@@ -144,6 +149,8 @@ interface RenewalRow {
     cost_type: CostType
     monthly_amount: number | null
     payment_day: number | null
+    invoice_issue_day: number | null
+    payment_offset_months: number
     assigned_to: string | null
     finance_assigned_to: string | null
     notes: string
@@ -509,9 +516,9 @@ export default function ProjectSpecsPage() {
       )
         return false
 
-      // 날짜 범위 필터: 입금 예정일이 있는 행만 비교 (없으면 항상 표시 — 새 행 등 작성 중 항목 보호)
-      if (s.payment_due_date) {
-        const itemDate = s.payment_due_date
+      // 날짜 범위 필터: 계산서 발행 예정일 기준 (없으면 입금 예정일 폴백, 둘 다 없으면 항상 표시)
+      const itemDate = s.invoice_issue_due_date || s.payment_due_date
+      if (itemDate) {
         if (filterStartDate && itemDate < filterStartDate) return false
         if (filterEndDate && itemDate > filterEndDate) return false
       }
@@ -655,6 +662,8 @@ export default function ProjectSpecsPage() {
         const costType = (m.cost_type ?? "월 대행비") as CostType
         const amount = m.monthly_amount ?? null
         const paymentDay = m.payment_day ?? null
+        const invoiceIssueDay = m.invoice_issue_day ?? null
+        const paymentOffset = m.payment_offset_months ?? 0
         const assignedTo = m.assigned_to ?? null
         const financeAssignedTo = m.finance_assigned_to ?? null
         const notes = m.notes ?? ""
@@ -667,6 +676,8 @@ export default function ProjectSpecsPage() {
           cost_type: costType,
           amount,
           payment_day: paymentDay,
+          invoice_issue_day: invoiceIssueDay,
+          payment_offset_months: paymentOffset,
           assigned_to: assignedTo,
           finance_assigned_to: financeAssignedTo,
           notes,
@@ -680,6 +691,8 @@ export default function ProjectSpecsPage() {
             cost_type: (m.cost_type ?? "월 대행비") as CostType,
             monthly_amount: m.monthly_amount ?? null,
             payment_day: m.payment_day ?? null,
+            invoice_issue_day: m.invoice_issue_day ?? null,
+            payment_offset_months: m.payment_offset_months ?? 0,
             assigned_to: m.assigned_to ?? null,
             finance_assigned_to: m.finance_assigned_to ?? null,
             notes: m.notes ?? "",
@@ -704,9 +717,25 @@ export default function ProjectSpecsPage() {
       r.cost_type !== r.master.cost_type ||
       r.amount !== r.master.monthly_amount ||
       r.payment_day !== r.master.payment_day ||
+      r.invoice_issue_day !== r.master.invoice_issue_day ||
+      r.payment_offset_months !== r.master.payment_offset_months ||
       r.assigned_to !== r.master.assigned_to ||
       r.finance_assigned_to !== r.master.finance_assigned_to
     )
+  }
+
+  // 발행 기준 + 오프셋으로 입금 예정일 계산
+  const buildPaymentDueDate = (
+    invoiceMonthKey: string,
+    paymentDay: number | null,
+    offsetMonths: number
+  ): string | null => {
+    if (!paymentDay) return null
+    const [yStr, mStr] = invoiceMonthKey.split("-")
+    let y = Number(yStr)
+    let m = Number(mStr) + offsetMonths
+    while (m > 12) { m -= 12; y += 1 }
+    return buildMonthlyDueDate(`${y}-${String(m).padStart(2, "0")}`, paymentDay)
   }
 
   // 갱신 실행 — 체크된 행만 그 달치 project_specs로 일괄 생성
@@ -738,6 +767,8 @@ export default function ProjectSpecsPage() {
             cost_type: r.cost_type,
             monthly_amount: r.amount,
             payment_day: r.payment_day,
+            invoice_issue_day: r.invoice_issue_day,
+            payment_offset_months: r.payment_offset_months,
             assigned_to: r.assigned_to,
             finance_assigned_to: r.finance_assigned_to,
           })
@@ -749,8 +780,12 @@ export default function ProjectSpecsPage() {
       }
 
       // 2) project_specs 행 일괄 생성
+      // - 발행 예정일: targetMonth + 발행일
+      // - 입금 예정일: targetMonth + offset(0=당월,1=익월) + 입금일
       const inserts = toCreate.map((r) => {
         const m = masters[r.recurring_id]
+        const invoiceDueDate = buildMonthlyDueDate(targetMonth, r.invoice_issue_day)
+        const paymentDueDate = buildPaymentDueDate(targetMonth, r.payment_day, r.payment_offset_months)
         return {
           client_id: m?.client_id || null,
           account_id: m?.account_id || null,
@@ -762,7 +797,8 @@ export default function ProjectSpecsPage() {
           project_name: r.project_name,
           cost_type: r.cost_type,
           amount: r.amount,
-          payment_due_date: buildMonthlyDueDate(targetMonth, r.payment_day),
+          payment_due_date: paymentDueDate,
+          invoice_issue_due_date: invoiceDueDate,
           progress_status: "작성필요",
           invoice_status: "발행필요",
           invoice_issue_date: null,
@@ -1308,9 +1344,10 @@ export default function ProjectSpecsPage() {
                     <TableHead className="w-[70px]">담당자</TableHead>
                     <TableHead className="w-[100px]">비용 종류</TableHead>
                     <TableHead className="w-[140px]">금액 (VAT 별도)</TableHead>
+                    <TableHead className="w-[130px]">발행 예정일</TableHead>
                     <TableHead className="w-[130px]">입금 예정일</TableHead>
                     <TableHead className="w-[80px]">진행상황</TableHead>
-                    <TableHead className="w-[130px]">계산서 발행일</TableHead>
+                    <TableHead className="w-[130px]">실제 발행일</TableHead>
                     <TableHead className="w-[80px]">계산서</TableHead>
                     <TableHead className="w-[70px]">재무 담당자</TableHead>
                     <TableHead className="w-[80px]">비고</TableHead>
@@ -1320,7 +1357,7 @@ export default function ProjectSpecsPage() {
                 <TableBody>
                   {filteredSpecs.length === 0 ? (
                     <TableRow>
-                      <TableCell colSpan={15} className="text-center py-12 text-muted-foreground">
+                      <TableCell colSpan={16} className="text-center py-12 text-muted-foreground">
                         명세서 행이 없습니다. S5 계약완료 시 자동 생성되거나, [행 추가] 버튼으로 추가할 수 있어요.
                       </TableCell>
                     </TableRow>
@@ -1338,11 +1375,12 @@ export default function ProjectSpecsPage() {
                             {idx + 1}
                           </TableCell>
 
-                          {/* 소속월 */}
+                          {/* 소속월 (계산서 발행 예정일 기준) */}
                           <TableCell className="text-center">
                             <span className="text-[11px] text-muted-foreground whitespace-nowrap">
                               {(() => {
                                 const src = spec.spec_month
+                                  || (spec.invoice_issue_due_date ? spec.invoice_issue_due_date.slice(0, 7) : null)
                                   || (spec.payment_due_date ? spec.payment_due_date.slice(0, 7) : null)
                                   || spec.created_at.slice(0, 7)
                                 const [y, m] = src.split("-")
@@ -1485,6 +1523,14 @@ export default function ProjectSpecsPage() {
                               }}
                               placeholder="0"
                               className="h-7 text-xs text-right font-mono"
+                            />
+                          </TableCell>
+
+                          {/* 계산서 발행 예정일 */}
+                          <TableCell>
+                            <DateCell
+                              value={spec.invoice_issue_due_date}
+                              onChange={(v) => updateField(spec.id, { invoice_issue_due_date: v })}
                             />
                           </TableCell>
 
@@ -1777,11 +1823,12 @@ export default function ProjectSpecsPage() {
                 <TableHeader>
                   <TableRow className="[&>th]:text-center [&>th]:text-xs">
                     <TableHead className="w-[40px]">포함</TableHead>
-                    <TableHead className="w-[180px] text-left">거래처</TableHead>
-                    <TableHead className="w-[200px] text-left">프로젝트명</TableHead>
-                    <TableHead className="w-[90px]">카테고리</TableHead>
-                    <TableHead className="w-[130px]">금액 (VAT 별도)</TableHead>
-                    <TableHead className="w-[80px]">매월 입금일</TableHead>
+                    <TableHead className="w-[160px] text-left">거래처</TableHead>
+                    <TableHead className="w-[180px] text-left">프로젝트명</TableHead>
+                    <TableHead className="w-[80px]">카테고리</TableHead>
+                    <TableHead className="w-[120px]">금액 (VAT 별도)</TableHead>
+                    <TableHead className="w-[70px]">발행일</TableHead>
+                    <TableHead className="w-[100px]">입금</TableHead>
                     <TableHead className="w-[90px]">담당자</TableHead>
                     <TableHead className="w-[100px]">재무 담당자</TableHead>
                     <TableHead className="w-[90px]"></TableHead>
@@ -1894,6 +1941,7 @@ export default function ProjectSpecsPage() {
                             }}
                           />
                         </TableCell>
+                        {/* 발행일 (매월 며칠) */}
                         <TableCell>
                           <Input
                             disabled={disabled}
@@ -1901,17 +1949,61 @@ export default function ProjectSpecsPage() {
                             min={1}
                             max={31}
                             className="h-7 text-xs text-center"
-                            value={row.payment_day ?? ""}
+                            value={row.invoice_issue_day ?? ""}
                             onChange={(e) => {
                               const raw = e.target.value
                               const n = raw ? Math.min(31, Math.max(1, parseInt(raw) || 0)) : null
                               setRenewalRows((prev) =>
                                 prev.map((r, i) =>
-                                  i === idx ? { ...r, payment_day: n } : r
+                                  i === idx ? { ...r, invoice_issue_day: n } : r
                                 )
                               )
                             }}
                           />
+                        </TableCell>
+                        {/* 입금: 당월/익월 토글 + 매월 며칠 */}
+                        <TableCell>
+                          <div className="flex items-center gap-1 justify-center">
+                            <button
+                              type="button"
+                              disabled={disabled}
+                              className={cn(
+                                "h-6 px-1.5 text-[10px] rounded border",
+                                row.payment_offset_months === 0
+                                  ? "bg-amber-500 text-white border-amber-500"
+                                  : "bg-white text-muted-foreground hover:bg-muted",
+                                disabled && "opacity-50 cursor-not-allowed"
+                              )}
+                              onClick={() =>
+                                setRenewalRows((prev) =>
+                                  prev.map((r, i) =>
+                                    i === idx
+                                      ? { ...r, payment_offset_months: r.payment_offset_months === 0 ? 1 : 0 }
+                                      : r
+                                  )
+                                )
+                              }
+                            >
+                              {row.payment_offset_months === 0 ? "당월" : "익월"}
+                            </button>
+                            <Input
+                              disabled={disabled}
+                              type="number"
+                              min={1}
+                              max={31}
+                              className="h-6 w-12 text-xs text-center px-1"
+                              value={row.payment_day ?? ""}
+                              onChange={(e) => {
+                                const raw = e.target.value
+                                const n = raw ? Math.min(31, Math.max(1, parseInt(raw) || 0)) : null
+                                setRenewalRows((prev) =>
+                                  prev.map((r, i) =>
+                                    i === idx ? { ...r, payment_day: n } : r
+                                  )
+                                )
+                              }}
+                            />
+                          </div>
                         </TableCell>
                         <TableCell>
                           <Select
