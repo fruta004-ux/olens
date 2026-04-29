@@ -14,7 +14,12 @@ import {
   ExternalLink,
   StickyNote,
   Filter,
+  RefreshCw,
+  X,
+  Repeat,
+  AlertCircle,
 } from "lucide-react"
+import { toast } from "sonner"
 
 import { CrmSidebar } from "@/components/crm-sidebar"
 import { CrmHeader } from "@/components/crm-header"
@@ -65,6 +70,8 @@ interface ProjectSpec {
   account_id: string | null
   linked_contract_id: string | null
   linked_deal_id: string | null
+  recurring_project_id: string | null
+  spec_month: string | null
   category: Category
   project_name: string | null
   cost_type: CostType
@@ -88,6 +95,59 @@ interface AccountOption {
   company_name: string
   client_id: string | null
   client_assigned_to: string | null
+}
+
+// 정기 프로젝트 마스터
+interface RecurringProject {
+  id: string
+  client_id: string | null
+  account_id: string | null
+  source_deal_id: string | null
+  category: Category
+  project_name: string | null
+  monthly_amount: number | null
+  payment_day: number | null
+  cost_type: CostType
+  assigned_to: string | null
+  finance_assigned_to: string | null
+  notes: string | null
+  is_active: boolean
+  start_month: string
+  created_at: string
+  updated_at: string
+}
+
+// 갱신 모달의 1행 상태 (사용자가 모달에서 편집 가능한 필드들)
+type ApplyScope = "this_month" | "permanent"
+
+interface RenewalRow {
+  recurring_id: string
+  account_company_name: string  // 표시용
+  project_name: string
+  category: Category
+  cost_type: CostType
+  amount: number | null
+  payment_day: number | null  // 매월 며칠
+  assigned_to: string | null
+  finance_assigned_to: string | null
+  notes: string
+  // 시스템 정보
+  alreadyExists: boolean       // 이번 달 이미 생성된 경우 → 비활성화
+  excluded: boolean            // 이번 갱신에서 사용자가 제외(이번만/영구 둘 다 동일하게 빠짐)
+  permanentlyDisabled: boolean // 영구 제외 후 토글 표시용 (모달 내 즉시 시각 피드백)
+  // 변경 감지 + 적용 범위
+  applyScope: ApplyScope       // "this_month" (기본) 또는 "permanent"
+  // 마스터 원본값 (편집 후 비교용)
+  master: {
+    project_name: string
+    category: Category
+    cost_type: CostType
+    monthly_amount: number | null
+    payment_day: number | null
+    assigned_to: string | null
+    finance_assigned_to: string | null
+    notes: string
+  }
 }
 
 // 영업 담당자 옵션 (다른 폼들과 동일한 리스트)
@@ -181,9 +241,15 @@ export default function ProjectSpecsPage() {
   const [filterAssigned, setFilterAssigned] = useState<string>("전체")
   const [filterFinanceAssigned, setFilterFinanceAssigned] = useState<string>("전체")
   const [searchQuery, setSearchQuery] = useState("")
-  // 입금 예정일 기준월 필터 (yyyy-MM). 기본: 현재 달. 이 월부터 미래 항목만 표시
-  const [filterStartMonth, setFilterStartMonth] = useState<string>(currentMonthKey())
-  const [monthPickerOpen, setMonthPickerOpen] = useState(false)
+  // 입금 예정일 기준월 필터 (yyyy-MM)
+  // 기본: 시작월 = 현재 달, 종료월 = 없음(상한 무제한)
+  // - 시작만 있으면: 시작월 이후 전부
+  // - 시작+종료 둘 다: 그 사이 (포함)
+  // - 둘 다 없으면: 전체
+  const [filterStartMonth, setFilterStartMonth] = useState<string | null>(currentMonthKey())
+  const [filterEndMonth, setFilterEndMonth] = useState<string | null>(null)
+  const [startPickerOpen, setStartPickerOpen] = useState(false)
+  const [endPickerOpen, setEndPickerOpen] = useState(false)
 
   // 행 추가 모달
   const [showAddDialog, setShowAddDialog] = useState(false)
@@ -200,6 +266,24 @@ export default function ProjectSpecsPage() {
   const [notesDraft, setNotesDraft] = useState<Record<string, string>>({})
   // 프로젝트명 임시 편집
   const [nameDraft, setNameDraft] = useState<Record<string, string>>({})
+
+  // ───── 정기 프로젝트 갱신 ─────
+  const [renewalOpen, setRenewalOpen] = useState(false)
+  const [renewalLoading, setRenewalLoading] = useState(false)
+  const [renewalRunning, setRenewalRunning] = useState(false)
+  const [renewalTargetMonth, setRenewalTargetMonth] = useState<string>(currentMonthKey()) // yyyy-MM
+  const [renewalRows, setRenewalRows] = useState<RenewalRow[]>([])
+  const [renewalMonthPickerOpen, setRenewalMonthPickerOpen] = useState(false)
+
+  // 제외 분기 다이얼로그 (이번 달만 vs 영구)
+  const [excludeChoice, setExcludeChoice] = useState<{
+    open: boolean
+    rowIndex: number | null
+  }>({ open: false, rowIndex: null })
+
+  // 정기 마스터 캐시 (매월 갱신 안 됨 배너 계산용)
+  const [activeRecurring, setActiveRecurring] = useState<RecurringProject[]>([])
+  const [recurringTableMissing, setRecurringTableMissing] = useState(false)
 
   useEffect(() => {
     loadAll()
@@ -281,7 +365,38 @@ export default function ProjectSpecsPage() {
 
       setSpecs(enriched)
 
-      // 4. 행 추가용 거래처 옵션 로드 (client의 영업 담당자도 함께)
+      // 4. 정기 프로젝트 마스터 (활성만)
+      try {
+        const { data: recurData, error: recurErr } = await supabase
+          .from("recurring_projects")
+          .select("*")
+          .eq("is_active", true)
+          .order("created_at", { ascending: false })
+
+        if (recurErr) {
+          const code = (recurErr as any).code
+          const isMissing =
+            code === "PGRST205" ||
+            code === "42P01" ||
+            /relation .* does not exist/i.test(recurErr.message || "") ||
+            /Could not find the table/i.test(recurErr.message || "")
+          if (isMissing) {
+            setRecurringTableMissing(true)
+            setActiveRecurring([])
+          } else {
+            console.error("[project-specs] recurring 로드 오류:", recurErr)
+            setActiveRecurring([])
+          }
+        } else {
+          setRecurringTableMissing(false)
+          setActiveRecurring((recurData as any) || [])
+        }
+      } catch (e) {
+        console.error("[project-specs] recurring 로드 예외:", e)
+        setActiveRecurring([])
+      }
+
+      // 5. 행 추가용 거래처 옵션 로드 (client의 영업 담당자도 함께)
       const { data: clientList } = await supabase
         .from("clients")
         .select("id, account_id, assigned_to, account:accounts!account_id(id, company_name, brand_name)")
@@ -342,10 +457,11 @@ export default function ProjectSpecsPage() {
       )
         return false
 
-      // 월 필터: 입금 예정일이 있는 행만 비교 (없으면 항상 표시 — 새 행 등 작성 중 항목 보호)
+      // 월 범위 필터: 입금 예정일이 있는 행만 비교 (없으면 항상 표시 — 새 행 등 작성 중 항목 보호)
       if (s.payment_due_date) {
         const itemMonth = toMonthKey(s.payment_due_date)
-        if (itemMonth < filterStartMonth) return false
+        if (filterStartMonth && itemMonth < filterStartMonth) return false
+        if (filterEndMonth && itemMonth > filterEndMonth) return false
       }
 
       if (searchQuery) {
@@ -364,6 +480,7 @@ export default function ProjectSpecsPage() {
     filterAssigned,
     filterFinanceAssigned,
     filterStartMonth,
+    filterEndMonth,
     searchQuery,
   ])
 
@@ -414,6 +531,279 @@ export default function ProjectSpecsPage() {
     })
     await updateField(id, { project_name: draft })
   }
+
+  // ──────────────────────────────────────────────────────────
+  // 정기 프로젝트 갱신
+  // ──────────────────────────────────────────────────────────
+
+  // 매월 입금 예정일 계산: 그 달에 해당 일자가 없으면 말일로 보정
+  const buildMonthlyDueDate = (monthKey: string, day: number | null): string | null => {
+    if (!day) return null
+    const [yStr, mStr] = monthKey.split("-")
+    const y = Number(yStr)
+    const m = Number(mStr)
+    if (!y || !m) return null
+    const lastDay = new Date(y, m, 0).getDate()
+    const safeDay = Math.min(Math.max(1, day), lastDay)
+    return `${y}-${String(m).padStart(2, "0")}-${String(safeDay).padStart(2, "0")}`
+  }
+
+  // 갱신 모달 열기 — 활성 마스터 로드 + 직전 달 행 데이터로 prefill
+  const openRenewalModal = async (targetMonth: string = currentMonthKey()) => {
+    if (recurringTableMissing) {
+      alert(
+        "정기 프로젝트 기능이 활성화되지 않았습니다.\nSupabase SQL Editor에서 scripts/047_recurring_projects.sql 을 실행해주세요."
+      )
+      return
+    }
+    setRenewalTargetMonth(targetMonth)
+    setRenewalOpen(true)
+    setRenewalLoading(true)
+    try {
+      // 1) 활성 마스터 로드 + 거래처명 조인
+      const accountIds = Array.from(new Set(activeRecurring.map((r) => r.account_id).filter(Boolean))) as string[]
+      let accNameMap: Record<string, string> = {}
+      if (accountIds.length > 0) {
+        const { data: accs } = await supabase
+          .from("accounts")
+          .select("id, company_name, brand_name")
+          .in("id", accountIds)
+        if (accs) {
+          accNameMap = (accs as any[]).reduce((acc, a) => {
+            const _b = (a.brand_name || "").trim()
+            acc[a.id] = _b && _b !== a.company_name ? `${a.company_name} (${_b})` : a.company_name
+            return acc
+          }, {} as Record<string, string>)
+        }
+      }
+
+      // 2) 이번 달에 이미 생성된 행 찾기 (중복 방지)
+      const recurringIds = activeRecurring.map((r) => r.id)
+      let existingMap: Record<string, ProjectSpec> = {}
+      if (recurringIds.length > 0) {
+        const { data: existRows } = await supabase
+          .from("project_specs")
+          .select("*")
+          .in("recurring_project_id", recurringIds)
+          .eq("spec_month", targetMonth)
+        if (existRows) {
+          existRows.forEach((r: any) => {
+            existingMap[r.recurring_project_id] = r as ProjectSpec
+          })
+        }
+      }
+
+      // 3) RenewalRow 빌드 — 항상 마스터 값 기준으로 prefill
+      // "영구 변경"은 마스터를 업데이트하므로 마스터가 항상 최신 정보.
+      // "이번 달만" 변경은 행 레벨에만 반영되고 마스터는 그대로이므로
+      // 다음 달 갱신 시 마스터의 원래 값이 자연스럽게 나옴.
+      const rows: RenewalRow[] = activeRecurring.map((m) => {
+        const projectName = m.project_name ?? ""
+        const category = (m.category ?? "그 외") as Category
+        const costType = (m.cost_type ?? "월 대행비") as CostType
+        const amount = m.monthly_amount ?? null
+        const paymentDay = m.payment_day ?? null
+        const assignedTo = m.assigned_to ?? null
+        const financeAssignedTo = m.finance_assigned_to ?? null
+        const notes = m.notes ?? ""
+
+        return {
+          recurring_id: m.id,
+          account_company_name: m.account_id ? accNameMap[m.account_id] || "" : "",
+          project_name: projectName,
+          category,
+          cost_type: costType,
+          amount,
+          payment_day: paymentDay,
+          assigned_to: assignedTo,
+          finance_assigned_to: financeAssignedTo,
+          notes,
+          alreadyExists: !!existingMap[m.id],
+          excluded: !!existingMap[m.id],
+          permanentlyDisabled: false,
+          applyScope: "this_month" as ApplyScope,
+          master: {
+            project_name: m.project_name ?? "",
+            category: (m.category ?? "그 외") as Category,
+            cost_type: (m.cost_type ?? "월 대행비") as CostType,
+            monthly_amount: m.monthly_amount ?? null,
+            payment_day: m.payment_day ?? null,
+            assigned_to: m.assigned_to ?? null,
+            finance_assigned_to: m.finance_assigned_to ?? null,
+            notes: m.notes ?? "",
+          },
+        }
+      })
+
+      setRenewalRows(rows)
+    } catch (e: any) {
+      console.error("[renewal] 모달 로드 실패:", e)
+      alert(`갱신 후보 로드 실패: ${e?.message || e}`)
+    } finally {
+      setRenewalLoading(false)
+    }
+  }
+
+  // 행이 마스터 대비 변경되었는지 감지
+  const isRowChanged = (r: RenewalRow): boolean => {
+    return (
+      r.project_name !== r.master.project_name ||
+      r.category !== r.master.category ||
+      r.cost_type !== r.master.cost_type ||
+      r.amount !== r.master.monthly_amount ||
+      r.payment_day !== r.master.payment_day ||
+      r.assigned_to !== r.master.assigned_to ||
+      r.finance_assigned_to !== r.master.finance_assigned_to
+    )
+  }
+
+  // 갱신 실행 — 체크된 행만 그 달치 project_specs로 일괄 생성
+  // "영구" 행은 마스터도 업데이트
+  const runRenewal = async () => {
+    const toCreate = renewalRows.filter((r) => !r.excluded && !r.alreadyExists)
+    if (toCreate.length === 0) {
+      toast.info("생성할 정기 프로젝트가 없습니다.")
+      return
+    }
+    setRenewalRunning(true)
+    try {
+      const targetMonth = renewalTargetMonth
+      const masters = activeRecurring.reduce((acc, m) => {
+        acc[m.id] = m
+        return acc
+      }, {} as Record<string, RecurringProject>)
+
+      // 1) "영구 변경" 행의 마스터 업데이트
+      const permanentRows = toCreate.filter(
+        (r) => r.applyScope === "permanent" && isRowChanged(r)
+      )
+      for (const r of permanentRows) {
+        const { error } = await supabase
+          .from("recurring_projects")
+          .update({
+            project_name: r.project_name,
+            category: r.category,
+            cost_type: r.cost_type,
+            monthly_amount: r.amount,
+            payment_day: r.payment_day,
+            assigned_to: r.assigned_to,
+            finance_assigned_to: r.finance_assigned_to,
+          })
+          .eq("id", r.recurring_id)
+        if (error) {
+          console.error("[renewal] 마스터 업데이트 실패:", error)
+          toast.error(`마스터 업데이트 실패 (${r.project_name}): ${error.message}`)
+        }
+      }
+
+      // 2) project_specs 행 일괄 생성
+      const inserts = toCreate.map((r) => {
+        const m = masters[r.recurring_id]
+        return {
+          client_id: m?.client_id || null,
+          account_id: m?.account_id || null,
+          linked_contract_id: null,
+          linked_deal_id: m?.source_deal_id || null,
+          recurring_project_id: r.recurring_id,
+          spec_month: targetMonth,
+          category: r.category,
+          project_name: r.project_name,
+          cost_type: r.cost_type,
+          amount: r.amount,
+          payment_due_date: buildMonthlyDueDate(targetMonth, r.payment_day),
+          progress_status: "작성필요",
+          invoice_status: "발행필요",
+          invoice_issue_date: null,
+          notes: `자동 생성: 정기 ${monthKeyToLabel(targetMonth)}`,
+          assigned_to: r.assigned_to,
+          finance_assigned_to: r.finance_assigned_to,
+        }
+      })
+
+      const { error } = await supabase.from("project_specs").insert(inserts)
+      if (error) {
+        console.error("[renewal] 생성 실패:", error)
+        toast.error(`갱신 실패: ${error.message}`)
+        return
+      }
+
+      const permCount = permanentRows.length
+      const msg = permCount > 0
+        ? `${monthKeyToLabel(targetMonth)} 정기 프로젝트 ${inserts.length}건 생성 (${permCount}건 영구 변경 반영)`
+        : `${monthKeyToLabel(targetMonth)} 정기 프로젝트 ${inserts.length}건 생성 완료`
+      toast.success(msg)
+      setRenewalOpen(false)
+      await loadAll()
+    } finally {
+      setRenewalRunning(false)
+    }
+  }
+
+  // [×] 제외 버튼 — 분기 다이얼로그 오픈
+  const onRequestExclude = (rowIndex: number) => {
+    setExcludeChoice({ open: true, rowIndex })
+  }
+
+  // 이번 달만 건너뛰기 — 그 행만 excluded=true (DB 변경 없음)
+  const applyExcludeThisMonth = () => {
+    const { rowIndex } = excludeChoice
+    if (rowIndex === null) {
+      setExcludeChoice({ open: false, rowIndex: null })
+      return
+    }
+    setRenewalRows((prev) =>
+      prev.map((r, i) => (i === rowIndex ? { ...r, excluded: true } : r))
+    )
+    toast.success("이번 달은 이 정기 프로젝트를 건너뛸게요")
+    setExcludeChoice({ open: false, rowIndex: null })
+  }
+
+  // 영구 제외 — 마스터 is_active=false
+  const applyExcludePermanent = async () => {
+    const { rowIndex } = excludeChoice
+    if (rowIndex === null) {
+      setExcludeChoice({ open: false, rowIndex: null })
+      return
+    }
+    const row = renewalRows[rowIndex]
+    if (!row) {
+      setExcludeChoice({ open: false, rowIndex: null })
+      return
+    }
+    const { error } = await supabase
+      .from("recurring_projects")
+      .update({ is_active: false })
+      .eq("id", row.recurring_id)
+    if (error) {
+      toast.error(`영구 제외 실패: ${error.message}`)
+    } else {
+      setActiveRecurring((prev) => prev.filter((m) => m.id !== row.recurring_id))
+      setRenewalRows((prev) =>
+        prev.map((r, i) =>
+          i === rowIndex ? { ...r, excluded: true, permanentlyDisabled: true } : r
+        )
+      )
+      toast.success("정기 프로젝트 목록에서 영구 제외되었어요")
+    }
+    setExcludeChoice({ open: false, rowIndex: null })
+  }
+
+  // 이번 달이 갱신되었는지 (배너 표시 판단용)
+  const renewalDoneThisMonth = useMemo(() => {
+    const cur = currentMonthKey()
+    if (activeRecurring.length === 0) return true
+    // 모든 활성 마스터가 이번 달 행을 가지고 있으면 done
+    const activeIds = new Set(activeRecurring.map((m) => m.id))
+    const generatedIds = new Set(
+      specs
+        .filter((s) => s.recurring_project_id && s.spec_month === cur)
+        .map((s) => s.recurring_project_id as string)
+    )
+    for (const id of activeIds) {
+      if (!generatedIds.has(id)) return false
+    }
+    return true
+  }, [activeRecurring, specs])
 
   const handleAddRow = async () => {
     if (!newRowAccountId) {
@@ -475,13 +865,7 @@ export default function ProjectSpecsPage() {
   // 요약 카드
   // ──────────────────────────────────────────────────────────
   const summary = useMemo(() => {
-    const total = specs.length
-    const draftNeeded = specs.filter((s) => s.progress_status === "작성필요").length
-    const invoicePending = specs.filter((s) => s.invoice_status === "발행대기").length
-    const unpaid = specs.filter(
-      (s) => s.payment_due_date && new Date(s.payment_due_date) < new Date() && s.invoice_status !== "발행완료"
-    ).length
-    return { total, draftNeeded, invoicePending, unpaid }
+    return { total: specs.length }
   }, [specs])
 
   if (loading) {
@@ -517,11 +901,45 @@ export default function ProjectSpecsPage() {
                 S5 계약완료 시점에 자동 생성됩니다. 비용 종류별로 행이 분리되며, 모든 항목을 수동으로 수정할 수 있어요.
               </p>
             </div>
-            <Button onClick={() => setShowAddDialog(true)} className="gap-2">
-              <Plus className="h-4 w-4" />
-              행 추가
-            </Button>
+            <div className="flex items-center gap-2">
+              <Button
+                variant="outline"
+                onClick={() => openRenewalModal(currentMonthKey())}
+                className="gap-2"
+                disabled={recurringTableMissing}
+                title={recurringTableMissing ? "scripts/047_recurring_projects.sql 적용이 필요합니다" : ""}
+              >
+                <Repeat className="h-4 w-4" />
+                정기 프로젝트 갱신
+              </Button>
+              <Button onClick={() => setShowAddDialog(true)} className="gap-2">
+                <Plus className="h-4 w-4" />
+                행 추가
+              </Button>
+            </div>
           </div>
+
+          {/* 갱신 미실행 배너 (Q4) */}
+          {!renewalDoneThisMonth && !recurringTableMissing && activeRecurring.length > 0 && (
+            <Card className="p-3 mb-4 border-amber-300 bg-amber-50">
+              <div className="flex items-center gap-3">
+                <AlertCircle className="h-5 w-5 text-amber-700 shrink-0" />
+                <p className="text-sm text-amber-900 flex-1">
+                  <span className="font-semibold">{monthKeyToLabel(currentMonthKey())}</span>{" "}
+                  정기 프로젝트 갱신이 아직 진행되지 않았습니다.
+                </p>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="h-8 text-xs border-amber-400 text-amber-900 hover:bg-amber-100"
+                  onClick={() => openRenewalModal(currentMonthKey())}
+                >
+                  <Repeat className="h-3.5 w-3.5 mr-1.5" />
+                  지금 갱신
+                </Button>
+              </div>
+            </Card>
+          )}
 
           {/* DB 마이그레이션 미적용 안내 */}
           {tableMissing && (
@@ -549,6 +967,9 @@ export default function ProjectSpecsPage() {
                     </code>,{" "}
                     <code className="px-1 py-0.5 bg-amber-100 rounded text-[11px]">
                       scripts/046_project_specs_finance_assignee.sql
+                    </code>,{" "}
+                    <code className="px-1 py-0.5 bg-amber-100 rounded text-[11px]">
+                      scripts/047_recurring_projects.sql
                     </code>{" "}
                     을 순서대로 실행한 뒤 새로고침 해주세요.
                   </p>
@@ -571,19 +992,10 @@ export default function ProjectSpecsPage() {
           {/* 요약 + 필터 한 줄 통합 */}
           <Card className="p-3 mb-4">
             <div className="flex items-center gap-3 flex-wrap">
-              {/* 좌측: 요약 인라인 배지 */}
-              <div className="flex items-center gap-1.5 text-xs pr-3 border-r border-border/60">
+              {/* 좌측: 요약 (전체만) */}
+              <div className="flex items-center text-xs pr-3 border-r border-border/60">
                 <span className="px-2 py-1 rounded-md bg-muted/60 text-foreground/80">
                   전체 <span className="font-semibold ml-0.5">{summary.total}</span>
-                </span>
-                <span className="px-2 py-1 rounded-md bg-amber-50 text-amber-700 border border-amber-200">
-                  작성필요 <span className="font-semibold ml-0.5">{summary.draftNeeded}</span>
-                </span>
-                <span className="px-2 py-1 rounded-md bg-yellow-50 text-yellow-700 border border-yellow-200">
-                  발행대기 <span className="font-semibold ml-0.5">{summary.invoicePending}</span>
-                </span>
-                <span className="px-2 py-1 rounded-md bg-rose-50 text-rose-700 border border-rose-200">
-                  미입금 <span className="font-semibold ml-0.5">{summary.unpaid}</span>
                 </span>
               </div>
 
@@ -655,44 +1067,129 @@ export default function ProjectSpecsPage() {
                 </SelectContent>
               </Select>
 
-              {/* 입금 예정일 기준월 필터 */}
-              <Popover open={monthPickerOpen} onOpenChange={setMonthPickerOpen}>
+              {/* 입금 예정일 기준 시작월 */}
+              <Popover open={startPickerOpen} onOpenChange={setStartPickerOpen}>
                 <PopoverTrigger asChild>
-                  <Button variant="outline" size="sm" className="h-8 text-xs gap-1.5">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className={cn(
+                      "h-8 text-xs gap-1.5",
+                      filterStartMonth && "border-primary/40"
+                    )}
+                  >
                     <CalendarIcon className="h-3 w-3" />
-                    {monthKeyToLabel(filterStartMonth)} 이후
+                    {filterStartMonth ? monthKeyToLabel(filterStartMonth) : "시작월"}
                   </Button>
                 </PopoverTrigger>
                 <PopoverContent className="w-auto p-0" align="start">
                   <Calendar
                     mode="single"
-                    selected={new Date(`${filterStartMonth}-01`)}
+                    selected={filterStartMonth ? new Date(`${filterStartMonth}-01`) : undefined}
                     onSelect={(d) => {
                       if (d) {
-                        setFilterStartMonth(toMonthKey(d))
-                        setMonthPickerOpen(false)
+                        const newStart = toMonthKey(d)
+                        setFilterStartMonth(newStart)
+                        // 시작이 종료보다 뒤면 종료를 비움
+                        if (filterEndMonth && newStart > filterEndMonth) {
+                          setFilterEndMonth(null)
+                        }
+                        setStartPickerOpen(false)
                       }
                     }}
-                    defaultMonth={new Date(`${filterStartMonth}-01`)}
+                    defaultMonth={
+                      filterStartMonth ? new Date(`${filterStartMonth}-01`) : new Date()
+                    }
+                  />
+                  <div className="border-t p-2 flex justify-end">
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="h-7 text-xs"
+                      onClick={() => {
+                        setFilterStartMonth(null)
+                        setStartPickerOpen(false)
+                      }}
+                    >
+                      시작월 지우기
+                    </Button>
+                  </div>
+                </PopoverContent>
+              </Popover>
+
+              <span className="text-xs text-muted-foreground">~</span>
+
+              {/* 입금 예정일 기준 종료월 */}
+              <Popover open={endPickerOpen} onOpenChange={setEndPickerOpen}>
+                <PopoverTrigger asChild>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className={cn(
+                      "h-8 text-xs gap-1.5",
+                      filterEndMonth && "border-primary/40",
+                      !filterEndMonth && "text-muted-foreground"
+                    )}
+                  >
+                    <CalendarIcon className="h-3 w-3" />
+                    {filterEndMonth ? monthKeyToLabel(filterEndMonth) : "종료월 (없음)"}
+                  </Button>
+                </PopoverTrigger>
+                <PopoverContent className="w-auto p-0" align="start">
+                  <Calendar
+                    mode="single"
+                    selected={filterEndMonth ? new Date(`${filterEndMonth}-01`) : undefined}
+                    onSelect={(d) => {
+                      if (d) {
+                        const newEnd = toMonthKey(d)
+                        // 종료가 시작보다 앞이면 시작도 같이 이동
+                        if (filterStartMonth && newEnd < filterStartMonth) {
+                          setFilterStartMonth(newEnd)
+                        }
+                        setFilterEndMonth(newEnd)
+                        setEndPickerOpen(false)
+                      }
+                    }}
+                    defaultMonth={
+                      filterEndMonth
+                        ? new Date(`${filterEndMonth}-01`)
+                        : filterStartMonth
+                          ? new Date(`${filterStartMonth}-01`)
+                          : new Date()
+                    }
                   />
                   <div className="border-t p-2 flex items-center justify-between gap-2">
                     <span className="text-[11px] text-muted-foreground pl-1">
-                      선택한 달부터 미래 항목만 표시
+                      비우면 상한 없음
                     </span>
                     <Button
                       variant="ghost"
                       size="sm"
                       className="h-7 text-xs"
                       onClick={() => {
-                        setFilterStartMonth(currentMonthKey())
-                        setMonthPickerOpen(false)
+                        setFilterEndMonth(null)
+                        setEndPickerOpen(false)
                       }}
                     >
-                      이번 달로 초기화
+                      종료월 지우기
                     </Button>
                   </div>
                 </PopoverContent>
               </Popover>
+
+              {(filterStartMonth || filterEndMonth) && (
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="h-8 text-xs text-muted-foreground"
+                  onClick={() => {
+                    setFilterStartMonth(currentMonthKey())
+                    setFilterEndMonth(null)
+                  }}
+                >
+                  기본값
+                </Button>
+              )}
 
               <div className="relative flex-1 max-w-sm">
                 <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
@@ -1158,6 +1655,379 @@ export default function ProjectSpecsPage() {
               삭제
             </AlertDialogAction>
           </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* ──────────────────────────────────────────────────── */}
+      {/* 정기 프로젝트 갱신 모달                                */}
+      {/* ──────────────────────────────────────────────────── */}
+      <Dialog open={renewalOpen} onOpenChange={setRenewalOpen}>
+        <DialogContent className="!max-w-[1100px] max-h-[90vh] overflow-hidden flex flex-col">
+          <DialogHeader>
+            <div className="flex items-center justify-between gap-3">
+              <DialogTitle className="flex items-center gap-2">
+                <Repeat className="h-5 w-5 text-amber-600" />
+                정기 프로젝트 갱신
+              </DialogTitle>
+              {/* 대상 월 변경 */}
+              <Popover open={renewalMonthPickerOpen} onOpenChange={setRenewalMonthPickerOpen}>
+                <PopoverTrigger asChild>
+                  <Button variant="outline" size="sm" className="h-8 gap-1.5 mr-8">
+                    <CalendarIcon className="h-3.5 w-3.5" />
+                    <span className="text-sm font-semibold">{monthKeyToLabel(renewalTargetMonth)}</span>
+                    <span className="text-xs text-muted-foreground">분 생성</span>
+                  </Button>
+                </PopoverTrigger>
+                <PopoverContent className="w-auto p-0" align="end">
+                  <Calendar
+                    mode="single"
+                    selected={new Date(`${renewalTargetMonth}-01`)}
+                    onSelect={(d) => {
+                      if (d) {
+                        const next = toMonthKey(d)
+                        setRenewalMonthPickerOpen(false)
+                        openRenewalModal(next)
+                      }
+                    }}
+                    defaultMonth={new Date(`${renewalTargetMonth}-01`)}
+                  />
+                </PopoverContent>
+              </Popover>
+            </div>
+            <p className="text-xs text-muted-foreground mt-1">
+              정기 마스터 기본값이 채워져 있습니다.
+              값을 수정하면 우측에 <span className="text-blue-600 font-medium">이번만</span>/<span className="text-amber-600 font-medium">영구</span> 토글이 나타나요.
+              클릭하여 전환할 수 있습니다.
+            </p>
+          </DialogHeader>
+
+          <div className="flex-1 overflow-y-auto -mx-6 px-6">
+            {renewalLoading ? (
+              <div className="py-12 text-center text-sm text-muted-foreground">불러오는 중...</div>
+            ) : renewalRows.length === 0 ? (
+              <div className="py-12 text-center text-sm text-muted-foreground">
+                활성 정기 프로젝트가 없습니다. <br />
+                S5 계약완료 모달에서 [정기 프로젝트] 옵션을 체크하면 여기에 등록돼요.
+              </div>
+            ) : (
+              <Table className="text-xs">
+                <TableHeader>
+                  <TableRow className="[&>th]:text-center [&>th]:text-xs">
+                    <TableHead className="w-[40px]">포함</TableHead>
+                    <TableHead className="w-[180px] text-left">거래처</TableHead>
+                    <TableHead className="w-[200px] text-left">프로젝트명</TableHead>
+                    <TableHead className="w-[90px]">카테고리</TableHead>
+                    <TableHead className="w-[130px]">금액 (VAT 별도)</TableHead>
+                    <TableHead className="w-[80px]">매월 입금일</TableHead>
+                    <TableHead className="w-[90px]">담당자</TableHead>
+                    <TableHead className="w-[100px]">재무 담당자</TableHead>
+                    <TableHead className="w-[90px]"></TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {renewalRows.map((row, idx) => {
+                    const disabled = row.alreadyExists || row.permanentlyDisabled || row.excluded
+                    const draftAmountKey = `__renewal_${idx}`
+                    const amountStr =
+                      amountDraft[draftAmountKey] !== undefined
+                        ? amountDraft[draftAmountKey]
+                        : formatNumber(row.amount)
+                    return (
+                      <TableRow
+                        key={row.recurring_id}
+                        className={cn(
+                          row.alreadyExists && "opacity-50",
+                          row.permanentlyDisabled && "opacity-40 line-through",
+                          row.excluded && !row.permanentlyDisabled && !row.alreadyExists && "bg-muted/40"
+                        )}
+                      >
+                        <TableCell className="text-center">
+                          {row.alreadyExists ? (
+                            <Badge variant="outline" className="text-[10px] h-5 bg-green-50 text-green-700 border-green-200">
+                              생성됨
+                            </Badge>
+                          ) : row.permanentlyDisabled ? (
+                            <Badge variant="outline" className="text-[10px] h-5 bg-rose-50 text-rose-700 border-rose-200">
+                              영구 제외
+                            </Badge>
+                          ) : (
+                            <input
+                              type="checkbox"
+                              className="h-4 w-4 cursor-pointer accent-primary"
+                              checked={!row.excluded}
+                              onChange={(e) =>
+                                setRenewalRows((prev) =>
+                                  prev.map((r, i) =>
+                                    i === idx ? { ...r, excluded: !e.target.checked } : r
+                                  )
+                                )
+                              }
+                            />
+                          )}
+                        </TableCell>
+                        <TableCell className="text-xs font-medium">
+                          {row.account_company_name || "-"}
+                        </TableCell>
+                        <TableCell>
+                          <Input
+                            disabled={disabled}
+                            className="h-7 text-xs"
+                            value={row.project_name}
+                            onChange={(e) =>
+                              setRenewalRows((prev) =>
+                                prev.map((r, i) =>
+                                  i === idx ? { ...r, project_name: e.target.value } : r
+                                )
+                              )
+                            }
+                          />
+                        </TableCell>
+                        <TableCell>
+                          <Select
+                            disabled={disabled}
+                            value={row.category}
+                            onValueChange={(v) =>
+                              setRenewalRows((prev) =>
+                                prev.map((r, i) =>
+                                  i === idx ? { ...r, category: v as Category } : r
+                                )
+                              )
+                            }
+                          >
+                            <SelectTrigger className="h-7 text-xs">
+                              <SelectValue />
+                            </SelectTrigger>
+                            <SelectContent>
+                              {CATEGORIES.map((c) => (
+                                <SelectItem key={c} value={c}>
+                                  {c}
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                        </TableCell>
+                        <TableCell>
+                          <Input
+                            disabled={disabled}
+                            className="h-7 text-xs text-right"
+                            value={amountStr}
+                            onChange={(e) => {
+                              setAmountDraft((prev) => ({ ...prev, [draftAmountKey]: e.target.value }))
+                            }}
+                            onBlur={() => {
+                              const v = amountDraft[draftAmountKey]
+                              if (v === undefined) return
+                              const parsed = parseFormattedNumber(v)
+                              setAmountDraft((prev) => {
+                                const next = { ...prev }
+                                delete next[draftAmountKey]
+                                return next
+                              })
+                              setRenewalRows((prev) =>
+                                prev.map((r, i) =>
+                                  i === idx ? { ...r, amount: parsed } : r
+                                )
+                              )
+                            }}
+                          />
+                        </TableCell>
+                        <TableCell>
+                          <Input
+                            disabled={disabled}
+                            type="number"
+                            min={1}
+                            max={31}
+                            className="h-7 text-xs text-center"
+                            value={row.payment_day ?? ""}
+                            onChange={(e) => {
+                              const raw = e.target.value
+                              const n = raw ? Math.min(31, Math.max(1, parseInt(raw) || 0)) : null
+                              setRenewalRows((prev) =>
+                                prev.map((r, i) =>
+                                  i === idx ? { ...r, payment_day: n } : r
+                                )
+                              )
+                            }}
+                          />
+                        </TableCell>
+                        <TableCell>
+                          <Select
+                            disabled={disabled}
+                            value={row.assigned_to || "__none__"}
+                            onValueChange={(v) =>
+                              setRenewalRows((prev) =>
+                                prev.map((r, i) =>
+                                  i === idx ? { ...r, assigned_to: v === "__none__" ? null : v } : r
+                                )
+                              )
+                            }
+                          >
+                            <SelectTrigger className="h-7 text-xs">
+                              <SelectValue />
+                            </SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="__none__">미지정</SelectItem>
+                              {assignedToOptions.map((a) => (
+                                <SelectItem key={a} value={a}>
+                                  {a}
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                        </TableCell>
+                        <TableCell>
+                          <Select
+                            disabled={disabled}
+                            value={row.finance_assigned_to || "__none__"}
+                            onValueChange={(v) =>
+                              setRenewalRows((prev) =>
+                                prev.map((r, i) =>
+                                  i === idx ? { ...r, finance_assigned_to: v === "__none__" ? null : v } : r
+                                )
+                              )
+                            }
+                          >
+                            <SelectTrigger className="h-7 text-xs">
+                              <SelectValue />
+                            </SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="__none__">미지정</SelectItem>
+                              {financeAssignedToOptions.map((a) => (
+                                <SelectItem key={a} value={a}>
+                                  {a}
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                        </TableCell>
+                        {/* 변경 감지 → [이번 달만 / 영구] 토글 배지 + [×] 제외 */}
+                        <TableCell className="text-center">
+                          <div className="flex items-center gap-1 justify-center">
+                            {isRowChanged(row) && !disabled && (
+                              <button
+                                className={cn(
+                                  "text-[10px] px-1.5 py-0.5 rounded-full border font-medium whitespace-nowrap transition-colors cursor-pointer",
+                                  row.applyScope === "this_month"
+                                    ? "bg-blue-50 text-blue-700 border-blue-200 hover:bg-blue-100"
+                                    : "bg-amber-50 text-amber-700 border-amber-300 hover:bg-amber-100"
+                                )}
+                                onClick={() =>
+                                  setRenewalRows((prev) =>
+                                    prev.map((r, i) =>
+                                      i === idx
+                                        ? {
+                                            ...r,
+                                            applyScope:
+                                              r.applyScope === "this_month"
+                                                ? "permanent"
+                                                : "this_month",
+                                          }
+                                        : r
+                                    )
+                                  )
+                                }
+                                title="클릭하여 전환: 이번 달만 ↔ 영구 변경"
+                              >
+                                {row.applyScope === "this_month" ? "이번만" : "영구"}
+                              </button>
+                            )}
+                            {!row.alreadyExists && !row.permanentlyDisabled && (
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                className="h-6 w-6 text-muted-foreground hover:text-rose-600 hover:bg-rose-50"
+                                onClick={() => onRequestExclude(idx)}
+                                title="이 정기 프로젝트 제외"
+                              >
+                                <X className="h-3 w-3" />
+                              </Button>
+                            )}
+                          </div>
+                        </TableCell>
+                      </TableRow>
+                    )
+                  })}
+                </TableBody>
+              </Table>
+            )}
+          </div>
+
+          <DialogFooter className="border-t pt-3">
+            <div className="flex items-center justify-between w-full">
+              <span className="text-xs text-muted-foreground">
+                생성 예정:{" "}
+                <span className="font-semibold text-foreground">
+                  {renewalRows.filter((r) => !r.excluded && !r.alreadyExists).length}
+                </span>
+                건 / 전체 {renewalRows.length}건
+              </span>
+              <div className="flex gap-2">
+                <Button variant="outline" onClick={() => setRenewalOpen(false)} disabled={renewalRunning}>
+                  취소
+                </Button>
+                <Button
+                  onClick={runRenewal}
+                  disabled={
+                    renewalRunning ||
+                    renewalLoading ||
+                    renewalRows.filter((r) => !r.excluded && !r.alreadyExists).length === 0
+                  }
+                  className="gap-2"
+                >
+                  <RefreshCw className={cn("h-4 w-4", renewalRunning && "animate-spin")} />
+                  {renewalRunning
+                    ? "생성 중..."
+                    : `${monthKeyToLabel(renewalTargetMonth)}분 일괄 생성`}
+                </Button>
+              </div>
+            </div>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* 제외: 이번 달만 vs 영구 분기 다이얼로그 (Q5) */}
+      <AlertDialog
+        open={excludeChoice.open}
+        onOpenChange={(open) => !open && setExcludeChoice({ open: false, rowIndex: null })}
+      >
+        <AlertDialogContent className="!max-w-[380px]">
+          <button
+            className="absolute right-4 top-4 rounded-sm opacity-70 ring-offset-background transition-opacity hover:opacity-100"
+            onClick={() => setExcludeChoice({ open: false, rowIndex: null })}
+          >
+            <X className="h-4 w-4" />
+            <span className="sr-only">닫기</span>
+          </button>
+          <AlertDialogHeader>
+            <AlertDialogTitle>정기 프로젝트 제외</AlertDialogTitle>
+            <AlertDialogDescription>
+              {excludeChoice.rowIndex !== null && renewalRows[excludeChoice.rowIndex]
+                ? `"${renewalRows[excludeChoice.rowIndex].account_company_name} — ${renewalRows[excludeChoice.rowIndex].project_name}"`
+                : ""}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <div className="flex flex-col gap-2 pt-2">
+            <Button
+              variant="outline"
+              className="w-full h-auto py-3 flex flex-col items-start gap-1 border-2 hover:border-blue-300 hover:bg-blue-50"
+              onClick={applyExcludeThisMonth}
+            >
+              <span className="text-sm font-semibold text-blue-700">이번 달만 건너뛰기</span>
+              <span className="text-[11px] text-muted-foreground font-normal text-left">
+                다음 달 갱신에는 다시 후보로 표시됨
+              </span>
+            </Button>
+            <Button
+              variant="outline"
+              className="w-full h-auto py-3 flex flex-col items-start gap-1 border-2 hover:border-rose-400 hover:bg-rose-50"
+              onClick={applyExcludePermanent}
+            >
+              <span className="text-sm font-semibold text-rose-700">정기 목록에서 영구 제외</span>
+              <span className="text-[11px] text-muted-foreground font-normal text-left">
+                다음 달부터 후보에서 빠짐 (계약 종료 등)
+              </span>
+            </Button>
+          </div>
         </AlertDialogContent>
       </AlertDialog>
     </div>

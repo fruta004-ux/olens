@@ -387,6 +387,9 @@ function DealDetailPageClient({ dealId }: { dealId: string }) {
     work_start_date: "",
     notes: "-",
     reason_ids: [] as string[],
+    // 정기 프로젝트 여부 — 체크 시 매월 갱신 후보에 등록됨
+    is_recurring: false,
+    recurring_payment_day: "" as string, // 매월 며칠 (1~31)
   })
   const [contractCopied, setContractCopied] = useState(false)
   const [contractReasonOptions, setContractReasonOptions] = useState<{ id: string; value: string }[]>([])
@@ -651,6 +654,9 @@ function DealDetailPageClient({ dealId }: { dealId: string }) {
     } else if (newStage === "S5_complete") {
       setPendingStageChange(newStage)
       const today = new Date().toISOString().split("T")[0].replace(/-/g, ".")
+      const initialCost = dealData.amount_range ? `${dealData.amount_range} ( vat별도 )` : ""
+      // 견적/금액 텍스트가 "월 ..." 패턴이면 정기 프로젝트로 디폴트 ON
+      const looksMonthly = /(^|\s)월\s|매월|월\s*대행/.test(`${initialCost}`)
       setContractFormData({
         target: dealData.company || "플루타",
         name: dealData.account?.company_name || dealData.deal_name || "",
@@ -658,12 +664,14 @@ function DealDetailPageClient({ dealId }: { dealId: string }) {
         needs: dealData.needs_summary?.replace(/,/g, ", ") || "",
         inflow_source: dealData.inflow_source || "",
         conditions: "",
-        cost: dealData.amount_range ? `${dealData.amount_range} ( vat별도 )` : "",
+        cost: initialCost,
         invoice_date: "",
         contract_date: today,
         work_start_date: "",
         notes: "-",
         reason_ids: [],
+        is_recurring: looksMonthly,
+        recurring_payment_day: "",
       })
       setShowContractDialog(true)
     } else {
@@ -854,7 +862,16 @@ function DealDetailPageClient({ dealId }: { dealId: string }) {
     }
   }
 
+  // 매월 입금일 + (선택) 기준 연/월로 ISO 날짜 계산. 그 달에 해당 일자가 없으면 말일로 보정.
+  const buildMonthlyDueDate = (year: number, month1to12: number, day: number) => {
+    const lastDay = new Date(year, month1to12, 0).getDate() // month는 1-based
+    const safeDay = Math.min(Math.max(1, day), lastDay)
+    return `${year}-${String(month1to12).padStart(2, "0")}-${String(safeDay).padStart(2, "0")}`
+  }
+
   // 프로젝트 명세서 요청서 자동 생성 (S5 계약완료 시점에 1차 연동)
+  // - 정기 프로젝트면: recurring_projects 마스터 + 첫 달치 project_specs 행 1개 생성
+  // - 단건이면: 기존처럼 conditions 파싱 결과대로 N개 행 생성
   const createProjectSpecsFromContract = async (
     clientId: string,
     contractId: string | null,
@@ -862,13 +879,103 @@ function DealDetailPageClient({ dealId }: { dealId: string }) {
     needsSummary: string
   ): Promise<{ ok: boolean; tableMissing?: boolean }> => {
     try {
-      const parsed = parseContractConditions(info.conditions || "", info.cost || "")
       const category = inferProjectCategory(needsSummary || info.needs || "")
       const dueDate =
         normalizeDateString(info.invoice_date) ||
         normalizeDateString(info.contract_date) ||
         null
 
+      // ─── 정기 프로젝트 경로 ───────────────────────────────
+      if (info.is_recurring) {
+        const parsed = parseContractConditions(info.conditions || "", info.cost || "")
+        // 월 대행이면 첫 행이 월 대행비, 아니면 fallback. 어느 쪽이든 그 amount를 월 금액으로 사용
+        const monthlyAmount = parsed[0]?.amount ?? null
+
+        const paymentDay = parseInt(info.recurring_payment_day || "0", 10) || null
+        const today = new Date()
+        const startMonthKey = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, "0")}`
+
+        // 첫 달치 입금 예정일: 입력된 일자 기준, 없으면 contract_date의 일자
+        let firstDueDate: string | null = null
+        if (paymentDay) {
+          firstDueDate = buildMonthlyDueDate(today.getFullYear(), today.getMonth() + 1, paymentDay)
+        } else {
+          firstDueDate = dueDate
+        }
+
+        // 1) 마스터 생성
+        const { data: master, error: masterErr } = await supabase
+          .from("recurring_projects")
+          .insert({
+            client_id: clientId,
+            account_id: dealData.account_id || null,
+            source_deal_id: resolvedId,
+            category,
+            project_name: info.name || dealData.deal_name || "",
+            monthly_amount: monthlyAmount,
+            payment_day: paymentDay,
+            cost_type: "월 대행비",
+            assigned_to: dealData.assigned_to || null,
+            finance_assigned_to: null,
+            notes: null,
+            is_active: true,
+            start_month: startMonthKey,
+          })
+          .select("id")
+          .single()
+
+        if (masterErr) {
+          const detail = {
+            message: masterErr.message,
+            code: (masterErr as any).code,
+          }
+          console.error("[v0] recurring_projects 생성 오류:", detail)
+          const isMissing =
+            detail.code === "PGRST205" ||
+            detail.code === "42P01" ||
+            /relation .* does not exist/i.test(detail.message || "") ||
+            /Could not find the table/i.test(detail.message || "")
+          return { ok: false, tableMissing: isMissing }
+        }
+
+        // 2) 첫 달치 project_specs 행 생성
+        const { error: specErr } = await supabase.from("project_specs").insert({
+          client_id: clientId,
+          account_id: dealData.account_id || null,
+          linked_contract_id: contractId,
+          linked_deal_id: resolvedId,
+          recurring_project_id: master?.id || null,
+          spec_month: startMonthKey,
+          category,
+          project_name: info.name || dealData.deal_name || "",
+          cost_type: "월 대행비",
+          amount: monthlyAmount,
+          payment_due_date: firstDueDate,
+          progress_status: "작성필요",
+          invoice_status: "발행필요",
+          invoice_issue_date: null,
+          notes: `자동 생성: 정기 ${monthKeyToLabelKor(startMonthKey)} (1회차)`,
+          assigned_to: dealData.assigned_to || null,
+        })
+
+        if (specErr) {
+          const detail = {
+            message: specErr.message,
+            code: (specErr as any).code,
+          }
+          console.error("[v0] project_specs(정기) 생성 오류:", detail)
+          const isMissing =
+            detail.code === "PGRST205" ||
+            detail.code === "42P01" ||
+            /relation .* does not exist/i.test(detail.message || "") ||
+            /Could not find the table/i.test(detail.message || "")
+          return { ok: false, tableMissing: isMissing }
+        }
+        return { ok: true }
+      }
+
+      // ─── 단건 경로 (기존 동작 유지) ──────────────────────
+      const parsed = parseContractConditions(info.conditions || "", info.cost || "")
       const rows = parsed.map((row) => ({
         client_id: clientId,
         account_id: dealData.account_id || null,
@@ -909,6 +1016,11 @@ function DealDetailPageClient({ dealId }: { dealId: string }) {
       console.error("[v0] project_specs 생성 예외:", err?.message || err)
       return { ok: false }
     }
+  }
+
+  const monthKeyToLabelKor = (key: string) => {
+    const [y, m] = key.split("-")
+    return `${y}년 ${Number(m)}월`
   }
 
   // 가장 최근 client_contracts 행 ID 조회 (linkToExistingClient에서 방금 생성한 것)
@@ -956,9 +1068,12 @@ function DealDetailPageClient({ dealId }: { dealId: string }) {
         if (result.tableMissing) {
           alert(
             "[안내] DB 마이그레이션이 아직 적용되지 않아 '프로젝트 명세서 요청서'를 자동 생성하지 못했습니다.\n\n" +
-              "Supabase SQL Editor에서 아래 두 파일을 실행한 뒤 다시 S5 계약완료를 눌러주세요:\n" +
+              "Supabase SQL Editor에서 아래 파일들을 순서대로 실행한 뒤 다시 S5 계약완료를 눌러주세요:\n" +
               "  • scripts/043_project_specs.sql\n" +
-              "  • scripts/044_account_business_fields.sql"
+              "  • scripts/044_account_business_fields.sql\n" +
+              "  • scripts/045_account_brand_name.sql\n" +
+              "  • scripts/046_project_specs_finance_assignee.sql\n" +
+              "  • scripts/047_recurring_projects.sql (정기 프로젝트 사용 시 필수)"
           )
         }
 
@@ -2076,7 +2191,12 @@ function DealDetailPageClient({ dealId }: { dealId: string }) {
             size="sm"
             className="w-full mt-2 text-xs"
             onClick={() => {
-              setContractFormData({ ...dealData.contract_info, reason_ids: dealData.contract_info.reason_ids || [] })
+              setContractFormData({
+                ...dealData.contract_info,
+                reason_ids: dealData.contract_info.reason_ids || [],
+                is_recurring: !!dealData.contract_info.is_recurring,
+                recurring_payment_day: dealData.contract_info.recurring_payment_day || "",
+              })
               setShowContractDialog(true)
             }}
           >
@@ -3699,6 +3819,62 @@ function DealDetailPageClient({ dealId }: { dealId: string }) {
                 value={contractFormData.notes || ""}
                 onChange={(e) => setContractFormData(prev => ({ ...prev, notes: e.target.value }))}
               />
+            </div>
+
+            {/* 정기 프로젝트 옵션 — 매월 자동 갱신될 월 대행 등 */}
+            <div className="pt-1 rounded-lg border border-dashed border-amber-300 bg-amber-50/50 p-2.5 space-y-2">
+              <label className="flex items-start gap-2 cursor-pointer select-none">
+                <input
+                  type="checkbox"
+                  className="mt-0.5 h-4 w-4 accent-amber-600 cursor-pointer"
+                  checked={!!contractFormData.is_recurring}
+                  onChange={(e) =>
+                    setContractFormData((prev) => ({
+                      ...prev,
+                      is_recurring: e.target.checked,
+                      recurring_payment_day: e.target.checked
+                        ? prev.recurring_payment_day || ""
+                        : "",
+                    }))
+                  }
+                />
+                <div className="flex flex-col">
+                  <span className="text-xs font-semibold text-amber-900">
+                    정기 프로젝트 (월 대행)
+                  </span>
+                  <span className="text-[11px] text-amber-700/80 leading-snug">
+                    체크하면 매월 [정기 프로젝트 갱신] 후보로 등록되어, 한 번 클릭으로 그 달치 명세서가 생성됩니다.
+                  </span>
+                </div>
+              </label>
+
+              {contractFormData.is_recurring && (
+                <div className="flex items-center gap-2 pl-6">
+                  <label className="text-xs font-semibold text-amber-900 shrink-0">
+                    매월
+                  </label>
+                  <Input
+                    type="number"
+                    min={1}
+                    max={31}
+                    className="w-16 h-7 text-xs text-center"
+                    value={contractFormData.recurring_payment_day || ""}
+                    onChange={(e) => {
+                      const v = e.target.value
+                      const n = v ? Math.min(31, Math.max(1, parseInt(v) || 0)) : ""
+                      setContractFormData((prev) => ({
+                        ...prev,
+                        recurring_payment_day: n ? String(n) : "",
+                      }))
+                    }}
+                    placeholder="일"
+                  />
+                  <span className="text-xs text-amber-900">일 입금 예정</span>
+                  <span className="text-[10px] text-amber-700/70 ml-auto">
+                    * 그 달에 해당 일자가 없으면 말일로 자동 보정
+                  </span>
+                </div>
+              )}
             </div>
 
             <div className="pt-1">
