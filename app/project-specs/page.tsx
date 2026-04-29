@@ -12,7 +12,6 @@ import {
   Trash2,
   CalendarIcon,
   ExternalLink,
-  StickyNote,
   Filter,
   RefreshCw,
   X,
@@ -169,6 +168,25 @@ const monthKeyToLabel = (key: string) => {
   return `${y}년 ${Number(m)}월`
 }
 
+// 날짜 헬퍼: "yyyy-MM-dd"
+const toDateKey = (date: Date) =>
+  `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`
+
+const firstDayOfCurrentMonth = () => {
+  const now = new Date()
+  return toDateKey(new Date(now.getFullYear(), now.getMonth(), 1))
+}
+
+const lastDayOfCurrentMonth = () => {
+  const now = new Date()
+  return toDateKey(new Date(now.getFullYear(), now.getMonth() + 1, 0))
+}
+
+const dateKeyToLabel = (key: string) => {
+  const [y, m, d] = key.split("-")
+  return `${y}.${Number(m)}.${Number(d)}`
+}
+
 const CATEGORIES: Category[] = ["마케팅", "홈페이지", "개발", "그 외"]
 const COST_TYPES: CostType[] = ["계약금", "중도금", "완납금", "일괄 완납금", "월 대행비"]
 const PROGRESS_STATUSES: ProgressStatus[] = ["작성대기", "작성필요", "작성완료"]
@@ -200,6 +218,41 @@ const INVOICE_COLORS: Record<InvoiceStatus, string> = {
   "발행대기": "bg-yellow-50 text-yellow-700 border-yellow-200",
   "발행완료": "bg-green-50 text-green-700 border-green-200",
   "카드결제": "bg-blue-50 text-blue-700 border-blue-200",
+}
+
+const PROGRESS_LABELS: Record<ProgressStatus, string> = {
+  "작성대기": "대기",
+  "작성필요": "필요",
+  "작성완료": "완료",
+}
+
+const INVOICE_LABELS: Record<InvoiceStatus, string> = {
+  "발행필요": "필요",
+  "발행대기": "대기",
+  "발행완료": "완료",
+  "카드결제": "카드",
+}
+
+const ASSIGNEE_PALETTE = [
+  "bg-blue-50 text-blue-700",
+  "bg-emerald-50 text-emerald-700",
+  "bg-amber-50 text-amber-700",
+  "bg-rose-50 text-rose-700",
+  "bg-violet-50 text-violet-700",
+  "bg-cyan-50 text-cyan-700",
+  "bg-orange-50 text-orange-700",
+  "bg-teal-50 text-teal-700",
+  "bg-pink-50 text-pink-700",
+  "bg-indigo-50 text-indigo-700",
+]
+const assigneeColorCache: Record<string, string> = {}
+let assigneeColorIdx = 0
+const getAssigneeColor = (name: string) => {
+  if (!assigneeColorCache[name]) {
+    assigneeColorCache[name] = ASSIGNEE_PALETTE[assigneeColorIdx % ASSIGNEE_PALETTE.length]
+    assigneeColorIdx++
+  }
+  return assigneeColorCache[name]
 }
 
 const formatNumber = (n: number | null | undefined) => {
@@ -242,12 +295,10 @@ export default function ProjectSpecsPage() {
   const [filterFinanceAssigned, setFilterFinanceAssigned] = useState<string>("전체")
   const [searchQuery, setSearchQuery] = useState("")
   // 입금 예정일 기준월 필터 (yyyy-MM)
-  // 기본: 시작월 = 현재 달, 종료월 = 없음(상한 무제한)
-  // - 시작만 있으면: 시작월 이후 전부
-  // - 시작+종료 둘 다: 그 사이 (포함)
-  // - 둘 다 없으면: 전체
-  const [filterStartMonth, setFilterStartMonth] = useState<string | null>(currentMonthKey())
-  const [filterEndMonth, setFilterEndMonth] = useState<string | null>(null)
+  // 기본: 시작일 = 이번 달 1일, 종료일 = 이번 달 말일
+  // 날짜 기반 필터 ("yyyy-MM-dd")
+  const [filterStartDate, setFilterStartDate] = useState<string | null>(firstDayOfCurrentMonth())
+  const [filterEndDate, setFilterEndDate] = useState<string | null>(lastDayOfCurrentMonth())
   const [startPickerOpen, setStartPickerOpen] = useState(false)
   const [endPickerOpen, setEndPickerOpen] = useState(false)
 
@@ -457,11 +508,11 @@ export default function ProjectSpecsPage() {
       )
         return false
 
-      // 월 범위 필터: 입금 예정일이 있는 행만 비교 (없으면 항상 표시 — 새 행 등 작성 중 항목 보호)
+      // 날짜 범위 필터: 입금 예정일이 있는 행만 비교 (없으면 항상 표시 — 새 행 등 작성 중 항목 보호)
       if (s.payment_due_date) {
-        const itemMonth = toMonthKey(s.payment_due_date)
-        if (filterStartMonth && itemMonth < filterStartMonth) return false
-        if (filterEndMonth && itemMonth > filterEndMonth) return false
+        const itemDate = s.payment_due_date
+        if (filterStartDate && itemDate < filterStartDate) return false
+        if (filterEndDate && itemDate > filterEndDate) return false
       }
 
       if (searchQuery) {
@@ -479,8 +530,8 @@ export default function ProjectSpecsPage() {
     filterInvoice,
     filterAssigned,
     filterFinanceAssigned,
-    filterStartMonth,
-    filterEndMonth,
+    filterStartDate,
+    filterEndDate,
     searchQuery,
   ])
 
@@ -1022,7 +1073,7 @@ export default function ProjectSpecsPage() {
                   <SelectItem value="전체">진행상황 전체</SelectItem>
                   {PROGRESS_STATUSES.map((s) => (
                     <SelectItem key={s} value={s}>
-                      {s}
+                      {PROGRESS_LABELS[s]}
                     </SelectItem>
                   ))}
                 </SelectContent>
@@ -1035,7 +1086,7 @@ export default function ProjectSpecsPage() {
                   <SelectItem value="전체">계산서 전체</SelectItem>
                   {INVOICE_STATUSES.map((s) => (
                     <SelectItem key={s} value={s}>
-                      {s}
+                      {INVOICE_LABELS[s]}
                     </SelectItem>
                   ))}
                 </SelectContent>
@@ -1067,38 +1118,37 @@ export default function ProjectSpecsPage() {
                 </SelectContent>
               </Select>
 
-              {/* 입금 예정일 기준 시작월 */}
+              {/* 입금 예정일 기준 시작일 */}
               <Popover open={startPickerOpen} onOpenChange={setStartPickerOpen}>
                 <PopoverTrigger asChild>
                   <Button
                     variant="outline"
                     size="sm"
                     className={cn(
-                      "h-8 text-xs gap-1.5",
-                      filterStartMonth && "border-primary/40"
+                      "h-8 text-xs gap-1.5 min-w-[120px] justify-start",
+                      filterStartDate && "border-primary/40"
                     )}
                   >
-                    <CalendarIcon className="h-3 w-3" />
-                    {filterStartMonth ? monthKeyToLabel(filterStartMonth) : "시작월"}
+                    <CalendarIcon className="h-3 w-3 shrink-0" />
+                    {filterStartDate ? dateKeyToLabel(filterStartDate) : "시작일"}
                   </Button>
                 </PopoverTrigger>
                 <PopoverContent className="w-auto p-0" align="start">
                   <Calendar
                     mode="single"
-                    selected={filterStartMonth ? new Date(`${filterStartMonth}-01`) : undefined}
+                    selected={filterStartDate ? new Date(filterStartDate + "T00:00:00") : undefined}
                     onSelect={(d) => {
                       if (d) {
-                        const newStart = toMonthKey(d)
-                        setFilterStartMonth(newStart)
-                        // 시작이 종료보다 뒤면 종료를 비움
-                        if (filterEndMonth && newStart > filterEndMonth) {
-                          setFilterEndMonth(null)
+                        const newStart = toDateKey(d)
+                        setFilterStartDate(newStart)
+                        if (filterEndDate && newStart > filterEndDate) {
+                          setFilterEndDate(null)
                         }
-                        setStartPickerOpen(false)
                       }
+                      setStartPickerOpen(false)
                     }}
                     defaultMonth={
-                      filterStartMonth ? new Date(`${filterStartMonth}-01`) : new Date()
+                      filterStartDate ? new Date(filterStartDate + "T00:00:00") : new Date()
                     }
                   />
                   <div className="border-t p-2 flex justify-end">
@@ -1107,11 +1157,11 @@ export default function ProjectSpecsPage() {
                       size="sm"
                       className="h-7 text-xs"
                       onClick={() => {
-                        setFilterStartMonth(null)
+                        setFilterStartDate(null)
                         setStartPickerOpen(false)
                       }}
                     >
-                      시작월 지우기
+                      시작일 지우기
                     </Button>
                   </div>
                 </PopoverContent>
@@ -1119,42 +1169,41 @@ export default function ProjectSpecsPage() {
 
               <span className="text-xs text-muted-foreground">~</span>
 
-              {/* 입금 예정일 기준 종료월 */}
+              {/* 입금 예정일 기준 종료일 */}
               <Popover open={endPickerOpen} onOpenChange={setEndPickerOpen}>
                 <PopoverTrigger asChild>
                   <Button
                     variant="outline"
                     size="sm"
                     className={cn(
-                      "h-8 text-xs gap-1.5",
-                      filterEndMonth && "border-primary/40",
-                      !filterEndMonth && "text-muted-foreground"
+                      "h-8 text-xs gap-1.5 min-w-[120px] justify-start",
+                      filterEndDate && "border-primary/40",
+                      !filterEndDate && "text-muted-foreground"
                     )}
                   >
-                    <CalendarIcon className="h-3 w-3" />
-                    {filterEndMonth ? monthKeyToLabel(filterEndMonth) : "종료월 (없음)"}
+                    <CalendarIcon className="h-3 w-3 shrink-0" />
+                    {filterEndDate ? dateKeyToLabel(filterEndDate) : "종료일 (없음)"}
                   </Button>
                 </PopoverTrigger>
                 <PopoverContent className="w-auto p-0" align="start">
                   <Calendar
                     mode="single"
-                    selected={filterEndMonth ? new Date(`${filterEndMonth}-01`) : undefined}
+                    selected={filterEndDate ? new Date(filterEndDate + "T00:00:00") : undefined}
                     onSelect={(d) => {
                       if (d) {
-                        const newEnd = toMonthKey(d)
-                        // 종료가 시작보다 앞이면 시작도 같이 이동
-                        if (filterStartMonth && newEnd < filterStartMonth) {
-                          setFilterStartMonth(newEnd)
+                        const newEnd = toDateKey(d)
+                        if (filterStartDate && newEnd < filterStartDate) {
+                          setFilterStartDate(newEnd)
                         }
-                        setFilterEndMonth(newEnd)
-                        setEndPickerOpen(false)
+                        setFilterEndDate(newEnd)
                       }
+                      setEndPickerOpen(false)
                     }}
                     defaultMonth={
-                      filterEndMonth
-                        ? new Date(`${filterEndMonth}-01`)
-                        : filterStartMonth
-                          ? new Date(`${filterStartMonth}-01`)
+                      filterEndDate
+                        ? new Date(filterEndDate + "T00:00:00")
+                        : filterStartDate
+                          ? new Date(filterStartDate + "T00:00:00")
                           : new Date()
                     }
                   />
@@ -1167,36 +1216,36 @@ export default function ProjectSpecsPage() {
                       size="sm"
                       className="h-7 text-xs"
                       onClick={() => {
-                        setFilterEndMonth(null)
+                        setFilterEndDate(null)
                         setEndPickerOpen(false)
                       }}
                     >
-                      종료월 지우기
+                      종료일 지우기
                     </Button>
                   </div>
                 </PopoverContent>
               </Popover>
 
-              {(filterStartMonth || filterEndMonth) && (
+              {(filterStartDate || filterEndDate) && (
                 <Button
                   variant="ghost"
                   size="sm"
                   className="h-8 text-xs text-muted-foreground"
                   onClick={() => {
-                    setFilterStartMonth(currentMonthKey())
-                    setFilterEndMonth(null)
+                    setFilterStartDate(firstDayOfCurrentMonth())
+                    setFilterEndDate(lastDayOfCurrentMonth())
                   }}
                 >
                   기본값
                 </Button>
               )}
 
-              <div className="relative flex-1 max-w-sm">
+              <div className="relative flex-1 max-w-[200px]">
                 <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
                 <Input
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
-                  placeholder="프로젝트명 / 거래처명 검색..."
+                  placeholder="검색..."
                   className="pl-9 h-8 text-xs"
                 />
               </div>
@@ -1251,9 +1300,9 @@ export default function ProjectSpecsPage() {
                 <TableHeader>
                   <TableRow className="bg-muted/40 [&>th]:text-center">
                     <TableHead className="w-[40px]">순번</TableHead>
+                    <TableHead className="w-[70px]">소속월</TableHead>
                     <TableHead className="w-[80px]">카테고리</TableHead>
-                    {/* 프로젝트명: 좁힌 컬럼들에서 절약한 80px만큼 추가 확장 (210 → 290) */}
-                    <TableHead className="w-[290px] min-w-[290px]">프로젝트명</TableHead>
+                    <TableHead className="w-[220px] min-w-[220px]">프로젝트명</TableHead>
                     <TableHead className="w-[160px]">인포 (거래처)</TableHead>
                     <TableHead className="w-[70px]">담당자</TableHead>
                     <TableHead className="w-[100px]">비용 종류</TableHead>
@@ -1270,7 +1319,7 @@ export default function ProjectSpecsPage() {
                 <TableBody>
                   {filteredSpecs.length === 0 ? (
                     <TableRow>
-                      <TableCell colSpan={14} className="text-center py-12 text-muted-foreground">
+                      <TableCell colSpan={15} className="text-center py-12 text-muted-foreground">
                         명세서 행이 없습니다. S5 계약완료 시 자동 생성되거나, [행 추가] 버튼으로 추가할 수 있어요.
                       </TableCell>
                     </TableRow>
@@ -1286,6 +1335,19 @@ export default function ProjectSpecsPage() {
                         <TableRow key={spec.id} className="hover:bg-muted/20">
                           <TableCell className="text-center text-muted-foreground">
                             {idx + 1}
+                          </TableCell>
+
+                          {/* 소속월 */}
+                          <TableCell className="text-center">
+                            <span className="text-[11px] text-muted-foreground whitespace-nowrap">
+                              {(() => {
+                                const src = spec.spec_month
+                                  || (spec.payment_due_date ? spec.payment_due_date.slice(0, 7) : null)
+                                  || spec.created_at.slice(0, 7)
+                                const [y, m] = src.split("-")
+                                return `${y.slice(2)}년 ${Number(m)}월`
+                              })()}
+                            </span>
                           </TableCell>
 
                           {/* 카테고리 */}
@@ -1334,13 +1396,13 @@ export default function ProjectSpecsPage() {
                               spec.client_id_resolved ? (
                                 <Link
                                   href={`/clients/${spec.client_id_resolved}?tab=info`}
-                                  className="text-primary hover:underline inline-flex items-center gap-1"
+                                  className="text-gray-700 hover:text-gray-900 hover:underline inline-flex items-center gap-1"
                                 >
                                   {spec.account_company_name}
                                   <ExternalLink className="h-3 w-3" />
                                 </Link>
                               ) : (
-                                <span>{spec.account_company_name}</span>
+                                <span className="text-gray-700">{spec.account_company_name}</span>
                               )
                             ) : (
                               <span className="text-muted-foreground">-</span>
@@ -1361,7 +1423,7 @@ export default function ProjectSpecsPage() {
                                 className={cn(
                                   "h-7 text-xs border-0 focus:ring-1 px-2",
                                   spec.assigned_to
-                                    ? "bg-blue-50 text-blue-700"
+                                    ? getAssigneeColor(spec.assigned_to)
                                     : "bg-muted/40 text-muted-foreground"
                                 )}
                               >
@@ -1452,7 +1514,7 @@ export default function ProjectSpecsPage() {
                               <SelectContent>
                                 {PROGRESS_STATUSES.map((s) => (
                                   <SelectItem key={s} value={s} className="text-xs">
-                                    {s}
+                                    {PROGRESS_LABELS[s]}
                                   </SelectItem>
                                 ))}
                               </SelectContent>
@@ -1486,7 +1548,7 @@ export default function ProjectSpecsPage() {
                               <SelectContent>
                                 {INVOICE_STATUSES.map((s) => (
                                   <SelectItem key={s} value={s} className="text-xs">
-                                    {s}
+                                    {INVOICE_LABELS[s]}
                                   </SelectItem>
                                 ))}
                               </SelectContent>
@@ -1507,7 +1569,7 @@ export default function ProjectSpecsPage() {
                                 className={cn(
                                   "h-7 text-xs border-0 focus:ring-1 px-2",
                                   spec.finance_assigned_to
-                                    ? "bg-violet-50 text-violet-700"
+                                    ? getAssigneeColor(spec.finance_assigned_to)
                                     : "bg-muted/40 text-muted-foreground"
                                 )}
                               >
@@ -1534,12 +1596,11 @@ export default function ProjectSpecsPage() {
                                   variant="ghost"
                                   size="sm"
                                   className={cn(
-                                    "h-7 w-full justify-center px-2 text-xs",
-                                    spec.notes ? "text-foreground" : "text-muted-foreground"
+                                    "h-7 w-full justify-center px-2 text-xs font-semibold",
+                                    spec.notes ? "text-red-500 hover:text-red-600" : "text-gray-300 hover:text-gray-400"
                                   )}
                                 >
-                                  <StickyNote className="h-3.5 w-3.5 mr-1" />
-                                  {spec.notes ? "있음" : "메모"}
+                                  {spec.notes ? "O" : "X"}
                                 </Button>
                               </PopoverTrigger>
                               <PopoverContent className="w-80 p-3" align="end">
