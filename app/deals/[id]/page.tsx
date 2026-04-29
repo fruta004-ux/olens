@@ -390,6 +390,7 @@ function DealDetailPageClient({ dealId }: { dealId: string }) {
     // 정기 프로젝트 여부 — 체크 시 매월 갱신 후보에 등록됨
     is_recurring: false,
     recurring_payment_day: "" as string, // 매월 며칠 (1~31)
+    recurring_monthly_amount: "" as string, // 월 금액 (콤마 포함 문자열)
   })
   const [contractCopied, setContractCopied] = useState(false)
   const [contractReasonOptions, setContractReasonOptions] = useState<{ id: string; value: string }[]>([])
@@ -655,8 +656,9 @@ function DealDetailPageClient({ dealId }: { dealId: string }) {
       setPendingStageChange(newStage)
       const today = new Date().toISOString().split("T")[0].replace(/-/g, ".")
       const initialCost = dealData.amount_range ? `${dealData.amount_range} ( vat별도 )` : ""
-      // 견적/금액 텍스트가 "월 ..." 패턴이면 정기 프로젝트로 디폴트 ON
-      const looksMonthly = /(^|\s)월\s|매월|월\s*대행/.test(`${initialCost}`)
+      // deal_type이 recurring이거나 금액 텍스트가 "월 ..." 패턴이면 정기 프로젝트로 디폴트 ON
+      const isRecurringDeal = dealData.deal_type === "recurring"
+      const looksMonthly = isRecurringDeal || /(^|\s)월\s|매월|월\s*대행/.test(`${initialCost}`)
       setContractFormData({
         target: dealData.company || "플루타",
         name: dealData.account?.company_name || dealData.deal_name || "",
@@ -672,6 +674,7 @@ function DealDetailPageClient({ dealId }: { dealId: string }) {
         reason_ids: [],
         is_recurring: looksMonthly,
         recurring_payment_day: "",
+        recurring_monthly_amount: dealData.monthly_amount || "",
       })
       setShowContractDialog(true)
     } else {
@@ -887,9 +890,11 @@ function DealDetailPageClient({ dealId }: { dealId: string }) {
 
       // ─── 정기 프로젝트 경로 ───────────────────────────────
       if (info.is_recurring) {
+        // 월 금액: 사용자가 입력한 recurring_monthly_amount 우선, 없으면 cost 파싱
+        const rawRecurring = (info.recurring_monthly_amount || "").replace(/[^0-9]/g, "")
+        const recurringAmount = rawRecurring ? Number(rawRecurring) : null
         const parsed = parseContractConditions(info.conditions || "", info.cost || "")
-        // 월 대행이면 첫 행이 월 대행비, 아니면 fallback. 어느 쪽이든 그 amount를 월 금액으로 사용
-        const monthlyAmount = parsed[0]?.amount ?? null
+        const monthlyAmount = recurringAmount ?? parsed[0]?.amount ?? null
 
         const paymentDay = parseInt(info.recurring_payment_day || "0", 10) || null
         const today = new Date()
@@ -2196,6 +2201,7 @@ function DealDetailPageClient({ dealId }: { dealId: string }) {
                 reason_ids: dealData.contract_info.reason_ids || [],
                 is_recurring: !!dealData.contract_info.is_recurring,
                 recurring_payment_day: dealData.contract_info.recurring_payment_day || "",
+                recurring_monthly_amount: dealData.contract_info.recurring_monthly_amount || dealData.monthly_amount || "",
               })
               setShowContractDialog(true)
             }}
@@ -3821,38 +3827,49 @@ function DealDetailPageClient({ dealId }: { dealId: string }) {
               />
             </div>
 
-            {/* 정기 프로젝트 옵션 — 매월 자동 갱신될 월 대행 등 */}
-            <div className="pt-1 rounded-lg border border-dashed border-amber-300 bg-amber-50/50 p-2.5 space-y-2">
-              <label className="flex items-start gap-2 cursor-pointer select-none">
+            {/* 정기 프로젝트 옵션 */}
+            <div className={cn(
+              "rounded-lg border p-3 transition-colors",
+              contractFormData.is_recurring
+                ? "border-amber-300 bg-amber-50/60"
+                : "border-border bg-muted/30"
+            )}>
+              <label className="flex items-center gap-2.5 cursor-pointer select-none">
                 <input
                   type="checkbox"
-                  className="mt-0.5 h-4 w-4 accent-amber-600 cursor-pointer"
+                  className="h-4 w-4 accent-amber-600 cursor-pointer shrink-0"
                   checked={!!contractFormData.is_recurring}
                   onChange={(e) =>
                     setContractFormData((prev) => ({
                       ...prev,
                       is_recurring: e.target.checked,
-                      recurring_payment_day: e.target.checked
-                        ? prev.recurring_payment_day || ""
+                      recurring_payment_day: e.target.checked ? prev.recurring_payment_day || "" : "",
+                      recurring_monthly_amount: e.target.checked
+                        ? prev.recurring_monthly_amount || dealData.monthly_amount || ""
                         : "",
                     }))
                   }
                 />
-                <div className="flex flex-col">
-                  <span className="text-xs font-semibold text-amber-900">
-                    정기 프로젝트 (월 대행)
-                  </span>
-                  <span className="text-[11px] text-amber-700/80 leading-snug">
-                    체크하면 매월 [정기 프로젝트 갱신] 후보로 등록되어, 한 번 클릭으로 그 달치 명세서가 생성됩니다.
-                  </span>
-                </div>
+                <span className="text-xs font-semibold">정기 프로젝트 (월 대행)</span>
               </label>
 
               {contractFormData.is_recurring && (
-                <div className="flex items-center gap-2 pl-6">
-                  <label className="text-xs font-semibold text-amber-900 shrink-0">
-                    매월
-                  </label>
+                <div className="flex items-center gap-2 mt-2.5 pl-[26px]">
+                  <span className="text-xs text-muted-foreground shrink-0">월</span>
+                  <Input
+                    className="w-[120px] h-7 text-xs"
+                    value={contractFormData.recurring_monthly_amount || ""}
+                    onChange={(e) => {
+                      const raw = e.target.value.replace(/[^0-9]/g, "")
+                      const formatted = raw ? Number(raw).toLocaleString("ko-KR") : ""
+                      setContractFormData((prev) => ({
+                        ...prev,
+                        recurring_monthly_amount: formatted,
+                      }))
+                    }}
+                    placeholder="금액"
+                  />
+                  <span className="text-xs text-muted-foreground shrink-0">원 / 매월</span>
                   <Input
                     type="number"
                     min={1}
@@ -3869,10 +3886,7 @@ function DealDetailPageClient({ dealId }: { dealId: string }) {
                     }}
                     placeholder="일"
                   />
-                  <span className="text-xs text-amber-900">일 입금 예정</span>
-                  <span className="text-[10px] text-amber-700/70 ml-auto">
-                    * 그 달에 해당 일자가 없으면 말일로 자동 보정
-                  </span>
+                  <span className="text-xs text-muted-foreground shrink-0">일 입금</span>
                 </div>
               )}
             </div>
