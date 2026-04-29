@@ -452,7 +452,7 @@ export default function DealsPage() {
         .from("deals")
         .select(`
           *,
-          account:accounts(company_name, industry),
+          account:accounts(company_name, brand_name, industry),
           contact:contacts(name, email)
         `)
         .order("next_contact_date", { ascending: true })
@@ -460,10 +460,17 @@ export default function DealsPage() {
       if (error) throw error
 
       const dealsData = data.map((deal: any) => {
+        const company = deal.account?.company_name || ""
+        const brand = (deal.account?.brand_name || "").trim()
+        const baseName = company || deal.deal_name || "-"
+        const displayName = brand && brand !== baseName ? `${baseName} (${brand})` : baseName
+
         return {
           id: deal.id,
           firstContact: deal.first_contact_date ? formatDateToYYYYMMDD(deal.first_contact_date) : "-",
-          name: deal.account?.company_name || deal.deal_name || "-",
+          name: displayName,
+          brandName: brand,
+          companyName: company,
           needsSummary: deal.needs_summary || "-",
           stage: deal.stage || "S0_new_lead",
           stageDisplay: getStageDisplay(deal.stage),
@@ -492,9 +499,15 @@ export default function DealsPage() {
   const dealsWithDisplayData = useMemo(() => deals.map((deal: any) => ({
     id: deal.id,
     name: deal.name,
+    brandName: deal.brandName || "",
+    companyName: deal.companyName || "",
     firstContact: deal.firstContact,
     needsSummary: deal.needsSummary,
-    account: deal.account?.company_name || "거래처 없음",
+    account: deal.companyName
+      ? (deal.brandName && deal.brandName !== deal.companyName
+          ? `${deal.companyName} (${deal.brandName})`
+          : deal.companyName)
+      : "거래처 없음",
     stageDisplay: deal.stageDisplay,
     stage: deal.stage,
     contact: deal.contact,
@@ -783,6 +796,7 @@ export default function DealsPage() {
       return deals.filter(
         (deal) =>
           getChosung(deal.name).includes(appliedSearchTerm) ||
+          getChosung(deal.brandName || "").includes(appliedSearchTerm) ||
           getChosung(deal.contact).includes(appliedSearchTerm) ||
           getChosung(deal.stage).includes(appliedSearchTerm),
       )
@@ -791,6 +805,7 @@ export default function DealsPage() {
     return deals.filter(
       (deal) =>
         deal.name.toLowerCase().includes(search) ||
+        (deal.brandName || "").toLowerCase().includes(search) ||
         deal.contact.toLowerCase().includes(search) ||
         deal.stage.toLowerCase().includes(search),
     )

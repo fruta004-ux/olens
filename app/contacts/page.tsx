@@ -91,19 +91,25 @@ export default function ContactsPage() {
     return `${Math.floor(diffDays / 30)}개월 전`
   }
 
-  const contacts = filteredAccounts.map((account) => ({
+  const contacts = filteredAccounts.map((account) => {
+    const company = account.company_name || ""
+    const brand = (account.brand_name || "").trim()
+    const display = brand && brand !== company ? `${company} (${brand})` : company
+    return ({
     id: account.id,
-    name: account.company_name,
+    name: display,
+    brandName: brand,
     contactPerson: account.primary_contact_name || "",
     email: account.primary_contact_email || account.email,
     phone: account.primary_contact_phone || account.phone,
-    company: account.company_name,
+    company: display,
     position: account.primary_contact_position || "",
     status: account.status === "pending" ? "미확인" : account.status === "active" ? "활성" : "잠재고객",
     leadScore: account.lead_score || 0,
     assignedTo: account.deals?.[0]?.assigned_to || "-",
     lastModified: account.updated_at ? getRelativeTime(account.updated_at) : "수정 없음",
-  }))
+  })
+  })
 
   const router = useRouter()
 

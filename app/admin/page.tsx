@@ -17,6 +17,7 @@ import { Calendar as CalendarComponent } from "@/components/ui/calendar"
 import { Badge } from "@/components/ui/badge"
 import { Separator } from "@/components/ui/separator"
 import { createBrowserClient } from "@/lib/supabase/client"
+import { formatAccountName } from "@/lib/account-display"
 import CrmSidebar from "@/components/crm-sidebar"
 import CrmHeader from "@/components/crm-header"
 import { PatchNotesManager } from "@/components/patch-notes-manager"
@@ -315,7 +316,7 @@ export default function AdminPage() {
       const accountIds = [...new Set(dealsData?.map((d: any) => d.account_id).filter(Boolean) || [])]
       const { data: accountsData } =
         accountIds.length > 0
-          ? await supabase.from("accounts").select("id, company_name").in("id", accountIds)
+          ? await supabase.from("accounts").select("id, company_name, brand_name").in("id", accountIds)
           : { data: [] }
 
       const enriched = activitiesData.map((activity: any) => {
@@ -326,7 +327,9 @@ export default function AdminPage() {
           deal: deal
             ? {
                 deal_name: deal.deal_name,
-                account: account ? { company_name: account.company_name } : undefined,
+                account: account
+                  ? { company_name: account.company_name, brand_name: account.brand_name }
+                  : undefined,
               }
             : undefined,
         }
@@ -535,7 +538,7 @@ export default function AdminPage() {
                         }}
                       >
                         <TableCell className="py-2">{index + 1}</TableCell>
-                        <TableCell className="py-2">{truncateText(activity.deal?.account?.company_name, 15)}</TableCell>
+                        <TableCell className="py-2">{truncateText(formatAccountName(activity.deal?.account, ""), 15)}</TableCell>
                         <TableCell className="py-2">{activity.activity_type}</TableCell>
                         <TableCell className="py-2">{truncateText(activity.title, 10)}</TableCell>
                         <TableCell className="py-2">{truncateText(activity.content, 70)}</TableCell>

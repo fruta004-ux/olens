@@ -75,6 +75,7 @@ interface ProjectSpec {
   invoice_status: InvoiceStatus
   notes: string | null
   assigned_to: string | null
+  finance_assigned_to: string | null
   created_at: string
   updated_at: string
   // 조인된 데이터
@@ -86,6 +87,26 @@ interface AccountOption {
   id: string
   company_name: string
   client_id: string | null
+  client_assigned_to: string | null
+}
+
+// 영업 담당자 옵션 (다른 폼들과 동일한 리스트)
+const SALES_ASSIGNEES = ["오일환", "박상혁", "윤경호", "미정"]
+
+// 재무 담당자 옵션 (추후 관리자 페이지에서 CRUD 예정)
+const FINANCE_ASSIGNEES = ["김다예"]
+
+// 월 비교 헬퍼: "yyyy-MM" 문자열로 정규화
+const toMonthKey = (date: Date | string) => {
+  const d = typeof date === "string" ? new Date(date) : date
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`
+}
+
+const currentMonthKey = () => toMonthKey(new Date())
+
+const monthKeyToLabel = (key: string) => {
+  const [y, m] = key.split("-")
+  return `${y}년 ${Number(m)}월`
 }
 
 const CATEGORIES: Category[] = ["마케팅", "홈페이지", "개발", "그 외"]
@@ -158,7 +179,11 @@ export default function ProjectSpecsPage() {
   const [filterProgress, setFilterProgress] = useState<string>("전체")
   const [filterInvoice, setFilterInvoice] = useState<string>("전체")
   const [filterAssigned, setFilterAssigned] = useState<string>("전체")
+  const [filterFinanceAssigned, setFilterFinanceAssigned] = useState<string>("전체")
   const [searchQuery, setSearchQuery] = useState("")
+  // 입금 예정일 기준월 필터 (yyyy-MM). 기본: 현재 달. 이 월부터 미래 항목만 표시
+  const [filterStartMonth, setFilterStartMonth] = useState<string>(currentMonthKey())
+  const [monthPickerOpen, setMonthPickerOpen] = useState(false)
 
   // 행 추가 모달
   const [showAddDialog, setShowAddDialog] = useState(false)
@@ -224,11 +249,14 @@ export default function ProjectSpecsPage() {
       if (accountIds.length > 0) {
         const { data: accs } = await supabase
           .from("accounts")
-          .select("id, company_name")
+          .select("id, company_name, brand_name")
           .in("id", accountIds)
         if (accs) {
           accountMap = accs.reduce((acc: any, a: any) => {
-            acc[a.id] = a.company_name
+            const _b = (a.brand_name || "").trim()
+            acc[a.id] = _b && _b !== a.company_name
+              ? `${a.company_name} (${_b})`
+              : a.company_name
             return acc
           }, {})
         }
@@ -253,19 +281,26 @@ export default function ProjectSpecsPage() {
 
       setSpecs(enriched)
 
-      // 4. 행 추가용 거래처 옵션 로드
+      // 4. 행 추가용 거래처 옵션 로드 (client의 영업 담당자도 함께)
       const { data: clientList } = await supabase
         .from("clients")
-        .select("id, account_id, account:accounts!account_id(id, company_name)")
+        .select("id, account_id, assigned_to, account:accounts!account_id(id, company_name, brand_name)")
         .order("created_at", { ascending: false })
       if (clientList) {
         const opts: AccountOption[] = (clientList as any[])
           .filter((c) => c.account?.company_name)
-          .map((c) => ({
-            id: c.account.id,
-            company_name: c.account.company_name,
-            client_id: c.id,
-          }))
+          .map((c) => {
+            const _b = (c.account.brand_name || "").trim()
+            const _label = _b && _b !== c.account.company_name
+              ? `${c.account.company_name} (${_b})`
+              : c.account.company_name
+            return {
+              id: c.account.id,
+              company_name: _label,
+              client_id: c.id,
+              client_assigned_to: c.assigned_to || null,
+            }
+          })
         // 중복 제거 (같은 account_id가 여러 client에 있을 수 있으나 그대로 가장 최근 것 유지)
         const seen = new Set<string>()
         const dedup = opts.filter((o) => {
@@ -284,8 +319,14 @@ export default function ProjectSpecsPage() {
   // 필터 / 검색
   // ──────────────────────────────────────────────────────────
   const assignedToOptions = useMemo(() => {
-    const set = new Set<string>()
+    const set = new Set<string>(SALES_ASSIGNEES)
     specs.forEach((s) => s.assigned_to && set.add(s.assigned_to))
+    return Array.from(set).sort()
+  }, [specs])
+
+  const financeAssignedToOptions = useMemo(() => {
+    const set = new Set<string>(FINANCE_ASSIGNEES)
+    specs.forEach((s) => s.finance_assigned_to && set.add(s.finance_assigned_to))
     return Array.from(set).sort()
   }, [specs])
 
@@ -295,6 +336,18 @@ export default function ProjectSpecsPage() {
       if (filterProgress !== "전체" && s.progress_status !== filterProgress) return false
       if (filterInvoice !== "전체" && s.invoice_status !== filterInvoice) return false
       if (filterAssigned !== "전체" && (s.assigned_to || "") !== filterAssigned) return false
+      if (
+        filterFinanceAssigned !== "전체" &&
+        (s.finance_assigned_to || "") !== filterFinanceAssigned
+      )
+        return false
+
+      // 월 필터: 입금 예정일이 있는 행만 비교 (없으면 항상 표시 — 새 행 등 작성 중 항목 보호)
+      if (s.payment_due_date) {
+        const itemMonth = toMonthKey(s.payment_due_date)
+        if (itemMonth < filterStartMonth) return false
+      }
+
       if (searchQuery) {
         const q = searchQuery.toLowerCase()
         const inName = (s.project_name || "").toLowerCase().includes(q)
@@ -303,7 +356,16 @@ export default function ProjectSpecsPage() {
       }
       return true
     })
-  }, [specs, filterCategory, filterProgress, filterInvoice, filterAssigned, searchQuery])
+  }, [
+    specs,
+    filterCategory,
+    filterProgress,
+    filterInvoice,
+    filterAssigned,
+    filterFinanceAssigned,
+    filterStartMonth,
+    searchQuery,
+  ])
 
   // ──────────────────────────────────────────────────────────
   // 인라인 업데이트
@@ -373,6 +435,8 @@ export default function ProjectSpecsPage() {
         progress_status: "작성필요",
         invoice_status: "발행필요",
         notes: null,
+        // 인포(client)의 영업 담당자를 기본 적용 — 사용자는 표에서 변경 가능
+        assigned_to: acc.client_assigned_to || null,
       })
       .select("*")
       .single()
@@ -476,12 +540,17 @@ export default function ProjectSpecsPage() {
                     Supabase SQL Editor에서{" "}
                     <code className="px-1 py-0.5 bg-amber-100 rounded text-[11px]">
                       scripts/043_project_specs.sql
-                    </code>{" "}
-                    과{" "}
+                    </code>,{" "}
                     <code className="px-1 py-0.5 bg-amber-100 rounded text-[11px]">
                       scripts/044_account_business_fields.sql
+                    </code>,{" "}
+                    <code className="px-1 py-0.5 bg-amber-100 rounded text-[11px]">
+                      scripts/045_account_brand_name.sql
+                    </code>,{" "}
+                    <code className="px-1 py-0.5 bg-amber-100 rounded text-[11px]">
+                      scripts/046_project_specs_finance_assignee.sql
                     </code>{" "}
-                    을 실행한 뒤 새로고침 해주세요.
+                    을 순서대로 실행한 뒤 새로고침 해주세요.
                   </p>
                 </div>
                 <Button variant="outline" size="sm" onClick={() => loadAll()}>
@@ -499,29 +568,26 @@ export default function ProjectSpecsPage() {
             </Card>
           )}
 
-          {/* 요약 카드 */}
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-6">
-            <Card className="p-4">
-              <p className="text-xs text-muted-foreground">전체</p>
-              <p className="text-2xl font-bold mt-1">{summary.total}</p>
-            </Card>
-            <Card className="p-4">
-              <p className="text-xs text-muted-foreground">작성필요</p>
-              <p className="text-2xl font-bold mt-1 text-amber-600">{summary.draftNeeded}</p>
-            </Card>
-            <Card className="p-4">
-              <p className="text-xs text-muted-foreground">발행대기</p>
-              <p className="text-2xl font-bold mt-1 text-yellow-600">{summary.invoicePending}</p>
-            </Card>
-            <Card className="p-4">
-              <p className="text-xs text-muted-foreground">미입금(연체)</p>
-              <p className="text-2xl font-bold mt-1 text-rose-600">{summary.unpaid}</p>
-            </Card>
-          </div>
-
-          {/* 필터 */}
+          {/* 요약 + 필터 한 줄 통합 */}
           <Card className="p-3 mb-4">
-            <div className="flex items-center gap-2 flex-wrap">
+            <div className="flex items-center gap-3 flex-wrap">
+              {/* 좌측: 요약 인라인 배지 */}
+              <div className="flex items-center gap-1.5 text-xs pr-3 border-r border-border/60">
+                <span className="px-2 py-1 rounded-md bg-muted/60 text-foreground/80">
+                  전체 <span className="font-semibold ml-0.5">{summary.total}</span>
+                </span>
+                <span className="px-2 py-1 rounded-md bg-amber-50 text-amber-700 border border-amber-200">
+                  작성필요 <span className="font-semibold ml-0.5">{summary.draftNeeded}</span>
+                </span>
+                <span className="px-2 py-1 rounded-md bg-yellow-50 text-yellow-700 border border-yellow-200">
+                  발행대기 <span className="font-semibold ml-0.5">{summary.invoicePending}</span>
+                </span>
+                <span className="px-2 py-1 rounded-md bg-rose-50 text-rose-700 border border-rose-200">
+                  미입금 <span className="font-semibold ml-0.5">{summary.unpaid}</span>
+                </span>
+              </div>
+
+              {/* 우측: 필터 + 검색 */}
               <Filter className="h-4 w-4 text-muted-foreground" />
               <Select value={filterCategory} onValueChange={setFilterCategory}>
                 <SelectTrigger className="w-[130px] h-8 text-xs">
@@ -575,6 +641,59 @@ export default function ProjectSpecsPage() {
                   ))}
                 </SelectContent>
               </Select>
+              <Select value={filterFinanceAssigned} onValueChange={setFilterFinanceAssigned}>
+                <SelectTrigger className="w-[140px] h-8 text-xs">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="전체">재무 담당자 전체</SelectItem>
+                  {financeAssignedToOptions.map((a) => (
+                    <SelectItem key={a} value={a}>
+                      {a}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+
+              {/* 입금 예정일 기준월 필터 */}
+              <Popover open={monthPickerOpen} onOpenChange={setMonthPickerOpen}>
+                <PopoverTrigger asChild>
+                  <Button variant="outline" size="sm" className="h-8 text-xs gap-1.5">
+                    <CalendarIcon className="h-3 w-3" />
+                    {monthKeyToLabel(filterStartMonth)} 이후
+                  </Button>
+                </PopoverTrigger>
+                <PopoverContent className="w-auto p-0" align="start">
+                  <Calendar
+                    mode="single"
+                    selected={new Date(`${filterStartMonth}-01`)}
+                    onSelect={(d) => {
+                      if (d) {
+                        setFilterStartMonth(toMonthKey(d))
+                        setMonthPickerOpen(false)
+                      }
+                    }}
+                    defaultMonth={new Date(`${filterStartMonth}-01`)}
+                  />
+                  <div className="border-t p-2 flex items-center justify-between gap-2">
+                    <span className="text-[11px] text-muted-foreground pl-1">
+                      선택한 달부터 미래 항목만 표시
+                    </span>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="h-7 text-xs"
+                      onClick={() => {
+                        setFilterStartMonth(currentMonthKey())
+                        setMonthPickerOpen(false)
+                      }}
+                    >
+                      이번 달로 초기화
+                    </Button>
+                  </div>
+                </PopoverContent>
+              </Popover>
+
               <div className="relative flex-1 max-w-sm">
                 <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
                 <Input
@@ -593,27 +712,68 @@ export default function ProjectSpecsPage() {
           {/* 테이블 */}
           <Card className="p-0 overflow-hidden">
             <div className="overflow-x-auto">
-              <Table className="text-xs">
+              {/*
+                Select 드롭다운 셀 일괄 스타일링:
+                - 화살표 아이콘 숨김 + 그 자리 gap/padding 제거 → 공간 절약
+                - hover 시 살짝 떠보이는 효과 (ring + 그림자) → 클릭 가능 인지
+                - 열렸을 때(state=open) 더 두드러진 ring + 그림자 → 활성 상태 표시
+                - focus-visible은 제거 (선택 후 트리거가 포커스를 받아 보라색 링이 남아있는 현상 방지)
+                - SelectTrigger 내용물(SelectValue)은 가운데 정렬
+              */}
+              <Table
+                className={cn(
+                  "text-xs",
+                  // 화살표/gap 제거
+                  "[&_[data-slot=select-trigger]>svg]:hidden",
+                  "[&_[data-slot=select-trigger]]:!gap-0",
+                  "[&_[data-slot=select-trigger]]:!pr-2",
+                  // SelectTrigger 자체를 셀 가운데로 (w-fit이라 mx-auto로 중앙 정렬)
+                  "[&_[data-slot=select-trigger]]:!mx-auto",
+                  // SelectTrigger 내부 내용도 가운데 정렬 (justify-between 덮어쓰기)
+                  "[&_[data-slot=select-trigger]]:!justify-center",
+                  "[&_[data-slot=select-trigger]]:text-center",
+                  "[&_[data-slot=select-trigger]_[data-slot=select-value]]:!justify-center",
+                  // 기본 포커스 링 제거 (선택 후 잔상 방지)
+                  "[&_[data-slot=select-trigger]]:focus-visible:!ring-0",
+                  "[&_[data-slot=select-trigger]]:focus-visible:!ring-offset-0",
+                  "[&_[data-slot=select-trigger]]:focus-visible:!border-transparent",
+                  // 인터랙션 피드백
+                  "[&_[data-slot=select-trigger]]:transition-all",
+                  "[&_[data-slot=select-trigger]]:cursor-pointer",
+                  "[&_[data-slot=select-trigger]:hover]:brightness-95",
+                  "[&_[data-slot=select-trigger]:hover]:ring-1",
+                  "[&_[data-slot=select-trigger]:hover]:ring-foreground/20",
+                  "[&_[data-slot=select-trigger]:hover]:shadow-sm",
+                  // 열렸을 때 (드롭다운 펼쳐진 상태)
+                  "[&_[data-slot=select-trigger][data-state=open]]:ring-2",
+                  "[&_[data-slot=select-trigger][data-state=open]]:ring-primary/50",
+                  "[&_[data-slot=select-trigger][data-state=open]]:shadow-md",
+                  "[&_[data-slot=select-trigger][data-state=open]]:brightness-95",
+                )}
+              >
                 <TableHeader>
-                  <TableRow className="bg-muted/40">
-                    <TableHead className="w-[50px] text-center">순번</TableHead>
-                    <TableHead className="w-[100px]">카테고리</TableHead>
-                    <TableHead className="min-w-[200px]">프로젝트명</TableHead>
+                  <TableRow className="bg-muted/40 [&>th]:text-center">
+                    <TableHead className="w-[40px]">순번</TableHead>
+                    <TableHead className="w-[80px]">카테고리</TableHead>
+                    {/* 프로젝트명: 좁힌 컬럼들에서 절약한 80px만큼 추가 확장 (210 → 290) */}
+                    <TableHead className="w-[290px] min-w-[290px]">프로젝트명</TableHead>
                     <TableHead className="w-[160px]">인포 (거래처)</TableHead>
-                    <TableHead className="w-[120px]">비용 종류</TableHead>
-                    <TableHead className="w-[140px] text-right">금액 (VAT 별도)</TableHead>
+                    <TableHead className="w-[70px]">담당자</TableHead>
+                    <TableHead className="w-[100px]">비용 종류</TableHead>
+                    <TableHead className="w-[140px]">금액 (VAT 별도)</TableHead>
                     <TableHead className="w-[130px]">입금 예정일</TableHead>
-                    <TableHead className="w-[110px]">진행상황</TableHead>
+                    <TableHead className="w-[80px]">진행상황</TableHead>
                     <TableHead className="w-[130px]">계산서 발행일</TableHead>
-                    <TableHead className="w-[110px]">계산서</TableHead>
-                    <TableHead className="w-[80px] text-center">비고</TableHead>
-                    <TableHead className="w-[50px] text-center"></TableHead>
+                    <TableHead className="w-[80px]">계산서</TableHead>
+                    <TableHead className="w-[70px]">재무 담당자</TableHead>
+                    <TableHead className="w-[80px]">비고</TableHead>
+                    <TableHead className="w-[50px]"></TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
                   {filteredSpecs.length === 0 ? (
                     <TableRow>
-                      <TableCell colSpan={12} className="text-center py-12 text-muted-foreground">
+                      <TableCell colSpan={14} className="text-center py-12 text-muted-foreground">
                         명세서 행이 없습니다. S5 계약완료 시 자동 생성되거나, [행 추가] 버튼으로 추가할 수 있어요.
                       </TableCell>
                     </TableRow>
@@ -672,7 +832,7 @@ export default function ProjectSpecsPage() {
                           </TableCell>
 
                           {/* 인포 (거래처) */}
-                          <TableCell>
+                          <TableCell className="text-center">
                             {spec.account_company_name ? (
                               spec.client_id_resolved ? (
                                 <Link
@@ -688,6 +848,39 @@ export default function ProjectSpecsPage() {
                             ) : (
                               <span className="text-muted-foreground">-</span>
                             )}
+                          </TableCell>
+
+                          {/* 담당자 (영업) */}
+                          <TableCell>
+                            <Select
+                              value={spec.assigned_to || "__none__"}
+                              onValueChange={(v) =>
+                                updateField(spec.id, {
+                                  assigned_to: v === "__none__" ? null : v,
+                                })
+                              }
+                            >
+                              <SelectTrigger
+                                className={cn(
+                                  "h-7 text-xs border-0 focus:ring-1 px-2",
+                                  spec.assigned_to
+                                    ? "bg-blue-50 text-blue-700"
+                                    : "bg-muted/40 text-muted-foreground"
+                                )}
+                              >
+                                <SelectValue placeholder="-" />
+                              </SelectTrigger>
+                              <SelectContent>
+                                <SelectItem value="__none__" className="text-xs text-muted-foreground">
+                                  미지정
+                                </SelectItem>
+                                {assignedToOptions.map((a) => (
+                                  <SelectItem key={a} value={a} className="text-xs">
+                                    {a}
+                                  </SelectItem>
+                                ))}
+                              </SelectContent>
+                            </Select>
                           </TableCell>
 
                           {/* 비용 종류 */}
@@ -797,6 +990,39 @@ export default function ProjectSpecsPage() {
                                 {INVOICE_STATUSES.map((s) => (
                                   <SelectItem key={s} value={s} className="text-xs">
                                     {s}
+                                  </SelectItem>
+                                ))}
+                              </SelectContent>
+                            </Select>
+                          </TableCell>
+
+                          {/* 재무 담당자 */}
+                          <TableCell>
+                            <Select
+                              value={spec.finance_assigned_to || "__none__"}
+                              onValueChange={(v) =>
+                                updateField(spec.id, {
+                                  finance_assigned_to: v === "__none__" ? null : v,
+                                })
+                              }
+                            >
+                              <SelectTrigger
+                                className={cn(
+                                  "h-7 text-xs border-0 focus:ring-1 px-2",
+                                  spec.finance_assigned_to
+                                    ? "bg-violet-50 text-violet-700"
+                                    : "bg-muted/40 text-muted-foreground"
+                                )}
+                              >
+                                <SelectValue placeholder="-" />
+                              </SelectTrigger>
+                              <SelectContent>
+                                <SelectItem value="__none__" className="text-xs text-muted-foreground">
+                                  미지정
+                                </SelectItem>
+                                {financeAssignedToOptions.map((a) => (
+                                  <SelectItem key={a} value={a} className="text-xs">
+                                    {a}
                                   </SelectItem>
                                 ))}
                               </SelectContent>

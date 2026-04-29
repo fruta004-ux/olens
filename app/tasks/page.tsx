@@ -56,8 +56,10 @@ export default function TasksPage() {
         *,
         deal:deals!deal_id (
           id,
+          deal_name,
           account:accounts!account_id (
-            company_name
+            company_name,
+            brand_name
           )
         )
       `)
@@ -110,7 +112,8 @@ export default function TasksPage() {
           assigned_to,
           deal_name,
           account:accounts!account_id (
-            company_name
+            company_name,
+            brand_name
           )
         `)
         .not("next_contact_date", "is", null)
@@ -135,8 +138,14 @@ export default function TasksPage() {
           continue
         }
 
+        const _company = (deal.account as any)?.company_name || ""
+        const _brand = ((deal.account as any)?.brand_name || "").trim()
+        const _displayName = _company
+          ? (_brand && _brand !== _company ? `${_company} (${_brand})` : _company)
+          : deal.deal_name
+
         const { error: taskError } = await supabase.from("tasks").insert({
-          title: `${deal.account?.company_name || deal.deal_name} 연락하기`,
+          title: `${_displayName} 연락하기`,
           description: `다음 연락일: ${deal.next_contact_date}`,
           priority: "보통",
           status: "진행중",

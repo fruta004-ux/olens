@@ -12,6 +12,7 @@ import { CalendarIcon, TrendingDown, BarChart3, AlertCircle, Building2 } from "l
 import { format, subMonths, startOfMonth, endOfMonth } from "date-fns"
 import { ko } from "date-fns/locale"
 import { createBrowserClient } from "@/lib/supabase/client"
+import { formatAccountName } from "@/lib/account-display"
 import Link from "next/link"
 import { cn } from "@/lib/utils"
 import {
@@ -49,7 +50,8 @@ export default function RetrospectivePage() {
         amount_range,
         account:accounts!account_id (
           id,
-          company_name
+          company_name,
+          brand_name
         )
       `)
       .or("stage.eq.S6_complete,stage.eq.S6_closed")
@@ -355,7 +357,7 @@ export default function RetrospectivePage() {
                                   href={`/deals/${deal.id}`}
                                   className="hover:underline text-primary"
                                 >
-                                  {deal.account?.company_name || "-"}
+                                  {formatAccountName(deal.account, "-")}
                                 </Link>
                               </TableCell>
                               <TableCell className="max-w-[200px] truncate">

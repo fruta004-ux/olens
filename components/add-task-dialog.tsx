@@ -54,7 +54,8 @@ export function AddTaskDialog({ onTaskAdded, dealId }: AddTaskDialogProps) {
           id,
           title,
           account:accounts!account_id (
-            company_name
+            company_name,
+            brand_name
           )
         `)
         .order("created_at", { ascending: false })
@@ -245,11 +246,18 @@ export function AddTaskDialog({ onTaskAdded, dealId }: AddTaskDialogProps) {
                       <SelectValue placeholder="선택하세요 (선택사항)" />
                     </SelectTrigger>
                     <SelectContent>
-                      {deals.map((deal) => (
-                        <SelectItem key={deal.id} value={deal.id}>
-                          {deal.account?.company_name || "거래처 없음"} - {deal.title}
-                        </SelectItem>
-                      ))}
+                      {deals.map((deal) => {
+                        const _company = deal.account?.company_name || ""
+                        const _brand = (deal.account?.brand_name || "").trim()
+                        const _label = _company
+                          ? (_brand && _brand !== _company ? `${_company} (${_brand})` : _company)
+                          : "거래처 없음"
+                        return (
+                          <SelectItem key={deal.id} value={deal.id}>
+                            {_label} - {deal.title}
+                          </SelectItem>
+                        )
+                      })}
                     </SelectContent>
                   </Select>
                 </div>

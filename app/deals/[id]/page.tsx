@@ -60,6 +60,7 @@ import { CloseReasonDialog } from "@/components/close-reason-dialog"
 import { getCloseReasonText } from "@/lib/close-reasons"
 import { RecontactDialog } from "@/components/recontact-dialog"
 import { parseContractConditions, inferProjectCategory, normalizeDateString } from "@/lib/parse-contract-conditions"
+import { formatAccountName } from "@/lib/account-display"
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { getRecontactReasonText } from "@/lib/recontact-reasons"
 import {
@@ -504,6 +505,7 @@ function DealDetailPageClient({ dealId }: { dealId: string }) {
         account:accounts!account_id (
           id,
           company_name,
+          brand_name,
           email,
           phone,
           address,
@@ -1516,7 +1518,7 @@ function DealDetailPageClient({ dealId }: { dealId: string }) {
 
       <div className="mb-8 text-center">
         <h1 className="text-2xl font-bold text-foreground">
-          {dealData.account?.company_name || "거래 정보 없음"}
+          {formatAccountName(dealData.account, "거래 정보 없음")}
         </h1>
       </div>
 
@@ -2218,7 +2220,7 @@ function DealDetailPageClient({ dealId }: { dealId: string }) {
                 <span className="hidden sm:inline">거래 정보</span>
               </Button>
               <h2 className="text-lg font-semibold truncate mx-4 flex-1 text-center">
-                {dealData.account?.company_name || "거래"}
+                {formatAccountName(dealData.account, "거래")}
               </h2>
               <Button
                 variant="outline"
@@ -2265,11 +2267,22 @@ function DealDetailPageClient({ dealId }: { dealId: string }) {
                     </CardHeader>
                     <CardContent className="space-y-4">
                       <div className="grid grid-cols-2 gap-4">
-                        <div className="col-span-2">
+                        <div>
                           <EditableField
-                            label="상호명 / 브랜드명"
+                            label="상호명"
                             field="company_name"
                             value={dealData.account?.company_name || ""}
+                            isAccountField={true}
+                            editingField={dealData.editingField}
+                            onStartEdit={handleStartEdit}
+                            onSave={handleEditableSave}
+                          />
+                        </div>
+                        <div>
+                          <EditableField
+                            label="브랜드명 (옵션)"
+                            field="brand_name"
+                            value={dealData.account?.brand_name || ""}
                             isAccountField={true}
                             editingField={dealData.editingField}
                             onStartEdit={handleStartEdit}

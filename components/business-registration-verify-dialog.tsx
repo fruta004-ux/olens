@@ -12,6 +12,7 @@ import { cn } from "@/lib/utils"
 
 export interface BusinessRegistrationFields {
   company_name: string
+  brand_name: string
   business_number: string
   corporate_number: string
   representative: string
@@ -24,8 +25,14 @@ export interface BusinessRegistrationFields {
   tax_type: string
 }
 
-const FIELD_DEFS: { key: keyof BusinessRegistrationFields; label: string; placeholder?: string }[] = [
+const FIELD_DEFS: { key: keyof BusinessRegistrationFields; label: string; placeholder?: string; hint?: string }[] = [
   { key: "company_name", label: "상호 / 법인명", placeholder: "예: 주식회사 오트" },
+  {
+    key: "brand_name",
+    label: "브랜드명",
+    placeholder: "예: 오트, OAT (옵션 · 사업자등록증에 없으면 비워두기)",
+    hint: "거래처를 부를 때 흔히 쓰는 이름. 입력 시 목록에서 \"상호 (브랜드명)\" 형태로 표시됩니다.",
+  },
   { key: "business_number", label: "사업자등록번호", placeholder: "000-00-00000" },
   { key: "corporate_number", label: "법인등록번호", placeholder: "000000-0000000" },
   { key: "representative", label: "대표자 성명" },
@@ -40,6 +47,7 @@ const FIELD_DEFS: { key: keyof BusinessRegistrationFields; label: string; placeh
 
 const EMPTY: BusinessRegistrationFields = {
   company_name: "",
+  brand_name: "",
   business_number: "",
   corporate_number: "",
   representative: "",
@@ -287,6 +295,11 @@ export function BusinessRegistrationVerifyDialog({
                       onChange={(e) => setForm((prev) => ({ ...prev, [f.key]: e.target.value }))}
                       className="h-9 text-sm"
                     />
+                    {f.hint && (
+                      <p className="text-[11px] text-muted-foreground pl-1 leading-tight">
+                        {f.hint}
+                      </p>
+                    )}
                     {showSuggest && (
                       <div className="text-[11px] text-muted-foreground pl-1 flex items-center gap-1">
                         <Sparkles className="h-3 w-3 text-amber-500" />

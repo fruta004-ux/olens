@@ -210,7 +210,7 @@ export default function ClientsPage() {
       const [clientsResult, contractsResult, opportunitiesResult] = await Promise.all([
         supabase
           .from("clients")
-          .select("*, account:accounts(company_name, industry), contact:contacts(name, email)")
+          .select("*, account:accounts(company_name, brand_name, industry), contact:contacts(name, email)")
           .order("updated_at", { ascending: false }),
         supabase
           .from("client_contracts")
@@ -277,9 +277,20 @@ export default function ClientsPage() {
           return sum + (isNaN(num) ? 0 : num)
         }, 0)
 
+        const accountCompany = client.account?.company_name || ""
+        const accountBrand = (client.account?.brand_name || "").trim()
+        // 표시용 이름: "거래처명 (브랜드명)" 형태. 브랜드명 없거나 동일하면 거래처명만
+        const displayName = (() => {
+          const base = client.deal_name || accountCompany || "-"
+          if (!accountBrand || accountBrand === base) return base
+          return `${base} (${accountBrand})`
+        })()
+
         return {
           id: client.id,
-          name: client.deal_name || client.account?.company_name || "-",
+          name: displayName,
+          rawName: client.deal_name || accountCompany || "",
+          brandName: accountBrand,
           account_id: client.account_id,
           contact: client.assigned_to || "미정",
           status,
@@ -375,11 +386,14 @@ export default function ClientsPage() {
       const search = searchTerm.toLowerCase()
       if (isChosungSearch(searchTerm)) {
         result = result.filter(c =>
-          getChosung(c.name).includes(searchTerm) || getChosung(c.contact).includes(searchTerm)
+          getChosung(c.name).includes(searchTerm) ||
+          getChosung(c.brandName || "").includes(searchTerm) ||
+          getChosung(c.contact).includes(searchTerm)
         )
       } else {
         result = result.filter(c =>
           c.name.toLowerCase().includes(search) ||
+          (c.brandName || "").toLowerCase().includes(search) ||
           c.contact.toLowerCase().includes(search) ||
           c.serviceTypes?.some((t: string) => t.toLowerCase().includes(search))
         )

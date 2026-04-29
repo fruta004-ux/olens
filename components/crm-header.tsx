@@ -100,32 +100,44 @@ export function CrmHeader() {
         const supabase = createBrowserClient()
         const search = searchTerm.toLowerCase()
         
-        // deals 검색 - 전체 데이터 가져오기
+        // deals 검색 - 전체 데이터 가져오기 (브랜드명 포함)
         const { data: deals } = await supabase
           .from("deals")
-          .select("id, deal_name, stage, account:accounts(company_name)")
-        
-        // clients 검색 - 전체 데이터 가져오기
+          .select("id, deal_name, stage, account:accounts(company_name, brand_name)")
+
+        // clients 검색 - 전체 데이터 가져오기 (브랜드명 포함)
         const { data: clients } = await supabase
           .from("clients")
-          .select("id, deal_name, stage, account:accounts(company_name)")
+          .select("id, deal_name, stage, account:accounts(company_name, brand_name)")
 
         const results: SearchResult[] = []
-        
+
+        // 브랜드명을 함께 표시: "거래처명 (브랜드명)"
+        const buildDisplay = (company: string, brand: string, fallback: string) => {
+          const base = company || fallback
+          if (!brand || brand === base) return base
+          return `${base} (${brand})`
+        }
+
         // deals 필터링
         if (deals) {
           deals.forEach((deal: any) => {
-            const name = deal.account?.company_name || deal.deal_name || ""
-            if (!name) return
-            
+            const company = deal.account?.company_name || ""
+            const brand = (deal.account?.brand_name || "").trim()
+            const fallback = deal.deal_name || ""
+            const display = buildDisplay(company, brand, fallback)
+            if (!display) return
+
+            // 거래처명 + 브랜드명 모두 검색 대상
+            const haystack = [company, brand, fallback].filter(Boolean).join(" ")
             const matchesSearch = isChosungSearch(searchTerm)
-              ? getChosung(name).includes(searchTerm)
-              : name.toLowerCase().includes(search)
-            
+              ? getChosung(haystack).includes(searchTerm)
+              : haystack.toLowerCase().includes(search)
+
             if (matchesSearch) {
               results.push({
                 id: deal.id,
-                name,
+                name: display,
                 stage: deal.stage || "",
                 type: 'deal'
               })
@@ -136,17 +148,21 @@ export function CrmHeader() {
         // clients 필터링
         if (clients) {
           clients.forEach((client: any) => {
-            const name = client.account?.company_name || client.deal_name || ""
-            if (!name) return
-            
+            const company = client.account?.company_name || ""
+            const brand = (client.account?.brand_name || "").trim()
+            const fallback = client.deal_name || ""
+            const display = buildDisplay(company, brand, fallback)
+            if (!display) return
+
+            const haystack = [company, brand, fallback].filter(Boolean).join(" ")
             const matchesSearch = isChosungSearch(searchTerm)
-              ? getChosung(name).includes(searchTerm)
-              : name.toLowerCase().includes(search)
-            
+              ? getChosung(haystack).includes(searchTerm)
+              : haystack.toLowerCase().includes(search)
+
             if (matchesSearch) {
               results.push({
                 id: client.id,
-                name,
+                name: display,
                 stage: client.stage || "",
                 type: 'client'
               })

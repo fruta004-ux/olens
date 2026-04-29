@@ -64,6 +64,7 @@ import { CloseReasonDialog } from "@/components/close-reason-dialog"
 import { getCloseReasonText } from "@/lib/close-reasons"
 import { BusinessRegistrationVerifyDialog, type BusinessRegistrationFields } from "@/components/business-registration-verify-dialog"
 import { parseContractConditions, inferProjectCategory, normalizeDateString } from "@/lib/parse-contract-conditions"
+import { formatAccountName } from "@/lib/account-display"
 import { Sparkles, Upload, Loader2 } from "lucide-react"
 
 const sanitizeFileName = (fileName: string): string => {
@@ -392,6 +393,7 @@ function ClientDetailPageClient({ clientId }: { clientId: string }) {
         account:accounts!account_id (
           id,
           company_name,
+          brand_name,
           email,
           phone,
           address,
@@ -929,6 +931,7 @@ function ClientDetailPageClient({ clientId }: { clientId: string }) {
   const applyBusinessRegFields = async (fields: BusinessRegistrationFields, ocrRaw: any) => {
     const updates: Record<string, any> = {
       company_name: fields.company_name || dealData.account?.company_name,
+      brand_name: fields.brand_name?.trim() || null,
       business_number: fields.business_number || null,
       corporate_number: fields.corporate_number || null,
       representative: fields.representative || null,
@@ -1613,7 +1616,7 @@ function ClientDetailPageClient({ clientId }: { clientId: string }) {
 
             <div className="mb-6">
               <h1 className="text-2xl font-bold text-foreground mb-2">
-                {dealData.account?.company_name || "거래 정보 없음"}
+                {formatAccountName(dealData.account, "거래 정보 없음")}
               </h1>
               <Badge className="bg-primary text-primary-foreground mb-2">{getStageDisplay(dealData.stage)}</Badge>
               <div className="flex items-center gap-2 mt-2 p-2 rounded-md bg-primary/5 border border-primary/20">
@@ -1870,11 +1873,19 @@ function ClientDetailPageClient({ clientId }: { clientId: string }) {
                     </CardHeader>
                     <CardContent className="space-y-4">
                       <div className="grid grid-cols-2 gap-4">
-                        <div className="col-span-2">
+                        <div>
                           <EditableField
                             label="상호 / 법인명"
                             field="company_name"
                             value={dealData.account?.company_name || ""}
+                            isAccountField={true}
+                          />
+                        </div>
+                        <div>
+                          <EditableField
+                            label="브랜드명 (옵션)"
+                            field="brand_name"
+                            value={dealData.account?.brand_name || ""}
                             isAccountField={true}
                           />
                         </div>
@@ -3502,6 +3513,7 @@ function ClientDetailPageClient({ clientId }: { clientId: string }) {
         imageUrl={dealData.account?.business_registration_url || null}
         initialData={{
           company_name: dealData.account?.company_name || "",
+          brand_name: dealData.account?.brand_name || "",
           business_number: dealData.account?.business_number || "",
           corporate_number: dealData.account?.corporate_number || "",
           representative: dealData.account?.representative || "",

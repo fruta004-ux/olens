@@ -75,7 +75,11 @@ export function TaskItem({ task, onToggleComplete, onDelete }: TaskItemProps) {
     return `${period} ${displayHour}:${minute}`
   }
 
-  const companyName = task.deal?.account?.company_name || "내부"
+  const _company = task.deal?.account?.company_name || ""
+  const _brand = (task.deal?.account?.brand_name || "").trim()
+  const companyName = _company
+    ? (_brand && _brand !== _company ? `${_company} (${_brand})` : _company)
+    : "내부"
 
   return (
     <Card className={completed ? "opacity-60" : ""}>

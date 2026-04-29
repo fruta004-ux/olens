@@ -40,6 +40,7 @@ export function AddClientDialog({ open: controlledOpen, onOpenChange, stage, tri
   const [creatingAccount, setCreatingAccount] = useState(false)
   const [formData, setFormData] = useState({
     name: "",
+    brand_name: "",
     stage: stage || "S0_new_lead",
     amount_range: "",
     amount_custom: "", // 직접 입력 금액을 위한 별도 필드 추가
@@ -118,6 +119,7 @@ export function AddClientDialog({ open: controlledOpen, onOpenChange, stage, tri
           .from("accounts")
           .insert({
             company_name: formData.name,
+            brand_name: formData.brand_name?.trim() || null,
             phone: formData.phone || null,
             email: formData.email || null,
           })
@@ -161,6 +163,7 @@ export function AddClientDialog({ open: controlledOpen, onOpenChange, stage, tri
       }
       setFormData({
         name: "",
+        brand_name: "",
         stage: stage || "S0_new_lead",
         amount_range: "",
         amount_custom: "",
@@ -199,11 +202,11 @@ export function AddClientDialog({ open: controlledOpen, onOpenChange, stage, tri
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-2">
                 <Label htmlFor="dealName" className="text-sm font-medium text-foreground">
-                  고객명 <span className="text-destructive">*</span>
+                  고객명(상호) <span className="text-destructive">*</span>
                 </Label>
                 <Input
                   id="dealName"
-                  placeholder="클루터"
+                  placeholder="예: 주식회사 클루터"
                   required
                   className="h-11 bg-background"
                   value={formData.name}
@@ -211,6 +214,21 @@ export function AddClientDialog({ open: controlledOpen, onOpenChange, stage, tri
                 />
               </div>
               <div className="space-y-2">
+                <Label htmlFor="brandName" className="text-sm font-medium text-foreground">
+                  브랜드명 <span className="text-xs font-normal text-muted-foreground">(옵션)</span>
+                </Label>
+                <Input
+                  id="brandName"
+                  placeholder="예: 클루터, CLOOTER"
+                  className="h-11 bg-background"
+                  value={formData.brand_name}
+                  onChange={(e) => setFormData({ ...formData, brand_name: e.target.value })}
+                />
+                <p className="text-[11px] text-muted-foreground leading-tight">
+                  실제 호명되는 이름. 입력 시 목록에서 &quot;상호 (브랜드명)&quot; 형태로 표시됩니다.
+                </p>
+              </div>
+              <div className="space-y-2 col-span-2">
                 <Label htmlFor="stage" className="text-sm font-medium text-foreground">
                   거래 단계 <span className="text-destructive">*</span>
                 </Label>
