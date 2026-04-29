@@ -17,6 +17,7 @@ import {
   X,
   Repeat,
   AlertCircle,
+  StickyNote,
 } from "lucide-react"
 import { toast } from "sonner"
 
@@ -1600,6 +1601,7 @@ export default function ProjectSpecsPage() {
                                     spec.notes ? "text-red-500 hover:text-red-600" : "text-gray-300 hover:text-gray-400"
                                   )}
                                 >
+                                  <StickyNote className="h-3.5 w-3.5 mr-0.5" />
                                   {spec.notes ? "O" : "X"}
                                 </Button>
                               </PopoverTrigger>
