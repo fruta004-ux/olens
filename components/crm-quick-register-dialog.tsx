@@ -41,6 +41,7 @@ export function CrmQuickRegisterDialog({ open, onOpenChange }: CrmQuickRegisterD
   })
 
   const [channelTalkText, setChannelTalkText] = useState("")
+  const [imwebText, setImwebText] = useState("")
 
   const [inflowSources, setInflowSources] = useState<string[]>([])
   const [inquiryChannels, setInquiryChannels] = useState<string[]>([])
@@ -339,6 +340,211 @@ export function CrmQuickRegisterDialog({ open, onOpenChange }: CrmQuickRegisterD
     }
   }, [channelTalkText])
 
+  // 아임웹 견적의뢰 텍스트 파싱
+  const parseImwebText = (text: string) => {
+    const parsed: any = {
+      company_name: "",
+      industry: "",
+      inflow_source: "",
+      inquiry_channel: "",
+      assigned_to: "오일환",
+      first_contact_datetime: "",
+      phone: "",
+      email: "",
+      needs_summary: "",
+      grade: "",
+      content: "",
+    }
+
+    // 알려진 필드 라벨 (아임웹 견적의뢰 폼 기준)
+    const FIELD_LABELS = [
+      "이메일 주소",
+      "전화 번호",
+      "문의 분야",
+      "견적 범위",
+      "작업 시작 희망일",
+      "의뢰 목적",
+      "페이지 수",
+      "운영 중 사이트",
+      "레퍼런스 URL",
+      "추가 요청",
+    ]
+
+    const lines = text.split(/\r?\n/)
+
+    // 라인별로 라벨 위치 찾기
+    const labelPositions: { label: string; lineIdx: number }[] = []
+    lines.forEach((line, idx) => {
+      const trimmed = line.trim()
+      if (FIELD_LABELS.includes(trimmed)) {
+        labelPositions.push({ label: trimmed, lineIdx: idx })
+      }
+    })
+
+    // 각 라벨의 값 추출 (다음 라벨 직전까지)
+    const fieldValues: Record<string, string> = {}
+    labelPositions.forEach((pos, i) => {
+      const startIdx = pos.lineIdx + 1
+      const endIdx = i + 1 < labelPositions.length ? labelPositions[i + 1].lineIdx : lines.length
+      const valueLines: string[] = []
+      for (let j = startIdx; j < endIdx; j++) {
+        const t = lines[j].trim()
+        // "협의 가능"은 작업 시작 희망일 아래에 붙는 체크 표시이므로 제외
+        if (t === "협의 가능") continue
+        // 빈 줄 누적 시 추가요청은 그대로 두고, 다른 필드는 첫 빈줄에서 종료
+        if (t === "") {
+          // 추가 요청 외에는 빈 줄 만나면 종료
+          if (pos.label !== "추가 요청") break
+          continue
+        }
+        valueLines.push(t)
+      }
+      fieldValues[pos.label] = valueLines.join("\n").trim()
+    })
+
+    // 헤더 영역(첫 라벨 이전)에서 날짜/시간/이름 추출
+    const firstLabelIdx = labelPositions.length > 0 ? labelPositions[0].lineIdx : lines.length
+    const headerLines = lines.slice(0, firstLabelIdx).map((l) => l.trim()).filter((l) => l)
+
+    let headerDate = ""
+    let headerTime = ""
+    let headerName = ""
+    headerLines.forEach((l) => {
+      if (/^\d{4}\.\d{2}\.\d{2}$/.test(l)) headerDate = l
+      else if (/^\d{1,2}:\d{2}$/.test(l)) headerTime = l
+      else if (l !== "답변대기" && l !== "답변완료" && !headerName) headerName = l
+    })
+
+    // 일시 세팅
+    if (headerDate) {
+      const [y, m, d] = headerDate.split(".")
+      const [hh, mm] = (headerTime || "00:00").split(":")
+      const hStr = String(Number.parseInt(hh)).padStart(2, "0")
+      const minStr = String(Number.parseInt(mm)).padStart(2, "0")
+      parsed.first_contact_datetime = `${y}-${m}-${d}T${hStr}:${minStr}`
+    }
+
+    // 연락처/이메일
+    const phoneRaw = (fieldValues["전화 번호"] || "").replace(/[^0-9]/g, "")
+    if (phoneRaw.length === 11) {
+      parsed.phone = `${phoneRaw.slice(0, 3)}-${phoneRaw.slice(3, 7)}-${phoneRaw.slice(7)}`
+    } else if (phoneRaw.length === 10) {
+      parsed.phone = `${phoneRaw.slice(0, 3)}-${phoneRaw.slice(3, 6)}-${phoneRaw.slice(6)}`
+    } else {
+      parsed.phone = fieldValues["전화 번호"] || ""
+    }
+    parsed.email = fieldValues["이메일 주소"] || ""
+
+    // 마지막 라벨 이후의 본문(고객 메시지) 추출
+    let bodyMessage = ""
+    if (labelPositions.length > 0) {
+      const lastLabel = labelPositions[labelPositions.length - 1]
+      // 마지막 라벨의 값이 끝난 이후 라인부터 본문
+      const lastLabelStart = lastLabel.lineIdx + 1
+      // 추가 요청 값이 끝난 시점 찾기 (연속된 빈 줄 두 개 이후가 본문)
+      let bodyStartIdx = lines.length
+      let blankCount = 0
+      let valueEnded = false
+      for (let j = lastLabelStart; j < lines.length; j++) {
+        const t = lines[j].trim()
+        if (!valueEnded) {
+          if (t === "") {
+            blankCount++
+            if (blankCount >= 1) {
+              valueEnded = true
+              blankCount = 0
+            }
+          }
+          continue
+        }
+        if (t !== "") {
+          bodyStartIdx = j
+          break
+        }
+      }
+      bodyMessage = lines.slice(bodyStartIdx).join("\n").trim()
+    }
+
+    // 본문에서 회사명 추출 시도 (예: "OOO 입니다.")
+    let companyFromBody = ""
+    const companyMatch = bodyMessage.match(/^(?:안녕하세요[.\s]*)?\s*(.+?)\s*(?:입니다|이에요|에요)[.\s]/m)
+    if (companyMatch) {
+      companyFromBody = companyMatch[1].trim()
+    }
+
+    // 명칭(회사명): 본문에서 찾은 회사명 우선, 없으면 헤더의 이름 사용
+    parsed.company_name = companyFromBody || headerName || ""
+
+    // 업종: 문의 분야 (예: 웹사이트)
+    parsed.industry = fieldValues["문의 분야"] || ""
+
+    // 유입 경로: 아임웹 전문가 찾기 (settings 매칭)
+    const sourceCandidate = "아임웹 전문가 찾기"
+    parsed.inflow_source = findBestMatch(sourceCandidate, inflowSources) || sourceCandidate
+
+    // 문의 창구: 동일하게 아임웹 전문가 찾기로 매칭 시도
+    parsed.inquiry_channel = findBestMatch(sourceCandidate, inquiryChannels) || sourceCandidate
+
+    // 니즈: 의뢰 목적/문의 분야 기반으로 매칭
+    const needsCandidates = [
+      fieldValues["의뢰 목적"],
+      fieldValues["문의 분야"],
+      "홈페이지 제작",
+    ].filter(Boolean) as string[]
+    for (const cand of needsCandidates) {
+      const matched = findBestMatch(cand, needsOptions)
+      if (matched) {
+        parsed.needs_summary = matched
+        break
+      }
+    }
+    if (!parsed.needs_summary) {
+      parsed.needs_summary = needsCandidates[0] || ""
+    }
+
+    // 등급: 견적 범위 기반 추정 (옵션 매칭, 실패 시 빈값)
+    const budget = fieldValues["견적 범위"] || ""
+    if (budget) {
+      const matched = findBestMatch(budget, gradeOptions)
+      parsed.grade = matched || ""
+    }
+
+    // 내용: 구조화된 정보 + 고객 메시지를 보기 좋게 합침
+    const contentParts: string[] = []
+    contentParts.push("[아임웹 전문가 찾기 문의]")
+    if (fieldValues["문의 분야"]) contentParts.push(`- 문의 분야 : ${fieldValues["문의 분야"]}`)
+    if (fieldValues["견적 범위"]) contentParts.push(`- 견적 범위 : ${fieldValues["견적 범위"]}`)
+    if (fieldValues["작업 시작 희망일"]) {
+      const hasNegotiable = text.includes("협의 가능")
+      contentParts.push(
+        `- 작업 시작 희망일 : ${fieldValues["작업 시작 희망일"]}${hasNegotiable ? " (협의 가능)" : ""}`,
+      )
+    }
+    if (fieldValues["의뢰 목적"]) contentParts.push(`- 의뢰 목적 : ${fieldValues["의뢰 목적"]}`)
+    if (fieldValues["페이지 수"]) contentParts.push(`- 페이지 수 : ${fieldValues["페이지 수"]}`)
+    if (fieldValues["운영 중 사이트"]) contentParts.push(`- 운영 중 사이트 : ${fieldValues["운영 중 사이트"]}`)
+    if (fieldValues["레퍼런스 URL"]) contentParts.push(`- 레퍼런스 URL : ${fieldValues["레퍼런스 URL"]}`)
+    if (fieldValues["추가 요청"]) {
+      const additional = fieldValues["추가 요청"].split(/\n/).map((s) => s.trim()).filter(Boolean).join(", ")
+      contentParts.push(`- 추가 요청 : ${additional}`)
+    }
+    if (bodyMessage) {
+      contentParts.push("")
+      contentParts.push("[고객 메시지]")
+      contentParts.push(bodyMessage)
+    }
+    parsed.content = contentParts.join("\n")
+
+    return parsed
+  }
+
+  useEffect(() => {
+    if (imwebText.trim()) {
+      const parsed = parseImwebText(imwebText)
+      setFormData(parsed)
+    }
+  }, [imwebText])
+
   const generateChannelTalkText = () => {
     let datetime = ""
     if (formData.first_contact_datetime) {
@@ -483,9 +689,10 @@ ${formData.content || "내용 없음"}
         </DialogHeader>
 
         <Tabs defaultValue="new" className="w-full">
-          <TabsList className="grid w-full grid-cols-2">
+          <TabsList className="grid w-full grid-cols-3">
             <TabsTrigger value="new">새로 작성</TabsTrigger>
             <TabsTrigger value="parse">채널톡에서 가져오기</TabsTrigger>
+            <TabsTrigger value="imweb">아임웹에서 가져오기</TabsTrigger>
           </TabsList>
 
           <TabsContent value="new" className="space-y-4 py-4">
@@ -666,6 +873,23 @@ ${formData.content || "내용 없음"}
             </div>
             <p className="text-xs text-muted-foreground text-center">
               텍스트를 붙여넣으면 자동으로 파싱됩니다. 직접입력 탭에서 확인하세요.
+            </p>
+          </TabsContent>
+
+          <TabsContent value="imweb" className="space-y-4 py-4">
+            <div className="space-y-2">
+              <Label htmlFor="imwebText">아임웹 견적의뢰 텍스트 붙여넣기</Label>
+              <Textarea
+                id="imwebText"
+                placeholder={`예시:\n답변대기\n2026.05.04\n00:03\n홍길동\n\n답변완료\n이메일 주소\nexample@email.com\n\n전화 번호\n01012345678\n\n문의 분야\n웹사이트\n\n견적 범위\n100~200만원\n...`}
+                value={imwebText}
+                onChange={(e) => setImwebText(e.target.value)}
+                rows={12}
+                className="resize-none font-mono text-sm"
+              />
+            </div>
+            <p className="text-xs text-muted-foreground text-center">
+              아임웹 전문가 찾기 견적의뢰 텍스트를 붙여넣으면 자동으로 파싱되어 채널톡 형식으로 변환됩니다.
             </p>
           </TabsContent>
         </Tabs>
