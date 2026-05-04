@@ -44,6 +44,14 @@ export default function AdminPage() {
   const [copiedAssignee, setCopiedAssignee] = useState<string | null>(null)
   const assigneeRefs = useRef<{ [key: string]: HTMLDivElement | null }>({})
 
+  // 활동 지수 탭용 상태
+  const [scoreSelectedDate, setScoreSelectedDate] = useState<Date>(new Date())
+  const [isScoreDatePickerOpen, setIsScoreDatePickerOpen] = useState(false)
+  const [scoreSelectedAssignee, setScoreSelectedAssignee] = useState<string>("전체")
+  const [scoreActivities, setScoreActivities] = useState<any[]>([])
+  const [scoreCopiedAssignee, setScoreCopiedAssignee] = useState<string | null>(null)
+  const scoreAssigneeRefs = useRef<{ [key: string]: HTMLDivElement | null }>({})
+
   const [dragItem, setDragItem] = useState<string | null>(null)
   const [dragOverItem, setDragOverItem] = useState<string | null>(null)
 
@@ -277,6 +285,10 @@ export default function AdminPage() {
     loadActivities()
   }, [selectedDate])
 
+  useEffect(() => {
+    loadScoreActivities()
+  }, [scoreSelectedDate])
+
   const loadSettings = async () => {
     const { data, error } = await supabase.from("settings").select("*").order("display_order")
 
@@ -345,6 +357,108 @@ export default function AdminPage() {
   const groupByAssignee = () => {
     const grouped: any = {}
     activities.forEach((activity) => {
+      const assignee = activity.assigned_to || "미정"
+      if (!grouped[assignee]) grouped[assignee] = []
+      grouped[assignee].push(activity)
+    })
+    return grouped
+  }
+
+  // 활동 지수: 분류별 점수 매핑
+  const SCORE_CATEGORIES: { value: string; score: number }[] = [
+    { value: "단순접촉", score: 1 },
+    { value: "통화", score: 3 },
+    { value: "상담", score: 5 },
+    { value: "약속", score: 7 },
+    { value: "방문", score: 10 },
+    { value: "내방", score: 15 },
+    { value: "견적제작", score: 1 },
+    { value: "견적발송", score: 1 },
+    { value: "포도", score: 1 },
+    { value: "모임", score: 2 },
+  ]
+
+  const SCORE_MAP: Record<string, number> = SCORE_CATEGORIES.reduce(
+    (acc, cur) => ({ ...acc, [cur.value]: cur.score }),
+    {} as Record<string, number>,
+  )
+
+  // 기존 activity_type 으로부터 score_category 추정
+  const inferScoreCategory = (activityType: string | null | undefined): string => {
+    if (!activityType) return ""
+    if (SCORE_MAP[activityType] !== undefined) return activityType
+    if (activityType === "이메일") return "단순접촉"
+    return ""
+  }
+
+  const loadScoreActivities = async () => {
+    try {
+      const dateStr = format(scoreSelectedDate, "yyyy-MM-dd")
+
+      const { data: activitiesData } = await supabase
+        .from("activities")
+        .select("*")
+        .eq("activity_date", dateStr)
+        .neq("activity_type", "메모")
+        .order("created_at", { ascending: false })
+
+      if (!activitiesData) {
+        setScoreActivities([])
+        return
+      }
+
+      const dealIds = [...new Set(activitiesData.map((a: any) => a.deal_id).filter(Boolean))]
+      const { data: dealsData } =
+        dealIds.length > 0
+          ? await supabase.from("deals").select("id, deal_name, account_id").in("id", dealIds)
+          : { data: [] as any[] }
+
+      const accountIds = [...new Set(dealsData?.map((d: any) => d.account_id).filter(Boolean) || [])]
+      const { data: accountsData } =
+        accountIds.length > 0
+          ? await supabase.from("accounts").select("id, company_name, brand_name").in("id", accountIds)
+          : { data: [] as any[] }
+
+      const enriched = activitiesData.map((activity: any) => {
+        const deal = dealsData?.find((d: any) => d.id === activity.deal_id)
+        const account = deal ? accountsData?.find((a: any) => a.id === deal.account_id) : null
+        return {
+          ...activity,
+          deal: deal
+            ? {
+                deal_name: deal.deal_name,
+                account: account
+                  ? { company_name: account.company_name, brand_name: account.brand_name }
+                  : undefined,
+              }
+            : undefined,
+        }
+      })
+
+      setScoreActivities(enriched)
+    } catch (error) {
+      console.error("활동 지수 로드 오류:", error)
+      setScoreActivities([])
+    }
+  }
+
+  const updateScoreCategory = async (activityId: string, category: string) => {
+    setScoreActivities((prev) =>
+      prev.map((a) => (a.id === activityId ? { ...a, score_category: category || null } : a)),
+    )
+    const { error } = await supabase
+      .from("activities")
+      .update({ score_category: category || null })
+      .eq("id", activityId)
+    if (error) {
+      console.error("score_category 저장 오류:", error)
+      alert(`저장 실패: ${error.message}`)
+    }
+  }
+
+  const groupScoreByAssignee = () => {
+    const grouped: any = {}
+    scoreActivities.forEach((activity) => {
       const assignee = activity.assigned_to || "미정"
       if (!grouped[assignee]) grouped[assignee] = []
       grouped[assignee].push(activity)
@@ -548,6 +662,267 @@ export default function AdminPage() {
                 </Table>
               </div>
             ))}
+          </div>
+        )}
+      </Card>
+    )
+  }
+
+  const renderActivityScores = () => {
+    const grouped = groupScoreByAssignee()
+    const assignees =
+      scoreSelectedAssignee === "전체"
+        ? Object.keys(grouped)
+        : Object.keys(grouped).filter((a) => a === scoreSelectedAssignee)
+
+    const allAssignees = ["전체", "오일환", "박상혁", "윤경호", "미정"]
+
+    const truncateText = (text: string | null | undefined, maxLength: number) => {
+      if (!text) return "-"
+      if (text.length <= maxLength) return text
+      return text.slice(0, maxLength) + "..."
+    }
+
+    const goToPreviousDay = () => {
+      const newDate = new Date(scoreSelectedDate)
+      newDate.setDate(newDate.getDate() - 1)
+      setScoreSelectedDate(newDate)
+    }
+
+    const goToNextDay = () => {
+      const newDate = new Date(scoreSelectedDate)
+      newDate.setDate(newDate.getDate() + 1)
+      setScoreSelectedDate(newDate)
+    }
+
+    const copyAsImage = async (assignee: string) => {
+      const element = scoreAssigneeRefs.current[assignee]
+      if (!element) return
+      try {
+        const copyBtn = element.querySelector(".score-copy-button") as HTMLElement
+        if (copyBtn) copyBtn.style.display = "none"
+        const originalBorder = element.style.border
+        element.style.border = "none"
+
+        const blob = await toBlob(element, {
+          backgroundColor: "#ffffff",
+          pixelRatio: 2,
+          cacheBust: true,
+        })
+
+        element.style.border = originalBorder
+        if (copyBtn) copyBtn.style.display = ""
+
+        if (!blob) throw new Error("이미지 생성 실패")
+
+        try {
+          await navigator.clipboard.write([new ClipboardItem({ "image/png": blob })])
+          setScoreCopiedAssignee(assignee)
+          setTimeout(() => setScoreCopiedAssignee(null), 2000)
+        } catch {
+          const url = URL.createObjectURL(blob)
+          const a = document.createElement("a")
+          a.href = url
+          a.download = `${assignee}_활동지수_${format(scoreSelectedDate, "yyyyMMdd")}.png`
+          a.click()
+          URL.revokeObjectURL(url)
+          setScoreCopiedAssignee(assignee)
+          setTimeout(() => setScoreCopiedAssignee(null), 2000)
+        }
+      } catch (error) {
+        console.error("이미지 생성 실패:", error)
+        alert("이미지 복사에 실패했습니다.")
+      }
+    }
+
+    const calculateScore = (list: any[]) => {
+      const counts: Record<string, number> = {}
+      let total = 0
+      SCORE_CATEGORIES.forEach((c) => {
+        counts[c.value] = 0
+      })
+      list.forEach((a) => {
+        const cat = a.score_category || ""
+        if (counts[cat] !== undefined) {
+          counts[cat] += 1
+          total += SCORE_MAP[cat]
+        }
+      })
+      return { counts, total }
+    }
+
+    return (
+      <Card className="p-6">
+        <div className="mb-6">
+          <h3 className="text-lg font-semibold mb-2">담당자별 활동 지수</h3>
+          <p className="text-xs text-muted-foreground mb-4">
+            각 활동 기록에 점수 분류를 지정하면 자동으로 저장되며, 합산 점수가 계산됩니다.
+            (단순접촉 1점 / 통화 3점 / 상담 5점 / 약속 7점 / 방문 10점 / 내방 15점 / 견적제작·발송·포도 1점 / 모임 2점)
+          </p>
+          <div className="flex gap-2 flex-wrap">
+            {allAssignees.map((assignee) => (
+              <Button
+                key={assignee}
+                variant={scoreSelectedAssignee === assignee ? "default" : "outline"}
+                size="sm"
+                onClick={() => setScoreSelectedAssignee(assignee)}
+              >
+                {assignee}
+              </Button>
+            ))}
+          </div>
+        </div>
+
+        <div className="flex items-center justify-center gap-4 mb-6">
+          <Button variant="outline" size="icon" onClick={goToPreviousDay}>
+            <ChevronLeft className="h-4 w-4" />
+          </Button>
+
+          <Popover open={isScoreDatePickerOpen} onOpenChange={setIsScoreDatePickerOpen}>
+            <PopoverTrigger asChild>
+              <Button variant="outline" className="min-w-[200px] bg-transparent">
+                <Calendar className="h-4 w-4 mr-2" />
+                {format(scoreSelectedDate, "yyyy년 MM월 dd일", { locale: ko })}
+              </Button>
+            </PopoverTrigger>
+            <PopoverContent className="w-auto p-0" align="center">
+              <CalendarComponent
+                mode="single"
+                selected={scoreSelectedDate}
+                onSelect={(date) => {
+                  if (date) {
+                    setScoreSelectedDate(date)
+                    setIsScoreDatePickerOpen(false)
+                  }
+                }}
+                locale={ko}
+              />
+            </PopoverContent>
+          </Popover>
+
+          <Button variant="outline" size="icon" onClick={goToNextDay}>
+            <ChevronRight className="h-4 w-4" />
+          </Button>
+        </div>
+
+        {assignees.length === 0 ? (
+          <div className="text-center py-8 text-muted-foreground">선택한 날짜에 등록된 활동이 없습니다.</div>
+        ) : (
+          <div className="space-y-6">
+            {assignees.map((assignee) => {
+              const list = grouped[assignee] as any[]
+              const { counts, total } = calculateScore(list)
+              return (
+                <div
+                  key={assignee}
+                  ref={(el) => {
+                    scoreAssigneeRefs.current[assignee] = el
+                  }}
+                  data-capture="true"
+                  className="rounded-lg p-4 border border-gray-200"
+                  style={{ backgroundColor: "#ffffff", overflow: "hidden" }}
+                >
+                  <div className="flex items-center justify-between mb-3">
+                    <h4 className="font-semibold">
+                      {assignee} ({list.length}건) - {format(scoreSelectedDate, "yyyy년 MM월 dd일", { locale: ko })}
+                      <span className="ml-3 text-primary">총 {total}점</span>
+                    </h4>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => copyAsImage(assignee)}
+                      className="print:hidden score-copy-button"
+                    >
+                      {scoreCopiedAssignee === assignee ? (
+                        <>
+                          <Check className="h-4 w-4 mr-1 text-green-600" />
+                          복사됨!
+                        </>
+                      ) : (
+                        <>
+                          <Copy className="h-4 w-4 mr-1" />
+                          이미지로 복사
+                        </>
+                      )}
+                    </Button>
+                  </div>
+
+                  {/* 점수 요약 */}
+                  <div className="mb-3 flex flex-wrap gap-1.5 text-xs">
+                    {SCORE_CATEGORIES.map((c) => {
+                      const cnt = counts[c.value] || 0
+                      const subtotal = cnt * c.score
+                      return (
+                        <span
+                          key={c.value}
+                          className={`px-2 py-1 rounded-md border ${
+                            cnt > 0 ? "bg-primary/10 border-primary/30 text-primary" : "bg-muted text-muted-foreground"
+                          }`}
+                        >
+                          {c.value} {cnt}건
+                          {cnt > 0 && <span className="ml-1 opacity-70">(+{subtotal})</span>}
+                        </span>
+                      )
+                    })}
+                  </div>
+
+                  <Table>
+                    <TableHeader>
+                      <TableRow className="h-10">
+                        <TableHead className="py-2 w-[5%]">번호</TableHead>
+                        <TableHead className="py-2 w-[15%]">거래처</TableHead>
+                        <TableHead className="py-2 w-[8%]">활동 유형</TableHead>
+                        <TableHead className="py-2 w-[12%]">제목</TableHead>
+                        <TableHead className="py-2 w-[40%]">내용</TableHead>
+                        <TableHead className="py-2 w-[14%]">점수 분류</TableHead>
+                        <TableHead className="py-2 w-[6%] text-right">점수</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {list.map((activity: any, index: number) => {
+                        const currentCat = activity.score_category || ""
+                        const inferredCat = currentCat || inferScoreCategory(activity.activity_type)
+                        const score = currentCat ? SCORE_MAP[currentCat] || 0 : 0
+                        return (
+                          <TableRow key={activity.id} className="h-12">
+                            <TableCell className="py-2">{index + 1}</TableCell>
+                            <TableCell className="py-2">
+                              {truncateText(formatAccountName(activity.deal?.account, ""), 15)}
+                            </TableCell>
+                            <TableCell className="py-2">{activity.activity_type}</TableCell>
+                            <TableCell className="py-2">{truncateText(activity.title, 10)}</TableCell>
+                            <TableCell className="py-2">{truncateText(activity.content, 50)}</TableCell>
+                            <TableCell className="py-2">
+                              <Select
+                                value={currentCat}
+                                onValueChange={(v) => updateScoreCategory(activity.id, v === "__none__" ? "" : v)}
+                              >
+                                <SelectTrigger className="h-8 text-xs">
+                                  <SelectValue
+                                    placeholder={inferredCat ? `${inferredCat} (추정)` : "선택"}
+                                  />
+                                </SelectTrigger>
+                                <SelectContent>
+                                  <SelectItem value="__none__">선택 안함</SelectItem>
+                                  {SCORE_CATEGORIES.map((c) => (
+                                    <SelectItem key={c.value} value={c.value}>
+                                      {c.value} ({c.score}점)
+                                    </SelectItem>
+                                  ))}
+                                </SelectContent>
+                              </Select>
+                            </TableCell>
+                            <TableCell className="py-2 text-right font-medium">
+                              {currentCat ? `+${score}` : "-"}
+                            </TableCell>
+                          </TableRow>
+                        )
+                      })}
+                    </TableBody>
+                  </Table>
+                </div>
+              )
+            })}
           </div>
         )}
       </Card>
@@ -935,6 +1310,7 @@ export default function AdminPage() {
               <TabsTrigger value="contract_reason">결정 사유</TabsTrigger>
               <TabsTrigger value="contract_template">계약서 템플릿</TabsTrigger>
               <TabsTrigger value="activity">활동 기록</TabsTrigger>
+              <TabsTrigger value="activity_score">활동 지수</TabsTrigger>
               <TabsTrigger value="patchnotes">패치노트</TabsTrigger>
             </TabsList>
 
@@ -947,6 +1323,7 @@ export default function AdminPage() {
             <TabsContent value="contract_reason">{renderSettingsTable(contractReasonSettings, "contract_reason", "계약 확정 결정 사유")}</TabsContent>
             <TabsContent value="contract_template">{renderContractTemplates()}</TabsContent>
             <TabsContent value="activity">{renderActivityLog()}</TabsContent>
+            <TabsContent value="activity_score">{renderActivityScores()}</TabsContent>
             <TabsContent value="patchnotes">
               <PatchNotesManager />
             </TabsContent>
