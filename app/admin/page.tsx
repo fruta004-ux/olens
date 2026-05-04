@@ -917,12 +917,15 @@ export default function AdminPage() {
                     <TableHeader>
                       <TableRow className="h-10">
                         <TableHead className="py-2 w-[4%]">번호</TableHead>
-                        <TableHead className="py-2 w-[12%]">거래처</TableHead>
-                        <TableHead className="py-2 w-[7%]">활동 유형</TableHead>
-                        <TableHead className="py-2 w-[10%]">제목</TableHead>
-                        <TableHead className="py-2 w-[30%]">내용</TableHead>
-                        <TableHead className="py-2 w-[30%]">점수 분류</TableHead>
-                        <TableHead className="py-2 w-[7%] text-right">점수</TableHead>
+                        <TableHead className="py-2 w-[11%]">거래처</TableHead>
+                        <TableHead className="py-2 w-[6%]">활동 유형</TableHead>
+                        <TableHead className="py-2 w-[9%]">제목</TableHead>
+                        <TableHead className="py-2 w-[24%]">내용</TableHead>
+                        <TableHead className="py-2 w-[14%]">주 분류</TableHead>
+                        <TableHead className="py-2 w-[8%]">추가 1</TableHead>
+                        <TableHead className="py-2 w-[8%]">추가 2</TableHead>
+                        <TableHead className="py-2 w-[8%]">추가 3</TableHead>
+                        <TableHead className="py-2 w-[8%] text-right">점수</TableHead>
                       </TableRow>
                     </TableHeader>
                     <TableBody>
@@ -940,56 +943,53 @@ export default function AdminPage() {
                             <TableCell className="py-2">{truncateText(activity.title, 10)}</TableCell>
                             <TableCell className="py-2">{truncateText(activity.content, 50)}</TableCell>
                             <TableCell className="py-2">
-                              <div className="space-y-1">
-                                <Select
-                                  value={mainCat}
-                                  onValueChange={(v) =>
-                                    updateScoreField(activity.id, "score_category", v === "__none__" ? "" : v)
-                                  }
-                                >
-                                  <SelectTrigger className="h-8 text-xs">
-                                    <SelectValue
-                                      placeholder={inferredMain ? `${inferredMain} (추정)` : "주 분류 선택"}
-                                    />
-                                  </SelectTrigger>
-                                  <SelectContent>
-                                    <SelectItem value="__none__">선택 안함</SelectItem>
-                                    {MAIN_SCORE_OPTIONS.map((c) => (
-                                      <SelectItem key={c.value} value={c.value}>
-                                        {c.value} ({c.score}점)
-                                      </SelectItem>
-                                    ))}
-                                  </SelectContent>
-                                </Select>
-                                <div className="grid grid-cols-3 gap-1">
-                                  {[1, 2, 3].map((slot) => {
-                                    const field = `score_extra_${slot}` as ScoreField
-                                    const val = activity[field] || ""
-                                    return (
-                                      <Select
-                                        key={slot}
-                                        value={val}
-                                        onValueChange={(v) =>
-                                          updateScoreField(activity.id, field, v === "__none__" ? "" : v)
-                                        }
-                                      >
-                                        <SelectTrigger className="h-7 text-xs px-2">
-                                          <SelectValue placeholder={`+${slot}`} />
-                                        </SelectTrigger>
-                                        <SelectContent>
-                                          <SelectItem value="__none__">없음</SelectItem>
-                                          {EXTRA_SCORE_OPTIONS.map((c) => (
-                                            <SelectItem key={c.value} value={c.value}>
-                                              {c.value} (+{c.score})
-                                            </SelectItem>
-                                          ))}
-                                        </SelectContent>
-                                      </Select>
-                                    )
-                                  })}
-                                </div>
-                              </div>
+                              <Select
+                                value={mainCat}
+                                onValueChange={(v) =>
+                                  updateScoreField(activity.id, "score_category", v === "__none__" ? "" : v)
+                                }
+                              >
+                                <SelectTrigger className="h-8 text-xs">
+                                  <SelectValue
+                                    placeholder={inferredMain ? `${inferredMain} (추정)` : "선택"}
+                                  />
+                                </SelectTrigger>
+                                <SelectContent>
+                                  <SelectItem value="__none__">선택 안함</SelectItem>
+                                  {MAIN_SCORE_OPTIONS.map((c) => (
+                                    <SelectItem key={c.value} value={c.value}>
+                                      {c.value} ({c.score}점)
+                                    </SelectItem>
+                                  ))}
+                                </SelectContent>
+                              </Select>
                             </TableCell>
+                            {[1, 2, 3].map((slot) => {
+                              const field = `score_extra_${slot}` as ScoreField
+                              const val = activity[field] || ""
+                              return (
+                                <TableCell key={slot} className="py-2">
+                                  <Select
+                                    value={val}
+                                    onValueChange={(v) =>
+                                      updateScoreField(activity.id, field, v === "__none__" ? "" : v)
+                                    }
+                                  >
+                                    <SelectTrigger className="h-8 text-xs px-2">
+                                      <SelectValue placeholder="없음" />
+                                    </SelectTrigger>
+                                    <SelectContent>
+                                      <SelectItem value="__none__">없음</SelectItem>
+                                      {EXTRA_SCORE_OPTIONS.map((c) => (
+                                        <SelectItem key={c.value} value={c.value}>
+                                          {c.value} (+{c.score})
+                                        </SelectItem>
+                                      ))}
+                                    </SelectContent>
+                                  </Select>
+                                </TableCell>
+                              )
+                            })}
                             <TableCell className="py-2 text-right font-medium">
                               {rowScore > 0 ? `+${rowScore}` : "-"}
                             </TableCell>
