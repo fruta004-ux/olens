@@ -556,12 +556,12 @@ export function CrmQuickRegisterDialog({ open, onOpenChange }: CrmQuickRegisterD
 연락처 : ${formData.phone || "미입력"}
 이메일 : ${formData.email || "미입력"}
 니 즈 : ${formData.needs_summary || "미입력"}
-담당자 : ${formData.assigned_to || ""}
+담당자 : 
 내 용 : 
 ${formData.content || "내용 없음"}
 
-응대자 코코 기재 완료 💌 표시 : @김다예
-응대 완료 📞 표시 : @${formData.assigned_to || '박상혁'}`
+응대자 코코 기재 완료 💌 표시 : 
+응대 완료 📞 표시 : `
   }
 
   const generateChannelTalkHTML = () => {
@@ -588,7 +588,7 @@ ${formData.content || "내용 없음"}
       .map((l) => escapeHtml(l))
       .join("<br>")
 
-    return `<strong>[ 비즈니스 요청 📞 ]</strong><br><br><strong>명 칭 :</strong> ${formData.company_name || "미입력"}<br><strong>업 종 :</strong> ${formData.industry || "미입력"}<br><strong>경 로 :</strong> ${formData.inflow_source || "미입력"}<br><strong>요 청 :</strong> ${formData.inquiry_channel || "미입력"}<br><strong>응 대 :</strong> <br><strong>일 시 :</strong> ${datetime || "미입력"}<br><strong>연락처 :</strong> ${formData.phone || "미입력"}<br><strong>이메일 :</strong> ${formData.email || "미입력"}<br><strong>니 즈 :</strong> ${formData.needs_summary || "미입력"}<br><strong>담당자 :</strong> ${formData.assigned_to || ""}<br><strong>내 용 :</strong><br>${contentHtml}<br><br>응대자 코코 기재 완료 💌 표시 : @김다예<br>응대 완료 📞 표시 : @${formData.assigned_to || '박상혁'}`
+    return `<strong>[ 비즈니스 요청 📞 ]</strong><br><br><strong>명 칭 :</strong> ${formData.company_name || "미입력"}<br><strong>업 종 :</strong> ${formData.industry || "미입력"}<br><strong>경 로 :</strong> ${formData.inflow_source || "미입력"}<br><strong>요 청 :</strong> ${formData.inquiry_channel || "미입력"}<br><strong>응 대 :</strong> <br><strong>일 시 :</strong> ${datetime || "미입력"}<br><strong>연락처 :</strong> ${formData.phone || "미입력"}<br><strong>이메일 :</strong> ${formData.email || "미입력"}<br><strong>니 즈 :</strong> ${formData.needs_summary || "미입력"}<br><strong>담당자 :</strong> <br><strong>내 용 :</strong><br>${contentHtml}<br><br>응대자 코코 기재 완료 💌 표시 : <br>응대 완료 📞 표시 : `
   }
 
   const handleCopyToChannelTalk = async () => {
