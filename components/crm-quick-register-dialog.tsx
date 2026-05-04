@@ -381,7 +381,8 @@ export function CrmQuickRegisterDialog({ open, onOpenChange }: CrmQuickRegisterD
       }
     })
 
-    // 각 라벨의 값 추출 (다음 라벨 직전까지)
+    // 각 라벨의 값 추출: 다음 라벨 직전 또는 첫 빈 줄까지
+    // (모든 필드는 빈 줄을 만나면 값 끝으로 간주 → 마지막 라벨 뒤의 본문 메시지가 값에 섞이는 것 방지)
     const fieldValues: Record<string, string> = {}
     labelPositions.forEach((pos, i) => {
       const startIdx = pos.lineIdx + 1
@@ -391,10 +392,9 @@ export function CrmQuickRegisterDialog({ open, onOpenChange }: CrmQuickRegisterD
         const t = lines[j].trim()
         // "협의 가능"은 작업 시작 희망일 아래에 붙는 체크 표시이므로 제외
         if (t === "협의 가능") continue
-        // 빈 줄 누적 시 추가요청은 그대로 두고, 다른 필드는 첫 빈줄에서 종료
+        // 첫 빈 줄에서 값 종료
         if (t === "") {
-          // 추가 요청 외에는 빈 줄 만나면 종료
-          if (pos.label !== "추가 요청") break
+          if (valueLines.length > 0) break
           continue
         }
         valueLines.push(t)
@@ -590,7 +590,17 @@ ${formData.content || "내용 없음"}
       datetime = `${month}월 ${day}일 (${weekday}) ${period} ${displayHour}시 ${minute}분`
     }
 
-    return `[ 비즈니스 요청 📞 ]<br><strong>명 칭 :</strong> ${formData.company_name || "미입력"}<br><strong>업 종 :</strong> ${formData.industry || "미입력"}<br><strong>경 로 :</strong> ${formData.inflow_source || "미입력"}<br><strong>요 청 :</strong> ${formData.inquiry_channel || "미입력"}<br><strong>응 대 :</strong> ${formData.assigned_to}<br><strong>일 시 :</strong> ${datetime || "미입력"}<br><strong>연락처 :</strong> ${formData.phone || "미입력"}<br><strong>이메일 :</strong> ${formData.email || "미입력"}<br><strong>니 즈 :</strong> ${formData.needs_summary || "미입력"}<br><strong>등 급 :</strong> ${formData.grade || "미상"}<br><strong>내 용 :</strong><br>${formData.content || "내용 없음"}<br>응대자 코코 기재 완료 💌 표시 : @김다예<br>응대 완료 📞 표시 : @${formData.assigned_to || '박상혁'}`
+    const escapeHtml = (s: string) =>
+      s
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+    const contentHtml = (formData.content || "내용 없음")
+      .split("\n")
+      .map((l) => escapeHtml(l))
+      .join("<br>")
+
+    return `<strong>[ 비즈니스 요청 📞 ]</strong><br><strong>명 칭 :</strong> ${formData.company_name || "미입력"}<br><strong>업 종 :</strong> ${formData.industry || "미입력"}<br><strong>경 로 :</strong> ${formData.inflow_source || "미입력"}<br><strong>요 청 :</strong> ${formData.inquiry_channel || "미입력"}<br><strong>응 대 :</strong> ${formData.assigned_to}<br><strong>일 시 :</strong> ${datetime || "미입력"}<br><strong>연락처 :</strong> ${formData.phone || "미입력"}<br><strong>이메일 :</strong> ${formData.email || "미입력"}<br><strong>니 즈 :</strong> ${formData.needs_summary || "미입력"}<br><strong>등 급 :</strong> ${formData.grade || "미상"}<br><strong>내 용 :</strong><br>${contentHtml}<br>응대자 코코 기재 완료 💌 표시 : @김다예<br>응대 완료 📞 표시 : @${formData.assigned_to || '박상혁'}`
   }
 
   const handleCopyToChannelTalk = async () => {
