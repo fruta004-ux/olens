@@ -364,32 +364,41 @@ export default function AdminPage() {
     return grouped
   }
 
-  // 활동 지수: 분류별 점수 매핑
-  const SCORE_CATEGORIES: { value: string; score: number }[] = [
+  // 활동 지수 분류
+  // 주 분류: 한 활동당 1개만 선택 (단순접촉~내방, 모임)
+  const MAIN_SCORE_OPTIONS: { value: string; score: number }[] = [
     { value: "단순접촉", score: 1 },
     { value: "통화", score: 3 },
     { value: "상담", score: 5 },
     { value: "약속", score: 7 },
     { value: "방문", score: 10 },
     { value: "내방", score: 15 },
+    { value: "모임", score: 2 },
+  ]
+  // 추가 분류: 한 활동에 견적제작/견적발송/포도가 각각 동시에 발생 가능 (3개 슬롯)
+  const EXTRA_SCORE_OPTIONS: { value: string; score: number }[] = [
     { value: "견적제작", score: 1 },
     { value: "견적발송", score: 1 },
     { value: "포도", score: 1 },
-    { value: "모임", score: 2 },
   ]
+  const ALL_SCORE_OPTIONS = [...MAIN_SCORE_OPTIONS, ...EXTRA_SCORE_OPTIONS]
 
-  const SCORE_MAP: Record<string, number> = SCORE_CATEGORIES.reduce(
+  const SCORE_MAP: Record<string, number> = ALL_SCORE_OPTIONS.reduce(
     (acc, cur) => ({ ...acc, [cur.value]: cur.score }),
     {} as Record<string, number>,
   )
 
-  // 기존 activity_type 으로부터 score_category 추정
+  // 기존 activity_type 으로부터 주 분류 추정
   const inferScoreCategory = (activityType: string | null | undefined): string => {
     if (!activityType) return ""
-    if (SCORE_MAP[activityType] !== undefined) return activityType
+    const mainSet = new Set(MAIN_SCORE_OPTIONS.map((o) => o.value))
+    if (mainSet.has(activityType)) return activityType
     if (activityType === "이메일") return "단순접촉"
     return ""
   }
+
+  const SCORE_FIELDS = ["score_category", "score_extra_1", "score_extra_2", "score_extra_3"] as const
+  type ScoreField = (typeof SCORE_FIELDS)[number]
 
   const loadScoreActivities = async () => {
     try {
@@ -442,16 +451,17 @@ export default function AdminPage() {
     }
   }
 
-  const updateScoreCategory = async (activityId: string, category: string) => {
+  const updateScoreField = async (activityId: string, field: ScoreField, value: string) => {
+    const v = value || null
     setScoreActivities((prev) =>
-      prev.map((a) => (a.id === activityId ? { ...a, score_category: category || null } : a)),
+      prev.map((a) => (a.id === activityId ? { ...a, [field]: v } : a)),
     )
     const { error } = await supabase
       .from("activities")
-      .update({ score_category: category || null })
+      .update({ [field]: v })
       .eq("id", activityId)
     if (error) {
-      console.error("score_category 저장 오류:", error)
+      console.error(`${field} 저장 오류:`, error)
       alert(`저장 실패: ${error.message}`)
     }
   }
@@ -738,17 +748,28 @@ export default function AdminPage() {
     const calculateScore = (list: any[]) => {
       const counts: Record<string, number> = {}
       let total = 0
-      SCORE_CATEGORIES.forEach((c) => {
+      ALL_SCORE_OPTIONS.forEach((c) => {
         counts[c.value] = 0
       })
       list.forEach((a) => {
-        const cat = a.score_category || ""
-        if (counts[cat] !== undefined) {
-          counts[cat] += 1
-          total += SCORE_MAP[cat]
-        }
+        SCORE_FIELDS.forEach((f) => {
+          const cat = a[f] || ""
+          if (cat && counts[cat] !== undefined) {
+            counts[cat] += 1
+            total += SCORE_MAP[cat] || 0
+          }
+        })
       })
       return { counts, total }
+    }
+
+    const calculateRowScore = (a: any) => {
+      let s = 0
+      SCORE_FIELDS.forEach((f) => {
+        const v = a[f]
+        if (v && SCORE_MAP[v] !== undefined) s += SCORE_MAP[v]
+      })
+      return s
     }
 
     return (
@@ -756,8 +777,9 @@ export default function AdminPage() {
         <div className="mb-6">
           <h3 className="text-lg font-semibold mb-2">담당자별 활동 지수</h3>
           <p className="text-xs text-muted-foreground mb-4">
-            각 활동 기록에 점수 분류를 지정하면 자동으로 저장되며, 합산 점수가 계산됩니다.
-            (단순접촉 1점 / 통화 3점 / 상담 5점 / 약속 7점 / 방문 10점 / 내방 15점 / 견적제작·발송·포도 1점 / 모임 2점)
+            한 활동에 <strong>주 분류 1개</strong>(단순접촉 1점 / 통화 3점 / 상담 5점 / 약속 7점 / 방문 10점 / 내방 15점 / 모임 2점) 와
+            <strong> 추가 분류 최대 3개</strong>(견적제작·견적발송·포도 각 1점, 동시 발생 가능)를 선택할 수 있습니다.
+            선택 즉시 자동 저장되며 합산 점수가 계산됩니다.
           </p>
           <div className="flex gap-2 flex-wrap">
             {allAssignees.map((assignee) => (
@@ -848,43 +870,68 @@ export default function AdminPage() {
                   </div>
 
                   {/* 점수 요약 */}
-                  <div className="mb-3 flex flex-wrap gap-1.5 text-xs">
-                    {SCORE_CATEGORIES.map((c) => {
-                      const cnt = counts[c.value] || 0
-                      const subtotal = cnt * c.score
-                      return (
-                        <span
-                          key={c.value}
-                          className={`px-2 py-1 rounded-md border ${
-                            cnt > 0 ? "bg-primary/10 border-primary/30 text-primary" : "bg-muted text-muted-foreground"
-                          }`}
-                        >
-                          {c.value} {cnt}건
-                          {cnt > 0 && <span className="ml-1 opacity-70">(+{subtotal})</span>}
-                        </span>
-                      )
-                    })}
+                  <div className="mb-3 space-y-1.5 text-xs">
+                    <div className="flex flex-wrap gap-1.5">
+                      <span className="text-muted-foreground self-center">주:</span>
+                      {MAIN_SCORE_OPTIONS.map((c) => {
+                        const cnt = counts[c.value] || 0
+                        const subtotal = cnt * c.score
+                        return (
+                          <span
+                            key={c.value}
+                            className={`px-2 py-1 rounded-md border ${
+                              cnt > 0
+                                ? "bg-primary/10 border-primary/30 text-primary"
+                                : "bg-muted text-muted-foreground"
+                            }`}
+                          >
+                            {c.value} {cnt}건
+                            {cnt > 0 && <span className="ml-1 opacity-70">(+{subtotal})</span>}
+                          </span>
+                        )
+                      })}
+                    </div>
+                    <div className="flex flex-wrap gap-1.5">
+                      <span className="text-muted-foreground self-center">추가:</span>
+                      {EXTRA_SCORE_OPTIONS.map((c) => {
+                        const cnt = counts[c.value] || 0
+                        const subtotal = cnt * c.score
+                        return (
+                          <span
+                            key={c.value}
+                            className={`px-2 py-1 rounded-md border ${
+                              cnt > 0
+                                ? "bg-primary/10 border-primary/30 text-primary"
+                                : "bg-muted text-muted-foreground"
+                            }`}
+                          >
+                            {c.value} {cnt}건
+                            {cnt > 0 && <span className="ml-1 opacity-70">(+{subtotal})</span>}
+                          </span>
+                        )
+                      })}
+                    </div>
                   </div>
 
                   <Table>
                     <TableHeader>
                       <TableRow className="h-10">
-                        <TableHead className="py-2 w-[5%]">번호</TableHead>
-                        <TableHead className="py-2 w-[15%]">거래처</TableHead>
-                        <TableHead className="py-2 w-[8%]">활동 유형</TableHead>
-                        <TableHead className="py-2 w-[12%]">제목</TableHead>
-                        <TableHead className="py-2 w-[40%]">내용</TableHead>
-                        <TableHead className="py-2 w-[14%]">점수 분류</TableHead>
-                        <TableHead className="py-2 w-[6%] text-right">점수</TableHead>
+                        <TableHead className="py-2 w-[4%]">번호</TableHead>
+                        <TableHead className="py-2 w-[12%]">거래처</TableHead>
+                        <TableHead className="py-2 w-[7%]">활동 유형</TableHead>
+                        <TableHead className="py-2 w-[10%]">제목</TableHead>
+                        <TableHead className="py-2 w-[30%]">내용</TableHead>
+                        <TableHead className="py-2 w-[30%]">점수 분류</TableHead>
+                        <TableHead className="py-2 w-[7%] text-right">점수</TableHead>
                       </TableRow>
                     </TableHeader>
                     <TableBody>
                       {list.map((activity: any, index: number) => {
-                        const currentCat = activity.score_category || ""
-                        const inferredCat = currentCat || inferScoreCategory(activity.activity_type)
-                        const score = currentCat ? SCORE_MAP[currentCat] || 0 : 0
+                        const mainCat = activity.score_category || ""
+                        const inferredMain = mainCat || inferScoreCategory(activity.activity_type)
+                        const rowScore = calculateRowScore(activity)
                         return (
-                          <TableRow key={activity.id} className="h-12">
+                          <TableRow key={activity.id} className="align-top">
                             <TableCell className="py-2">{index + 1}</TableCell>
                             <TableCell className="py-2">
                               {truncateText(formatAccountName(activity.deal?.account, ""), 15)}
@@ -893,27 +940,58 @@ export default function AdminPage() {
                             <TableCell className="py-2">{truncateText(activity.title, 10)}</TableCell>
                             <TableCell className="py-2">{truncateText(activity.content, 50)}</TableCell>
                             <TableCell className="py-2">
-                              <Select
-                                value={currentCat}
-                                onValueChange={(v) => updateScoreCategory(activity.id, v === "__none__" ? "" : v)}
-                              >
-                                <SelectTrigger className="h-8 text-xs">
-                                  <SelectValue
-                                    placeholder={inferredCat ? `${inferredCat} (추정)` : "선택"}
-                                  />
-                                </SelectTrigger>
-                                <SelectContent>
-                                  <SelectItem value="__none__">선택 안함</SelectItem>
-                                  {SCORE_CATEGORIES.map((c) => (
-                                    <SelectItem key={c.value} value={c.value}>
-                                      {c.value} ({c.score}점)
-                                    </SelectItem>
-                                  ))}
-                                </SelectContent>
-                              </Select>
+                              <div className="space-y-1">
+                                <Select
+                                  value={mainCat}
+                                  onValueChange={(v) =>
+                                    updateScoreField(activity.id, "score_category", v === "__none__" ? "" : v)
+                                  }
+                                >
+                                  <SelectTrigger className="h-8 text-xs">
+                                    <SelectValue
+                                      placeholder={inferredMain ? `${inferredMain} (추정)` : "주 분류 선택"}
+                                    />
+                                  </SelectTrigger>
+                                  <SelectContent>
+                                    <SelectItem value="__none__">선택 안함</SelectItem>
+                                    {MAIN_SCORE_OPTIONS.map((c) => (
+                                      <SelectItem key={c.value} value={c.value}>
+                                        {c.value} ({c.score}점)
+                                      </SelectItem>
+                                    ))}
+                                  </SelectContent>
+                                </Select>
+                                <div className="grid grid-cols-3 gap-1">
+                                  {[1, 2, 3].map((slot) => {
+                                    const field = `score_extra_${slot}` as ScoreField
+                                    const val = activity[field] || ""
+                                    return (
+                                      <Select
+                                        key={slot}
+                                        value={val}
+                                        onValueChange={(v) =>
+                                          updateScoreField(activity.id, field, v === "__none__" ? "" : v)
+                                        }
+                                      >
+                                        <SelectTrigger className="h-7 text-xs px-2">
+                                          <SelectValue placeholder={`+${slot}`} />
+                                        </SelectTrigger>
+                                        <SelectContent>
+                                          <SelectItem value="__none__">없음</SelectItem>
+                                          {EXTRA_SCORE_OPTIONS.map((c) => (
+                                            <SelectItem key={c.value} value={c.value}>
+                                              {c.value} (+{c.score})
+                                            </SelectItem>
+                                          ))}
+                                        </SelectContent>
+                                      </Select>
+                                    )
+                                  })}
+                                </div>
+                              </div>
                             </TableCell>
                             <TableCell className="py-2 text-right font-medium">
-                              {currentCat ? `+${score}` : "-"}
+                              {rowScore > 0 ? `+${rowScore}` : "-"}
                             </TableCell>
                           </TableRow>
                         )
