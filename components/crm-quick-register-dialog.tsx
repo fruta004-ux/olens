@@ -406,13 +406,19 @@ export function CrmQuickRegisterDialog({ open, onOpenChange }: CrmQuickRegisterD
     const firstLabelIdx = labelPositions.length > 0 ? labelPositions[0].lineIdx : lines.length
     const headerLines = lines.slice(0, firstLabelIdx).map((l) => l.trim()).filter((l) => l)
 
+    // 상태/마커 라인 (이름이 아님)
+    const isStatusOrMarker = (l: string) =>
+      /답변/.test(l) || /변경/.test(l) || l === "원본"
+
     let headerDate = ""
     let headerTime = ""
     let headerName = ""
     headerLines.forEach((l) => {
       if (/^\d{4}\.\d{2}\.\d{2}$/.test(l)) headerDate = l
       else if (/^\d{1,2}:\d{2}$/.test(l)) headerTime = l
-      else if (l !== "답변대기" && l !== "답변완료" && !headerName) headerName = l
+      else if (!isStatusOrMarker(l) && /^[가-힣]{2,5}$/.test(l) && !headerName) {
+        headerName = l
+      }
     })
 
     // 일시 세팅
@@ -472,66 +478,46 @@ export function CrmQuickRegisterDialog({ open, onOpenChange }: CrmQuickRegisterD
       companyFromBody = companyMatch[1].trim()
     }
 
-    // 명칭(회사명): 본문에서 찾은 회사명 우선, 없으면 헤더의 이름 사용
-    parsed.company_name = companyFromBody || headerName || ""
+    // 명칭(회사명): "회사명 / 헤더이름" 형식 (둘 다 있을 때)
+    if (companyFromBody && headerName) {
+      parsed.company_name = `${companyFromBody} / ${headerName}`
+    } else {
+      parsed.company_name = companyFromBody || headerName || ""
+    }
 
     // 업종: 문의 분야 (예: 웹사이트)
     parsed.industry = fieldValues["문의 분야"] || ""
 
     // 유입 경로: 아임웹 전문가 찾기 (settings 매칭)
-    const sourceCandidate = "아임웹 전문가 찾기"
-    parsed.inflow_source = findBestMatch(sourceCandidate, inflowSources) || sourceCandidate
+    parsed.inflow_source = findBestMatch("아임웹 전문가 찾기", inflowSources) || "아임웹 전문가 찾기"
 
-    // 문의 창구: 동일하게 아임웹 전문가 찾기로 매칭 시도
-    parsed.inquiry_channel = findBestMatch(sourceCandidate, inquiryChannels) || sourceCandidate
+    // 문의 창구: "플루타_아임웹 전문가 찾기" 매칭 시도
+    parsed.inquiry_channel =
+      findBestMatch("아임웹 전문가 찾기", inquiryChannels) || "플루타_아임웹 전문가 찾기"
 
-    // 니즈: 의뢰 목적/문의 분야 기반으로 매칭
-    const needsCandidates = [
-      fieldValues["의뢰 목적"],
-      fieldValues["문의 분야"],
-      "홈페이지 제작",
-    ].filter(Boolean) as string[]
-    for (const cand of needsCandidates) {
-      const matched = findBestMatch(cand, needsOptions)
-      if (matched) {
-        parsed.needs_summary = matched
-        break
-      }
-    }
-    if (!parsed.needs_summary) {
-      parsed.needs_summary = needsCandidates[0] || ""
-    }
+    // 니즈: 아임웹은 무조건 "홈페이지 제작"
+    parsed.needs_summary = findBestMatch("홈페이지 제작", needsOptions) || "홈페이지 제작"
 
-    // 등급: 견적 범위 기반 추정 (옵션 매칭, 실패 시 빈값)
-    const budget = fieldValues["견적 범위"] || ""
-    if (budget) {
-      const matched = findBestMatch(budget, gradeOptions)
-      parsed.grade = matched || ""
-    }
+    // 등급: 출력 양식에서 제거됨 (담당자로 대체)
+    parsed.grade = ""
 
-    // 내용: 구조화된 정보 + 고객 메시지를 보기 좋게 합침
+    // 내용: 본문 메시지 → 운영 중 사이트 → 레퍼런스 URL → 견적 범위
     const contentParts: string[] = []
-    contentParts.push("[아임웹 전문가 찾기 문의]")
-    if (fieldValues["문의 분야"]) contentParts.push(`- 문의 분야 : ${fieldValues["문의 분야"]}`)
-    if (fieldValues["견적 범위"]) contentParts.push(`- 견적 범위 : ${fieldValues["견적 범위"]}`)
-    if (fieldValues["작업 시작 희망일"]) {
-      const hasNegotiable = text.includes("협의 가능")
-      contentParts.push(
-        `- 작업 시작 희망일 : ${fieldValues["작업 시작 희망일"]}${hasNegotiable ? " (협의 가능)" : ""}`,
-      )
+    if (bodyMessage) contentParts.push(bodyMessage)
+    if (fieldValues["운영 중 사이트"]) {
+      if (contentParts.length > 0) contentParts.push("")
+      contentParts.push("운영 중 사이트")
+      contentParts.push(fieldValues["운영 중 사이트"])
     }
-    if (fieldValues["의뢰 목적"]) contentParts.push(`- 의뢰 목적 : ${fieldValues["의뢰 목적"]}`)
-    if (fieldValues["페이지 수"]) contentParts.push(`- 페이지 수 : ${fieldValues["페이지 수"]}`)
-    if (fieldValues["운영 중 사이트"]) contentParts.push(`- 운영 중 사이트 : ${fieldValues["운영 중 사이트"]}`)
-    if (fieldValues["레퍼런스 URL"]) contentParts.push(`- 레퍼런스 URL : ${fieldValues["레퍼런스 URL"]}`)
-    if (fieldValues["추가 요청"]) {
-      const additional = fieldValues["추가 요청"].split(/\n/).map((s) => s.trim()).filter(Boolean).join(", ")
-      contentParts.push(`- 추가 요청 : ${additional}`)
+    if (fieldValues["레퍼런스 URL"]) {
+      if (contentParts.length > 0) contentParts.push("")
+      contentParts.push("레퍼런스 URL")
+      contentParts.push(fieldValues["레퍼런스 URL"])
     }
-    if (bodyMessage) {
-      contentParts.push("")
-      contentParts.push("[고객 메시지]")
-      contentParts.push(bodyMessage)
+    if (fieldValues["견적 범위"]) {
+      if (contentParts.length > 0) contentParts.push("")
+      contentParts.push("견적 범위")
+      contentParts.push(fieldValues["견적 범위"])
     }
     parsed.content = contentParts.join("\n")
 
@@ -560,18 +546,20 @@ export function CrmQuickRegisterDialog({ open, onOpenChange }: CrmQuickRegisterD
     }
 
     return `[ 비즈니스 요청 📞 ]
+
 명 칭 : ${formData.company_name || "미입력"}
 업 종 : ${formData.industry || "미입력"}
 경 로 : ${formData.inflow_source || "미입력"}
 요 청 : ${formData.inquiry_channel || "미입력"}
-응 대 : ${formData.assigned_to}
+응 대 : 
 일 시 : ${datetime || "미입력"}
 연락처 : ${formData.phone || "미입력"}
 이메일 : ${formData.email || "미입력"}
 니 즈 : ${formData.needs_summary || "미입력"}
-등 급 : ${formData.grade || "미상"}
+담당자 : ${formData.assigned_to || ""}
 내 용 : 
 ${formData.content || "내용 없음"}
+
 응대자 코코 기재 완료 💌 표시 : @김다예
 응대 완료 📞 표시 : @${formData.assigned_to || '박상혁'}`
   }
@@ -600,7 +588,7 @@ ${formData.content || "내용 없음"}
       .map((l) => escapeHtml(l))
       .join("<br>")
 
-    return `<strong>[ 비즈니스 요청 📞 ]</strong><br><strong>명 칭 :</strong> ${formData.company_name || "미입력"}<br><strong>업 종 :</strong> ${formData.industry || "미입력"}<br><strong>경 로 :</strong> ${formData.inflow_source || "미입력"}<br><strong>요 청 :</strong> ${formData.inquiry_channel || "미입력"}<br><strong>응 대 :</strong> ${formData.assigned_to}<br><strong>일 시 :</strong> ${datetime || "미입력"}<br><strong>연락처 :</strong> ${formData.phone || "미입력"}<br><strong>이메일 :</strong> ${formData.email || "미입력"}<br><strong>니 즈 :</strong> ${formData.needs_summary || "미입력"}<br><strong>등 급 :</strong> ${formData.grade || "미상"}<br><strong>내 용 :</strong><br>${contentHtml}<br>응대자 코코 기재 완료 💌 표시 : @김다예<br>응대 완료 📞 표시 : @${formData.assigned_to || '박상혁'}`
+    return `<strong>[ 비즈니스 요청 📞 ]</strong><br><br><strong>명 칭 :</strong> ${formData.company_name || "미입력"}<br><strong>업 종 :</strong> ${formData.industry || "미입력"}<br><strong>경 로 :</strong> ${formData.inflow_source || "미입력"}<br><strong>요 청 :</strong> ${formData.inquiry_channel || "미입력"}<br><strong>응 대 :</strong> <br><strong>일 시 :</strong> ${datetime || "미입력"}<br><strong>연락처 :</strong> ${formData.phone || "미입력"}<br><strong>이메일 :</strong> ${formData.email || "미입력"}<br><strong>니 즈 :</strong> ${formData.needs_summary || "미입력"}<br><strong>담당자 :</strong> ${formData.assigned_to || ""}<br><strong>내 용 :</strong><br>${contentHtml}<br><br>응대자 코코 기재 완료 💌 표시 : @김다예<br>응대 완료 📞 표시 : @${formData.assigned_to || '박상혁'}`
   }
 
   const handleCopyToChannelTalk = async () => {
