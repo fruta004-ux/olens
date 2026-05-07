@@ -1,7 +1,7 @@
 "use client"
 
 import { useEffect, useState, useCallback } from "react"
-import { Bell, Mail, Phone, ExternalLink, CheckCheck } from "lucide-react"
+import { Bell, Mail, Phone, ExternalLink, CheckCheck, Check, Trash2 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import {
   DropdownMenu,
@@ -10,6 +10,16 @@ import {
   DropdownMenuSeparator,
 } from "@/components/ui/dropdown-menu"
 import { Badge } from "@/components/ui/badge"
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog"
 import { createBrowserClient } from "@/lib/supabase/client"
 import { formatDistanceToNow } from "date-fns"
 import { ko } from "date-fns/locale"
@@ -28,9 +38,15 @@ type InquiryRow = {
 
 const POLL_INTERVAL_MS = 60_000 // 1분마다 폴링 (실시간성 vs 부하 균형)
 
-export function InquiryInboxBell() {
+interface InquiryInboxBellProps {
+  /** 헤더 안에 들어가는 ghost 버튼 / 플로팅용 카드 버튼 등 시각 변형 */
+  variant?: "header" | "floating"
+}
+
+export function InquiryInboxBell({ variant = "header" }: InquiryInboxBellProps = {}) {
   const [items, setItems] = useState<InquiryRow[]>([])
   const [open, setOpen] = useState(false)
+  const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null)
 
   const supabase = createBrowserClient()
 
@@ -90,6 +106,14 @@ export function InquiryInboxBell() {
       .in("id", unreadIds)
   }
 
+  const deleteItem = async (id: string) => {
+    setItems((prev) => prev.filter((i) => i.id !== id))
+    await supabase.from("inquiry_inbox").delete().eq("id", id)
+    setConfirmDeleteId(null)
+  }
+
+  const confirmingItem = confirmDeleteId ? items.find((i) => i.id === confirmDeleteId) : null
+
   const fmtRelative = (iso: string) => {
     try {
       return formatDistanceToNow(new Date(iso), { addSuffix: true, locale: ko })
@@ -98,18 +122,35 @@ export function InquiryInboxBell() {
     }
   }
 
+  const triggerButton =
+    variant === "floating" ? (
+      <Button
+        variant="default"
+        size="icon"
+        className="relative h-12 w-12 rounded-full shadow-lg hover:shadow-xl transition-shadow"
+        aria-label="새 문의 알림"
+      >
+        <Bell className="h-5 w-5" />
+        {unreadCount > 0 && (
+          <span className="absolute -right-1 -top-1 flex h-5 min-w-[1.25rem] items-center justify-center rounded-full bg-red-500 px-1 text-[10px] font-bold text-white border-2 border-background">
+            {unreadCount > 99 ? "99+" : unreadCount}
+          </span>
+        )}
+      </Button>
+    ) : (
+      <Button variant="ghost" size="icon" className="relative" aria-label="새 문의 알림">
+        <Bell className="h-5 w-5" />
+        {unreadCount > 0 && (
+          <span className="absolute -right-0.5 -top-0.5 flex h-4 min-w-[1rem] items-center justify-center rounded-full bg-red-500 px-1 text-[10px] font-bold text-white">
+            {unreadCount > 99 ? "99+" : unreadCount}
+          </span>
+        )}
+      </Button>
+    )
+
   return (
     <DropdownMenu open={open} onOpenChange={setOpen}>
-      <DropdownMenuTrigger asChild>
-        <Button variant="ghost" size="icon" className="relative" aria-label="새 문의 알림">
-          <Bell className="h-5 w-5" />
-          {unreadCount > 0 && (
-            <span className="absolute -right-0.5 -top-0.5 flex h-4 min-w-[1rem] items-center justify-center rounded-full bg-red-500 px-1 text-[10px] font-bold text-white">
-              {unreadCount > 99 ? "99+" : unreadCount}
-            </span>
-          )}
-        </Button>
-      </DropdownMenuTrigger>
+      <DropdownMenuTrigger asChild>{triggerButton}</DropdownMenuTrigger>
       <DropdownMenuContent align="end" className="w-[420px] max-h-[520px] overflow-y-auto p-0">
         <div className="flex items-center justify-between px-4 py-3 border-b sticky top-0 bg-card z-10">
           <div className="flex items-center gap-2">
@@ -159,14 +200,26 @@ export function InquiryInboxBell() {
                         {it.source === "kakao_imweb" ? "아임웹" : it.source}
                       </Badge>
                     </div>
-                    {!it.is_read && (
+                    <div className="flex items-center gap-1 shrink-0">
+                      {!it.is_read && (
+                        <button
+                          onClick={() => markRead(it.id)}
+                          className="inline-flex items-center gap-0.5 text-[10px] text-blue-600 hover:bg-blue-50 px-1.5 py-0.5 rounded transition-colors"
+                          title="읽음 표시"
+                        >
+                          <Check className="h-3 w-3" />
+                          읽음
+                        </button>
+                      )}
                       <button
-                        onClick={() => markRead(it.id)}
-                        className="text-[10px] text-blue-600 hover:underline"
+                        onClick={() => setConfirmDeleteId(it.id)}
+                        className="inline-flex items-center gap-0.5 text-[10px] text-emerald-700 hover:bg-emerald-50 px-1.5 py-0.5 rounded transition-colors"
+                        title="처리 완료 (삭제)"
                       >
-                        읽음
+                        <Trash2 className="h-3 w-3" />
+                        처리완료
                       </button>
-                    )}
+                    </div>
                   </div>
 
                   <div className="flex flex-wrap gap-x-3 gap-y-1 text-xs mb-1">
@@ -213,6 +266,37 @@ export function InquiryInboxBell() {
           </a>
         </div>
       </DropdownMenuContent>
+
+      <AlertDialog
+        open={Boolean(confirmDeleteId)}
+        onOpenChange={(o) => {
+          if (!o) setConfirmDeleteId(null)
+        }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>이 문의를 처리 완료(삭제)하시겠습니까?</AlertDialogTitle>
+            <AlertDialogDescription>
+              알림에서 영구적으로 제거됩니다. 복구할 수 없습니다.
+              {confirmingItem?.parsed_email && (
+                <span className="block mt-2 px-2 py-1 rounded bg-muted text-xs font-mono text-foreground">
+                  {confirmingItem.parsed_email}
+                  {confirmingItem.parsed_phone ? ` · ${confirmingItem.parsed_phone}` : ""}
+                </span>
+              )}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>취소</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => confirmDeleteId && deleteItem(confirmDeleteId)}
+              className="bg-emerald-600 hover:bg-emerald-700"
+            >
+              처리 완료
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </DropdownMenu>
   )
 }

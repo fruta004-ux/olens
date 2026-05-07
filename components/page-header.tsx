@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button"
 import { cn } from "@/lib/utils"
 import { Search, User, Home } from "lucide-react"
 import { LucideIcon } from "lucide-react"
+import { InquiryInboxBell } from "@/components/inquiry-inbox-bell"
 
 interface PageHeaderProps {
   icon: LucideIcon
@@ -61,8 +62,9 @@ export function PageHeader({ icon: Icon, title, className }: PageHeaderProps) {
         </div>
       </div>
 
-      {/* 우측: 유저 정보 */}
+      {/* 우측: 알림 + 유저 정보 */}
       <div className="flex items-center gap-2">
+        <InquiryInboxBell />
         <span className="text-sm text-muted-foreground">user01</span>
         <div className="w-8 h-8 rounded-full bg-muted flex items-center justify-center">
           <User className="h-4 w-4 text-muted-foreground" />
