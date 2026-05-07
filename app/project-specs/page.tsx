@@ -300,7 +300,7 @@ export default function ProjectSpecsPage() {
   const [filterProgress, setFilterProgress] = useState<string>("전체")
   const [filterInvoice, setFilterInvoice] = useState<string>("전체")
   const [filterAssigned, setFilterAssigned] = useState<string>("전체")
-  const [filterFinanceAssigned, setFilterFinanceAssigned] = useState<string>("전체")
+  const [filterCostType, setFilterCostType] = useState<string>("전체")
   const [searchQuery, setSearchQuery] = useState("")
   // 입금 예정일 기준월 필터 (yyyy-MM)
   // 기본: 시작일 = 이번 달 1일, 종료일 = 이번 달 말일
@@ -510,11 +510,7 @@ export default function ProjectSpecsPage() {
       if (filterProgress !== "전체" && s.progress_status !== filterProgress) return false
       if (filterInvoice !== "전체" && s.invoice_status !== filterInvoice) return false
       if (filterAssigned !== "전체" && (s.assigned_to || "") !== filterAssigned) return false
-      if (
-        filterFinanceAssigned !== "전체" &&
-        (s.finance_assigned_to || "") !== filterFinanceAssigned
-      )
-        return false
+      if (filterCostType !== "전체" && s.cost_type !== filterCostType) return false
 
       // 날짜 범위 필터: 계산서 발행 예정일 기준 (없으면 입금 예정일 폴백, 둘 다 없으면 항상 표시)
       const itemDate = s.invoice_issue_due_date || s.payment_due_date
@@ -537,7 +533,7 @@ export default function ProjectSpecsPage() {
     filterProgress,
     filterInvoice,
     filterAssigned,
-    filterFinanceAssigned,
+    filterCostType,
     filterStartDate,
     filterEndDate,
     searchQuery,
@@ -1141,15 +1137,15 @@ export default function ProjectSpecsPage() {
                   ))}
                 </SelectContent>
               </Select>
-              <Select value={filterFinanceAssigned} onValueChange={setFilterFinanceAssigned}>
+              <Select value={filterCostType} onValueChange={setFilterCostType}>
                 <SelectTrigger className="w-[140px] h-8 text-xs">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="전체">재무 담당자 전체</SelectItem>
-                  {financeAssignedToOptions.map((a) => (
-                    <SelectItem key={a} value={a}>
-                      {a}
+                  <SelectItem value="전체">비용 종류 전체</SelectItem>
+                  {COST_TYPES.map((c) => (
+                    <SelectItem key={c} value={c}>
+                      {c}
                     </SelectItem>
                   ))}
                 </SelectContent>
