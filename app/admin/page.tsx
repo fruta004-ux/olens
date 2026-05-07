@@ -21,6 +21,7 @@ import { formatAccountName } from "@/lib/account-display"
 import CrmSidebar from "@/components/crm-sidebar"
 import CrmHeader from "@/components/crm-header"
 import { PatchNotesManager } from "@/components/patch-notes-manager"
+import BackupPanel from "@/components/backup-panel"
 import { format } from "date-fns"
 import { ko } from "date-fns/locale"
 
@@ -1390,6 +1391,7 @@ export default function AdminPage() {
               <TabsTrigger value="activity">활동 기록</TabsTrigger>
               <TabsTrigger value="activity_score">활동 지수</TabsTrigger>
               <TabsTrigger value="patchnotes">패치노트</TabsTrigger>
+              <TabsTrigger value="backup">백업</TabsTrigger>
             </TabsList>
 
             <TabsContent value="needs">{renderSettingsTable(needsSettings, "needs", "니즈 축약 항목")}</TabsContent>
@@ -1404,6 +1406,9 @@ export default function AdminPage() {
             <TabsContent value="activity_score">{renderActivityScores()}</TabsContent>
             <TabsContent value="patchnotes">
               <PatchNotesManager />
+            </TabsContent>
+            <TabsContent value="backup">
+              <BackupPanel />
             </TabsContent>
           </Tabs>
 

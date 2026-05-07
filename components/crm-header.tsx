@@ -3,11 +3,12 @@
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Avatar, AvatarFallback } from "@/components/ui/avatar"
-import { Search, Bell, PhoneIncoming, Plus, Lock, Building2, Loader2, LogOut } from "lucide-react"
+import { Search, PhoneIncoming, Plus, Building2, Loader2, LogOut } from "lucide-react"
 import { useState, useEffect, useRef } from "react"
 import { useRouter } from "next/navigation"
 import { QuickMemoDialog } from "@/components/quick-memo-dialog"
 import { CrmQuickRegisterDialog } from "@/components/crm-quick-register-dialog"
+import { InquiryInboxBell } from "@/components/inquiry-inbox-bell"
 import { createBrowserClient } from "@/lib/supabase/client"
 import { cn } from "@/lib/utils"
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger, DropdownMenuSeparator } from "@/components/ui/dropdown-menu"
@@ -282,10 +283,7 @@ export function CrmHeader() {
             빠른 메모
           </Button>
 
-          <Button variant="ghost" size="icon" className="relative opacity-50 cursor-not-allowed" disabled>
-            <Bell className="h-5 w-5" />
-            <Lock className="absolute right-1.5 top-1.5 h-3 w-3" />
-          </Button>
+          <InquiryInboxBell />
 
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
