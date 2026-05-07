@@ -47,21 +47,17 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    // 본문 파싱: JSON 우선, 실패 시 raw text 로 처리
+    // 본문은 한 번만 읽기 가능 (stream). 항상 raw text 먼저 받고 JSON 시도.
+    // MacroDroid 가 보내는 JSON 안의 text 필드에 줄바꿈/따옴표가 escape 안 된 경우
+    // JSON.parse 실패 → 그래도 raw text 자체로는 처리 가능하도록 fallback.
+    const raw = await req.text()
     let body: any = {}
-    const ctype = req.headers.get("content-type") || ""
-    if (ctype.includes("application/json")) {
-      try {
-        body = await req.json()
-      } catch {
-        body = { text: await req.text() }
-      }
-    } else {
-      const raw = await req.text()
+    if (raw) {
       try {
         body = JSON.parse(raw)
       } catch {
-        body = { text: raw }
+        // JSON 깨졌어도 원문은 보존. 본문 전체를 text 로 사용.
+        body = { text: raw, _parse_error: true }
       }
     }
 
