@@ -100,16 +100,19 @@ export function CrmHeader() {
       try {
         const supabase = createBrowserClient()
         const search = searchTerm.toLowerCase()
-        
-        // deals 검색 - 전체 데이터 가져오기 (브랜드명 포함)
+        // 전화번호 검색용: 입력값에서 숫자만 추출
+        const searchDigits = searchTerm.replace(/\D/g, "")
+        const isPhoneSearch = searchDigits.length >= 2 && searchDigits.length / searchTerm.length >= 0.5
+
+        // deals 검색 - 전체 데이터 가져오기 (브랜드명/연락처 포함)
         const { data: deals } = await supabase
           .from("deals")
-          .select("id, deal_name, stage, account:accounts(company_name, brand_name)")
+          .select("id, deal_name, stage, account:accounts(company_name, brand_name, phone), contact:contacts(name, phone, mobile)")
 
-        // clients 검색 - 전체 데이터 가져오기 (브랜드명 포함)
+        // clients 검색 - 전체 데이터 가져오기 (브랜드명/연락처 포함)
         const { data: clients } = await supabase
           .from("clients")
-          .select("id, deal_name, stage, account:accounts(company_name, brand_name)")
+          .select("id, deal_name, stage, account:accounts(company_name, brand_name, phone), contact:contacts(name, phone, mobile)")
 
         const results: SearchResult[] = []
 
@@ -118,6 +121,16 @@ export function CrmHeader() {
           const base = company || fallback
           if (!brand || brand === base) return base
           return `${base} (${brand})`
+        }
+
+        // 전화번호 매칭 (숫자만 비교)
+        const matchesPhone = (phones: (string | undefined | null)[]) => {
+          if (!searchDigits) return false
+          return phones.some((p) => {
+            if (!p) return false
+            const digits = String(p).replace(/\D/g, "")
+            return digits.length > 0 && digits.includes(searchDigits)
+          })
         }
 
         // deals 필터링
@@ -129,13 +142,16 @@ export function CrmHeader() {
             const display = buildDisplay(company, brand, fallback)
             if (!display) return
 
-            // 거래처명 + 브랜드명 모두 검색 대상
-            const haystack = [company, brand, fallback].filter(Boolean).join(" ")
-            const matchesSearch = isChosungSearch(searchTerm)
+            // 거래처명 + 브랜드명 + 연락처명 모두 검색 대상
+            const contactName = deal.contact?.name || ""
+            const haystack = [company, brand, fallback, contactName].filter(Boolean).join(" ")
+            const phones = [deal.account?.phone, deal.contact?.phone, deal.contact?.mobile]
+
+            const matchesText = isChosungSearch(searchTerm)
               ? getChosung(haystack).includes(searchTerm)
               : haystack.toLowerCase().includes(search)
 
-            if (matchesSearch) {
+            if (matchesText || (isPhoneSearch && matchesPhone(phones))) {
               results.push({
                 id: deal.id,
                 name: display,
@@ -155,12 +171,15 @@ export function CrmHeader() {
             const display = buildDisplay(company, brand, fallback)
             if (!display) return
 
-            const haystack = [company, brand, fallback].filter(Boolean).join(" ")
-            const matchesSearch = isChosungSearch(searchTerm)
+            const contactName = client.contact?.name || ""
+            const haystack = [company, brand, fallback, contactName].filter(Boolean).join(" ")
+            const phones = [client.account?.phone, client.contact?.phone, client.contact?.mobile]
+
+            const matchesText = isChosungSearch(searchTerm)
               ? getChosung(haystack).includes(searchTerm)
               : haystack.toLowerCase().includes(search)
 
-            if (matchesSearch) {
+            if (matchesText || (isPhoneSearch && matchesPhone(phones))) {
               results.push({
                 id: client.id,
                 name: display,

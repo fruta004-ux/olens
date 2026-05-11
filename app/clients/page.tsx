@@ -83,6 +83,58 @@ const isChosungSearch = (text: string) => {
   return text.split("").every((char) => CHOSUNG_LIST.includes(char))
 }
 
+// 계약 금액 텍스트(자유 입력)에서 안전하게 정수(원) 추출
+// - "월 50만원 x 6개월" 같은 패턴은 월금액 × 개월수 로 계산
+// - 만/억이 없을 때 모든 숫자를 이어붙여 거대한 값이 되는 버그를 방지하기 위해
+//   첫 번째 숫자 토큰만 사용 (콤마 그룹은 보존)
+const parseContractAmountToWon = (raw: any): number => {
+  if (raw == null) return 0
+  const text = String(raw).trim()
+  if (!text) return 0
+
+  // 콤마 그룹을 보존하면서 첫 번째 금액 토큰을 추출
+  const extractFirstAmount = (s: string): number => {
+    if (/억|만/.test(s)) {
+      let total = 0
+      const eokMatch = s.match(/([\d,.]+)\s*억/)
+      const manMatch = s.match(/([\d,.]+)\s*만/)
+      if (eokMatch) {
+        const v = parseFloat(eokMatch[1].replace(/,/g, ""))
+        if (!isNaN(v)) total += Math.round(v * 100_000_000)
+      }
+      if (manMatch) {
+        const v = parseFloat(manMatch[1].replace(/,/g, ""))
+        if (!isNaN(v)) total += Math.round(v * 10_000)
+      }
+      return total
+    }
+    // 콤마를 포함한 첫 번째 숫자 토큰 (예: "5,000,000")
+    const numMatch = s.match(/\d[\d,]*/)
+    if (!numMatch) return 0
+    const num = Number(numMatch[0].replace(/,/g, ""))
+    return isNaN(num) ? 0 : num
+  }
+
+  // 월 × 개월 패턴 처리
+  const monthsMatch = text.match(/(\d+)\s*개월/)
+  if (monthsMatch) {
+    const months = parseInt(monthsMatch[1], 10)
+    if (months > 0 && months < 120) {
+      // 1) "월 N..." 패턴 우선
+      const monthlyA = text.match(/월\s*([\d,.]+\s*(?:만\s*원?|억\s*원?|원)?)/)
+      // 2) "N [×x*] M개월" 패턴
+      const monthlyB = text.match(/([\d,.]+\s*(?:만\s*원?|억\s*원?|원)?)\s*[×xX*]\s*\d+\s*개월/)
+      const monthlyText = monthlyA?.[1] || monthlyB?.[1]
+      if (monthlyText) {
+        const monthly = extractFirstAmount(monthlyText)
+        if (monthly > 0) return monthly * months
+      }
+    }
+  }
+
+  return extractFirstAmount(text)
+}
+
 type ClientStatus = "활성" | "관리" | "비활성"
 
 const getClientStatus = (contracts: any[], opportunities: any[]): ClientStatus => {
@@ -210,7 +262,7 @@ export default function ClientsPage() {
       const [clientsResult, contractsResult, opportunitiesResult] = await Promise.all([
         supabase
           .from("clients")
-          .select("*, account:accounts(company_name, brand_name, industry), contact:contacts(name, email)")
+          .select("*, account:accounts(company_name, brand_name, industry, phone), contact:contacts(name, email, phone, mobile)")
           .order("updated_at", { ascending: false }),
         supabase
           .from("client_contracts")
@@ -256,26 +308,10 @@ export default function ClientsPage() {
           return diffDays >= 0 && diffDays <= 30
         })
 
-        const totalAmount = myContracts.reduce((sum: number, c: any) => {
-          if (!c.contract_amount) return sum
-          const raw = String(c.contract_amount)
-          const hasEok = raw.includes("억")
-          const hasMan = raw.includes("만")
-
-          if (hasEok || hasMan) {
-            let total = 0
-            const eokMatch = raw.match(/([\d,.]+)\s*억/)
-            const manMatch = raw.match(/([\d,.]+)\s*만/)
-            if (eokMatch) total += Math.round(parseFloat(eokMatch[1].replace(/,/g, "")) * 100000000)
-            if (manMatch) total += Math.round(parseFloat(manMatch[1].replace(/,/g, "")) * 10000)
-            return sum + total
-          }
-
-          const cleaned = raw.replace(/[^0-9]/g, "")
-          if (!cleaned) return sum
-          const num = Number(cleaned)
-          return sum + (isNaN(num) ? 0 : num)
-        }, 0)
+        const totalAmount = myContracts.reduce(
+          (sum: number, c: any) => sum + parseContractAmountToWon(c.contract_amount),
+          0,
+        )
 
         const accountCompany = client.account?.company_name || ""
         const accountBrand = (client.account?.brand_name || "").trim()
@@ -285,6 +321,15 @@ export default function ClientsPage() {
           if (!accountBrand || accountBrand === base) return base
           return `${base} (${accountBrand})`
         })()
+
+        const phoneDigits = [
+          client.account?.phone,
+          client.contact?.phone,
+          client.contact?.mobile,
+        ]
+          .filter(Boolean)
+          .map((p: string) => String(p).replace(/\D/g, ""))
+          .filter((p: string) => p.length > 0)
 
         return {
           id: client.id,
@@ -307,6 +352,7 @@ export default function ClientsPage() {
           hasExpiringContract: expiringContracts.length > 0,
           expiringContractCount: expiringContracts.length,
           industry: client.account?.industry || null,
+          phoneDigits,
         }
       })
 
@@ -384,6 +430,9 @@ export default function ClientsPage() {
     }
     if (searchTerm) {
       const search = searchTerm.toLowerCase()
+      const searchDigits = searchTerm.replace(/\D/g, "")
+      const isPhoneSearch = searchDigits.length >= 2 && searchDigits.length / searchTerm.length >= 0.5
+
       if (isChosungSearch(searchTerm)) {
         result = result.filter(c =>
           getChosung(c.name).includes(searchTerm) ||
@@ -391,12 +440,16 @@ export default function ClientsPage() {
           getChosung(c.contact).includes(searchTerm)
         )
       } else {
-        result = result.filter(c =>
-          c.name.toLowerCase().includes(search) ||
-          (c.brandName || "").toLowerCase().includes(search) ||
-          c.contact.toLowerCase().includes(search) ||
-          c.serviceTypes?.some((t: string) => t.toLowerCase().includes(search))
-        )
+        result = result.filter(c => {
+          const textMatch =
+            c.name.toLowerCase().includes(search) ||
+            (c.brandName || "").toLowerCase().includes(search) ||
+            c.contact.toLowerCase().includes(search) ||
+            c.serviceTypes?.some((t: string) => t.toLowerCase().includes(search))
+          if (textMatch) return true
+          if (isPhoneSearch && c.phoneDigits?.some((d: string) => d.includes(searchDigits))) return true
+          return false
+        })
       }
     }
 
