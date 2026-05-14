@@ -1,4 +1,6 @@
 import { NextRequest, NextResponse } from "next/server"
+import { requireAuthApi } from "@/lib/auth-guard"
+import { rateLimit, maybeCleanup } from "@/lib/rate-limit"
 
 const GEMINI_API_KEY = process.env.GEMINI_API_KEY
 
@@ -109,27 +111,59 @@ ${INTERNAL_COST_GUIDE}
 }
 `
 
+const MAX_BODY_BYTES = 32 * 1024 // 32KB — 견적 요청 본문은 충분히 작음
+const MAX_REQUIREMENTS_LEN = 8000
+
 export async function POST(request: NextRequest) {
   try {
-    // 디버깅: API 키 확인 (앞 10자만 출력)
-    console.log("GEMINI_API_KEY 설정 여부:", !!GEMINI_API_KEY)
-    console.log("GEMINI_API_KEY 앞 10자:", GEMINI_API_KEY?.substring(0, 10) + "...")
-    console.log("GEMINI_API_KEY 길이:", GEMINI_API_KEY?.length)
+    // 1) 인증 (defense-in-depth: middleware 외에 라우트에서도 직접 확인)
+    const guard = await requireAuthApi()
+    if (!guard.ok) return guard.response
+
+    // 2) 사용자별 LLM 호출 rate limit (5분에 20회)
+    maybeCleanup()
+    const rl = rateLimit({
+      key: `quotation:${guard.user.id}`,
+      limit: 20,
+      windowMs: 5 * 60 * 1000,
+    })
+    if (!rl.ok) {
+      return NextResponse.json(
+        { error: `너무 많은 요청. ${Math.ceil(rl.retryAfterMs / 1000)}초 후 다시 시도하세요.` },
+        { status: 429, headers: { "Retry-After": String(Math.ceil(rl.retryAfterMs / 1000)) } }
+      )
+    }
+
+    // 3) 본문 크기 가드 (LLM 비용 폭증 방지)
+    const contentLengthHeader = request.headers.get("content-length")
+    if (contentLengthHeader && Number(contentLengthHeader) > MAX_BODY_BYTES) {
+      return NextResponse.json({ error: "요청 본문이 너무 큽니다." }, { status: 413 })
+    }
 
     if (!GEMINI_API_KEY) {
       return NextResponse.json(
-        { error: "Gemini API 키가 설정되지 않았습니다. .env.local 파일에 GEMINI_API_KEY를 추가해주세요." },
+        { error: "Gemini API 키가 설정되지 않았습니다." },
         { status: 500 }
       )
     }
 
     const body = await request.json()
-    const { customerInfo, requirements, additionalContext } = body
+    const { customerInfo, requirements, additionalContext } = body as {
+      customerInfo?: string
+      requirements?: string
+      additionalContext?: string
+    }
 
-    if (!requirements) {
+    if (!requirements || typeof requirements !== "string" || !requirements.trim()) {
       return NextResponse.json(
         { error: "요구사항을 입력해주세요." },
         { status: 400 }
+      )
+    }
+    if (requirements.length > MAX_REQUIREMENTS_LEN) {
+      return NextResponse.json(
+        { error: "요구사항이 너무 깁니다." },
+        { status: 413 }
       )
     }
 
@@ -178,50 +212,33 @@ ${additionalContext || "없음"}
     )
 
     if (!response.ok) {
-      const errorData = await response.text()
-      console.error("Gemini API 오류:", errorData)
+      const errorText = await response.text()
+      console.error("Gemini API 오류 status=", response.status)
       return NextResponse.json(
-        { error: "AI 서비스 호출에 실패했습니다.", details: errorData },
-        { status: 500 }
+        { error: "AI 서비스 호출에 실패했습니다.", details: errorText.slice(0, 500) },
+        { status: 502 }
       )
     }
 
     const data = await response.json()
-    
-    // 토큰 사용량 출력
-    const usageMetadata = data.usageMetadata
-    if (usageMetadata) {
-      console.log("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
-      console.log("📊 Gemini API 토큰 사용량")
-      console.log("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
-      console.log(`  입력 토큰: ${usageMetadata.promptTokenCount?.toLocaleString() || 0}`)
-      console.log(`  출력 토큰: ${usageMetadata.candidatesTokenCount?.toLocaleString() || 0}`)
-      console.log(`  총 토큰: ${usageMetadata.totalTokenCount?.toLocaleString() || 0}`)
-      console.log("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
-    }
-    
-    // Gemini 응답에서 텍스트 추출
     const generatedText = data.candidates?.[0]?.content?.parts?.[0]?.text
-    
+
     if (!generatedText) {
       return NextResponse.json(
         { error: "AI 응답을 받지 못했습니다." },
-        { status: 500 }
+        { status: 502 }
       )
     }
 
-    // JSON 파싱
     let quotationData
     try {
-      // JSON 블록 추출 (```json ... ``` 형식일 경우)
       const jsonMatch = generatedText.match(/```json\s*([\s\S]*?)\s*```/)
       const jsonStr = jsonMatch ? jsonMatch[1] : generatedText
       quotationData = JSON.parse(jsonStr)
-    } catch (parseError) {
-      console.error("JSON 파싱 오류:", parseError, "원본:", generatedText)
+    } catch {
       return NextResponse.json(
-        { error: "AI 응답 파싱에 실패했습니다.", raw: generatedText },
-        { status: 500 }
+        { error: "AI 응답 파싱에 실패했습니다.", raw: String(generatedText).slice(0, 500) },
+        { status: 502 }
       )
     }
 
@@ -230,7 +247,7 @@ ${additionalContext || "없음"}
       data: quotationData,
     })
   } catch (error) {
-    console.error("견적 생성 오류:", error)
+    console.error("견적 생성 오류:", error instanceof Error ? error.message : "unknown")
     return NextResponse.json(
       { error: "견적 생성 중 오류가 발생했습니다." },
       { status: 500 }

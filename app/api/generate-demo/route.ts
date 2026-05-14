@@ -1,29 +1,62 @@
 import { NextRequest, NextResponse } from "next/server"
+import { requireAuthApi } from "@/lib/auth-guard"
+import { rateLimit, maybeCleanup } from "@/lib/rate-limit"
 
 const V0_API_KEY = process.env.V0_API_KEY
 
+const MAX_BODY_BYTES = 32 * 1024
+const MAX_REQUIREMENTS_LEN = 8000
+
 export async function POST(request: NextRequest) {
   try {
-    console.log("V0_API_KEY 설정 여부:", !!V0_API_KEY)
+    const guard = await requireAuthApi()
+    if (!guard.ok) return guard.response
+
+    // v0 호출은 매우 비싸므로 더 엄격한 rate limit (10분에 5회)
+    maybeCleanup()
+    const rl = rateLimit({
+      key: `demo:${guard.user.id}`,
+      limit: 5,
+      windowMs: 10 * 60 * 1000,
+    })
+    if (!rl.ok) {
+      return NextResponse.json(
+        { error: `너무 많은 요청. ${Math.ceil(rl.retryAfterMs / 1000)}초 후 다시 시도하세요.` },
+        { status: 429, headers: { "Retry-After": String(Math.ceil(rl.retryAfterMs / 1000)) } }
+      )
+    }
+
+    const contentLengthHeader = request.headers.get("content-length")
+    if (contentLengthHeader && Number(contentLengthHeader) > MAX_BODY_BYTES) {
+      return NextResponse.json({ error: "요청 본문이 너무 큽니다." }, { status: 413 })
+    }
 
     if (!V0_API_KEY) {
       return NextResponse.json(
-        { error: "V0 API 키가 설정되지 않았습니다. .env.local 파일에 V0_API_KEY를 추가해주세요." },
+        { error: "V0 API 키가 설정되지 않았습니다." },
         { status: 500 }
       )
     }
 
     const body = await request.json()
-    const { requirements, projectType } = body
+    const { requirements, projectType } = body as {
+      requirements?: string
+      projectType?: string
+    }
 
-    if (!requirements) {
+    if (!requirements || typeof requirements !== "string" || !requirements.trim()) {
       return NextResponse.json(
         { error: "요구사항을 입력해주세요." },
         { status: 400 }
       )
     }
+    if (requirements.length > MAX_REQUIREMENTS_LEN) {
+      return NextResponse.json(
+        { error: "요구사항이 너무 깁니다." },
+        { status: 413 }
+      )
+    }
 
-    // v0 API용 프롬프트 구성
     const prompt = `Create a modern, beautiful demo UI for the following project requirements. 
 Use React with Tailwind CSS. Make it responsive and visually appealing.
 Include sample data to demonstrate the functionality.
@@ -40,11 +73,6 @@ Important:
 - Use shadcn/ui components if applicable
 - Export as a single page component`
 
-    console.log("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
-    console.log("🚀 v0 API 호출 시작")
-    console.log("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
-
-    // v0 API 호출
     const v0Response = await fetch("https://api.v0.dev/v1/chat/completions", {
       method: "POST",
       headers: {
@@ -61,64 +89,43 @@ Important:
     })
 
     if (!v0Response.ok) {
-      const errorData = await v0Response.text()
-      console.error("v0 API 오류:", errorData)
+      const errorText = await v0Response.text()
+      console.error("v0 API 오류 status=", v0Response.status)
       return NextResponse.json(
-        { error: "v0 API 호출에 실패했습니다.", details: errorData },
-        { status: 500 }
+        { error: "v0 API 호출에 실패했습니다.", details: errorText.slice(0, 500) },
+        { status: 502 }
       )
     }
 
     const v0Data = await v0Response.json()
-    
-    // 토큰 사용량 출력
-    if (v0Data.usage) {
-      console.log("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
-      console.log("📊 v0 API 토큰 사용량")
-      console.log(`  입력 토큰: ${v0Data.usage.prompt_tokens?.toLocaleString() || 0}`)
-      console.log(`  출력 토큰: ${v0Data.usage.completion_tokens?.toLocaleString() || 0}`)
-      console.log(`  총 토큰: ${v0Data.usage.total_tokens?.toLocaleString() || 0}`)
-      console.log("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
-    }
-
     const generatedCode = v0Data.choices?.[0]?.message?.content
 
     if (!generatedCode) {
       return NextResponse.json(
         { error: "v0에서 코드를 생성하지 못했습니다." },
-        { status: 500 }
+        { status: 502 }
       )
     }
 
-    console.log("✅ v0 코드 생성 완료, CodeSandbox 업로드 시작...")
-
-    // 코드에서 실제 컴포넌트 부분 추출
     let componentCode = generatedCode
-    
-    // ```tsx 또는 ```jsx 블록 추출
     const codeBlockMatch = generatedCode.match(/```(?:tsx|jsx|javascript|typescript)?\s*([\s\S]*?)```/)
     if (codeBlockMatch) {
       componentCode = codeBlockMatch[1].trim()
     }
 
-    // export default가 없으면 추가
     if (!componentCode.includes('export default')) {
-      // 함수명 찾기
       const functionMatch = componentCode.match(/(?:function|const)\s+(\w+)/)
       if (functionMatch) {
         componentCode += `\n\nexport default ${functionMatch[1]};`
       } else {
-        // 전체를 래핑
         componentCode = `export default function Demo() {\n  return (\n    <>${componentCode}</>\n  );\n}`
       }
     }
 
-    // 'use client' 지시문 추가 (없으면)
     if (!componentCode.includes("'use client'") && !componentCode.includes('"use client"')) {
       componentCode = '"use client";\n\n' + componentCode
     }
 
-    // CodeSandbox Define API용 파일 구조 생성
     const files = {
       "package.json": {
         content: JSON.stringify({
@@ -240,7 +247,6 @@ module.exports = nextConfig`
       }
     }
 
-    // CodeSandbox Define API 호출
     const sandboxResponse = await fetch(
       "https://codesandbox.io/api/v1/sandboxes/define?json=1",
       {
@@ -253,11 +259,11 @@ module.exports = nextConfig`
     )
 
     if (!sandboxResponse.ok) {
-      const errorData = await sandboxResponse.text()
-      console.error("CodeSandbox API 오류:", errorData)
+      const errorText = await sandboxResponse.text()
+      console.error("CodeSandbox API 오류 status=", sandboxResponse.status)
       return NextResponse.json(
-        { error: "CodeSandbox 생성에 실패했습니다.", details: errorData },
-        { status: 500 }
+        { error: "CodeSandbox 생성에 실패했습니다.", details: errorText.slice(0, 500) },
+        { status: 502 }
       )
     }
 
@@ -267,21 +273,15 @@ module.exports = nextConfig`
     const previewUrl = `https://${sandboxId}.csb.app`
     const editorUrl = `https://codesandbox.io/p/sandbox/${sandboxId}`
 
-    console.log("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
-    console.log("✅ 데모 생성 완료!")
-    console.log(`🔗 미리보기: ${previewUrl}`)
-    console.log(`📝 에디터: ${editorUrl}`)
-    console.log("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
-
     return NextResponse.json({
       success: true,
       sandboxId,
-      url: previewUrl,  // 미리보기 링크를 기본으로
+      url: previewUrl,
       editorUrl,
       previewUrl,
     })
   } catch (error) {
-    console.error("데모 생성 오류:", error)
+    console.error("데모 생성 오류:", error instanceof Error ? error.message : "unknown")
     return NextResponse.json(
       { error: "데모 생성 중 오류가 발생했습니다." },
       { status: 500 }

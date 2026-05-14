@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server"
 import { createClient } from "@/lib/supabase/server"
+import { requireAuthApi } from "@/lib/auth-guard"
 
 function parseAmountRange(amountRange: string | null): number {
   if (!amountRange) return 0
@@ -31,6 +32,9 @@ function normalizeStage(stage: string): string {
 
 export async function POST() {
   try {
+    const guard = await requireAuthApi()
+    if (!guard.ok) return guard.response
+
     const supabase = await createClient()
 
     const today = new Date()
@@ -42,7 +46,7 @@ export async function POST() {
       .eq("snapshot_date", todayStr)
       .limit(1)
 
-    const hasAmounts = existing?.some((r: any) => r.total_amount && r.total_amount !== "0")
+    const hasAmounts = existing?.some((r: { total_amount: string | null }) => r.total_amount && r.total_amount !== "0")
     if (existing && existing.length > 0 && hasAmounts) {
       return NextResponse.json({ status: "already_exists", date: todayStr })
     }
@@ -94,6 +98,9 @@ export async function POST() {
 
 export async function GET() {
   try {
+    const guard = await requireAuthApi()
+    if (!guard.ok) return guard.response
+
     const supabase = await createClient()
 
     const today = new Date()

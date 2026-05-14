@@ -17,6 +17,7 @@ import {
 import { createBrowserClient } from "@/lib/supabase/client"
 import { MemoDialog } from "@/components/memo-dialog"
 import { Input } from "@/components/ui/input"
+import { stripHtmlSafe } from "@/lib/sanitize"
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -114,13 +115,8 @@ export default function MemosPage() {
     return date.toLocaleDateString("ko-KR", { month: "short", day: "numeric" })
   }
 
-  // HTML 태그 제거하고 텍스트만 추출
-  const stripHtml = (html: string) => {
-    if (typeof window === "undefined") return html.replace(/<[^>]*>/g, "")
-    const tmp = document.createElement("div")
-    tmp.innerHTML = html
-    return tmp.textContent || tmp.innerText || ""
-  }
+  // HTML 태그 제거하고 텍스트만 추출. innerHTML 을 거치지 않아 XSS 위험 없음.
+  const stripHtml = (html: string) => stripHtmlSafe(html)
 
   // 미리보기 텍스트 생성 (최대 100자)
   const getPreviewText = (content: string) => {

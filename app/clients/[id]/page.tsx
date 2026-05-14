@@ -7,6 +7,7 @@ import React from "react" // 'type React' removed to fix lint error
 import { createBrowserClient } from "@/lib/supabase/client"
 import { useRouter } from "next/navigation"
 import { cn } from "@/lib/utils"
+import { sanitizeHtml } from "@/lib/sanitize"
 import { CrmSidebar } from "@/components/crm-sidebar"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
@@ -819,7 +820,7 @@ function ClientDetailPageClient({ clientId }: { clientId: string }) {
     } catch { /* fallback */ }
 
     const el = document.createElement("div")
-    el.innerHTML = html
+    el.innerHTML = sanitizeHtml(html)
     el.style.position = "fixed"
     el.style.left = "-9999px"
     el.style.whiteSpace = "pre"

@@ -28,6 +28,7 @@ import {
 } from "lucide-react"
 import { createBrowserClient } from "@/lib/supabase/client"
 import { cn } from "@/lib/utils"
+import { sanitizeHtml } from "@/lib/sanitize"
 
 interface MemoDialogProps {
   open: boolean
@@ -86,7 +87,8 @@ export function MemoDialog({ open, onOpenChange, memoId, onSaved }: MemoDialogPr
   }, [currentMemoId, title])
 
   const handleSave = async () => {
-    const editorContent = editorRef.current?.innerHTML || ""
+    const rawContent = editorRef.current?.innerHTML || ""
+    const editorContent = sanitizeHtml(rawContent)
     if (!editorContent.trim() && !title.trim()) return
 
     setIsSaving(true)
@@ -172,10 +174,13 @@ export function MemoDialog({ open, onOpenChange, memoId, onSaved }: MemoDialogPr
     }
   }, [])
 
-  // content가 변경되면 에디터에 반영
+  // content가 변경되면 에디터에 반영 (DB / load 결과는 sanitize 후 주입)
   useEffect(() => {
-    if (editorRef.current && content !== editorRef.current.innerHTML) {
-      editorRef.current.innerHTML = content
+    if (editorRef.current) {
+      const safe = sanitizeHtml(content)
+      if (safe !== editorRef.current.innerHTML) {
+        editorRef.current.innerHTML = safe
+      }
     }
   }, [content])
 

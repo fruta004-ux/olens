@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server"
-import { createClient } from "@/lib/supabase/server"
+import { timingSafeEqual } from "node:crypto"
+import { createAdminClient } from "@/lib/supabase/admin"
 
 export const dynamic = "force-dynamic"
 export const runtime = "nodejs"
@@ -11,6 +12,9 @@ export const runtime = "nodejs"
 
 const WEBHOOK_SECRET = process.env.WEBHOOK_SECRET || ""
 
+// 외부에서 직접 들어오는 엔드포인트 — 페이로드 크기를 엄격히 제한
+const MAX_BODY_BYTES = 64 * 1024 // 64KB
+
 interface ParsedInquiry {
   email: string | null
   phone: string | null
@@ -19,8 +23,6 @@ interface ParsedInquiry {
 }
 
 function parseInquiry(text: string): ParsedInquiry {
-  // 라벨 형식: "■ 이메일 : value"  또는  "■이메일:value"
-  // 한자 사각형(■) 외에 ▪, ●, • 같은 변형 케이스도 대응
   const bullet = "[■▪●•·]"
 
   const emailLine = text.match(new RegExp(`${bullet}?\\s*이메일\\s*[:：]\\s*([^\\s\\n]+)`))
@@ -36,25 +38,54 @@ function parseInquiry(text: string): ParsedInquiry {
   }
 }
 
+/** Constant-time bearer token 비교 (timing attack 방지) */
+function bearerEquals(headerValue: string | null, secret: string): boolean {
+  if (!headerValue || !secret) return false
+  const expected = `Bearer ${secret}`
+  const a = Buffer.from(headerValue)
+  const b = Buffer.from(expected)
+  if (a.length !== b.length) return false
+  try {
+    return timingSafeEqual(a, b)
+  } catch {
+    return false
+  }
+}
+
 export async function POST(req: NextRequest) {
   try {
-    // 인증 (선택): WEBHOOK_SECRET 설정돼 있으면 Authorization: Bearer <secret> 검증
-    if (WEBHOOK_SECRET) {
-      const auth = req.headers.get("authorization") || ""
-      const expected = `Bearer ${WEBHOOK_SECRET}`
-      if (auth !== expected) {
-        return NextResponse.json({ ok: false, error: "Unauthorized" }, { status: 401 })
-      }
+    // 인증을 필수로 강제. WEBHOOK_SECRET 가 환경변수에 없으면 즉시 503.
+    // (이전: secret 이 없으면 모두 통과 → 외부에서 누구나 INSERT 가능했음)
+    if (!WEBHOOK_SECRET) {
+      console.error("[webhook/imweb-inquiry] WEBHOOK_SECRET 환경변수가 설정되어 있지 않습니다.")
+      return NextResponse.json(
+        { ok: false, error: "Service not configured" },
+        { status: 503 }
+      )
     }
 
-    // 본문은 한 번만 읽기 가능 (stream). 항상 raw text 먼저 받고 JSON 시도.
-    // MacroDroid 가 보내는 JSON 안의 text 필드에 줄바꿈/따옴표가 escape 안 된 경우
-    // JSON.parse 실패 → 그래도 raw text 자체로는 처리 가능하도록 fallback.
+    const auth = req.headers.get("authorization")
+    if (!bearerEquals(auth, WEBHOOK_SECRET)) {
+      return NextResponse.json({ ok: false, error: "Unauthorized" }, { status: 401 })
+    }
+
+    // 페이로드 크기 가드 (DoS 방지)
+    const contentLengthHeader = req.headers.get("content-length")
+    if (contentLengthHeader && Number(contentLengthHeader) > MAX_BODY_BYTES) {
+      return NextResponse.json({ ok: false, error: "Payload too large" }, { status: 413 })
+    }
+
     const raw = await req.text()
-    let body: any = {}
+    if (raw.length > MAX_BODY_BYTES) {
+      return NextResponse.json({ ok: false, error: "Payload too large" }, { status: 413 })
+    }
+
+    let body: Record<string, unknown> = {}
     if (raw) {
       try {
-        body = JSON.parse(raw)
+        const parsed = JSON.parse(raw)
+        // JSON 파싱 결과가 객체가 아니면 안전하게 raw 로 처리
+        body = (parsed && typeof parsed === "object" && !Array.isArray(parsed)) ? parsed : { text: raw }
       } catch {
         // JSON 깨졌어도 원문은 보존. 본문 전체를 text 로 사용.
         body = { text: raw, _parse_error: true }
@@ -71,7 +102,9 @@ export async function POST(req: NextRequest) {
 
     const parsed = parseInquiry(text)
 
-    const supabase = await createClient()
+    // RLS 락다운 후엔 anon 키로는 INSERT 불가능 → service_role admin client 사용.
+    // 호출 자체가 위 secret 체크를 통과해야만 여기 도달함.
+    const supabase = createAdminClient()
     const { data, error } = await supabase
       .from("inquiry_inbox")
       .insert({
@@ -83,14 +116,18 @@ export async function POST(req: NextRequest) {
         parsed_phone: parsed.phone,
         parsed_field: parsed.field,
         parsed_budget: parsed.budget,
-        meta: body,
+        // meta 는 디버깅용. 외부 입력 그대로 저장하지 않고 정제된 값만 저장.
+        meta: {
+          parse_error: Boolean(body?._parse_error),
+          received_bytes: raw.length,
+        },
       })
       .select("id, received_at")
       .single()
 
     if (error) {
-      console.error("[webhook/imweb-inquiry] insert error:", error)
-      return NextResponse.json({ ok: false, error: error.message }, { status: 500 })
+      console.error("[webhook/imweb-inquiry] insert error:", error.message)
+      return NextResponse.json({ ok: false, error: "insert failed" }, { status: 500 })
     }
 
     return NextResponse.json({
@@ -99,17 +136,19 @@ export async function POST(req: NextRequest) {
       received_at: data?.received_at,
       parsed,
     })
-  } catch (err: any) {
-    console.error("[webhook/imweb-inquiry] fatal:", err)
-    return NextResponse.json({ ok: false, error: err?.message || "fatal" }, { status: 500 })
+  } catch (err: unknown) {
+    console.error("[webhook/imweb-inquiry] fatal:", err instanceof Error ? err.message : "unknown")
+    return NextResponse.json(
+      { ok: false, error: "fatal" },
+      { status: 500 }
+    )
   }
 }
 
-// 헬스체크용 (브라우저에서 GET 으로 살아있는지 확인 가능)
+// 헬스체크용 (브라우저에서 GET 으로 살아있는지 확인 가능). 인증 정보는 노출하지 않음.
 export async function GET() {
   return NextResponse.json({
     ok: true,
     message: "imweb inquiry webhook is alive",
-    auth_required: Boolean(WEBHOOK_SECRET),
   })
 }

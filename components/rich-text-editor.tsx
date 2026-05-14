@@ -1,9 +1,10 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useMemo } from "react"
 import { Button } from "@/components/ui/button"
 import { Bold, Italic, Underline, List, ListOrdered, Type, Palette, Check, X } from "lucide-react"
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
+import { sanitizeHtml } from "@/lib/sanitize"
 
 interface RichTextEditorProps {
   initialValue: string
@@ -12,7 +13,8 @@ interface RichTextEditorProps {
 }
 
 export function RichTextEditor({ initialValue, onSave, onCancel }: RichTextEditorProps) {
-  const [content, setContent] = useState(initialValue)
+  const [content] = useState(initialValue)
+  const safeContent = useMemo(() => sanitizeHtml(content), [content])
 
   const applyStyle = (command: string, value?: string) => {
     document.execCommand(command, false, value)
@@ -21,7 +23,7 @@ export function RichTextEditor({ initialValue, onSave, onCancel }: RichTextEdito
   const handleSave = () => {
     const editor = document.getElementById("editor")
     if (editor) {
-      onSave(editor.innerHTML)
+      onSave(sanitizeHtml(editor.innerHTML))
     }
   }
 
@@ -142,7 +144,7 @@ export function RichTextEditor({ initialValue, onSave, onCancel }: RichTextEdito
         id="editor"
         contentEditable
         suppressContentEditableWarning
-        dangerouslySetInnerHTML={{ __html: content }}
+        dangerouslySetInnerHTML={{ __html: safeContent }}
         className="min-h-[120px] p-4 focus:outline-none prose prose-sm max-w-none"
       />
     </div>

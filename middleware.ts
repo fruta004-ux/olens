@@ -15,7 +15,7 @@ export async function middleware(request: NextRequest) {
           return request.cookies.getAll()
         },
         setAll(cookiesToSet) {
-          cookiesToSet.forEach(({ name, value, options }) =>
+          cookiesToSet.forEach(({ name, value }) =>
             request.cookies.set(name, value)
           )
           supabaseResponse = NextResponse.next({
@@ -36,18 +36,27 @@ export async function middleware(request: NextRequest) {
 
   const { pathname } = request.nextUrl
 
-  // 로그인 페이지, API, 정적 파일은 제외
+  // 외부에서 인증 없이 호출돼야 하는 경로만 명시적으로 화이트리스트.
+  // 보안 원칙: 기본 deny, 필요한 것만 allow.
   const isPublicPath =
     pathname === "/login" ||
-    pathname.startsWith("/api/") ||
+    // webhook 은 외부 자동화(MacroDroid 등)에서 호출 — 라우트 내부에서 secret 검증
+    pathname.startsWith("/api/webhook/") ||
+    // Next.js 정적 / 메타 리소스
     pathname.startsWith("/_next/") ||
     pathname.startsWith("/favicon") ||
     pathname.startsWith("/icon") ||
     pathname.startsWith("/apple-icon") ||
     pathname === "/manifest.json"
 
-  // 로그인하지 않은 사용자 → /login으로 리다이렉트
+  // 미인증 + 비공개 경로 → API 는 401 JSON, 페이지는 /login 으로 리다이렉트
   if (!user && !isPublicPath) {
+    if (pathname.startsWith("/api/")) {
+      return NextResponse.json(
+        { error: "Unauthorized" },
+        { status: 401 }
+      )
+    }
     const url = request.nextUrl.clone()
     url.pathname = "/login"
     return NextResponse.redirect(url)
