@@ -36,13 +36,15 @@ next-env.d.ts
 1.md
 2.MD
 
-# 2) 보안 점검 / 감사 보고서 — 공격 표면을 그대로 보여주므로 비공개
+# 2) 보안 점검 / 감사 보고서 / 보안 구조 문서 — 공격 표면을 그대로 보여주므로 비공개
 *audit*.md
 *AUDIT*.md
 *audit*.MD
 3.md
 3.MD
 SECURITY_AUDIT*.md
+SECURITY_FIX*.md
+SECURITY_FIX*.MD
 
 # 3) 비밀 키 / 인증서
 *.pem

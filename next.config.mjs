@@ -55,13 +55,6 @@ const securityHeaders = [
 ]
 
 const nextConfig = {
-  // [C4 — 후속 작업] ignoreBuildErrors 는 보안 점검 보고서에서 제거 권장됐지만,
-  // 기존 코드에 50+ 타입 에러가 누적되어 있어 한꺼번에 끄면 빌드가 깨진다.
-  // 보안 자체와는 직접 관련이 없는 코드 위생 이슈이므로, 일단 유지하고
-  // 별도 작업으로 점진 정리할 것. (SECURITY_FIX.md 의 follow-up 섹션 참고)
-  typescript: {
-    ignoreBuildErrors: true,
-  },
   images: {
     // unoptimized: true 는 Next.js 의 자동 이미지 최적화를 끄는 옵션.
     // DoS 가능성이 있어 운영에서는 제거 권장이지만, Vercel 무료 플랜 호환을 위해 유지.

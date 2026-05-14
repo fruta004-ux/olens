@@ -79,9 +79,9 @@ interface ContractData {
     company_name?: string
     representative?: string
   }
-  seal_url?: string
+  seal_url?: string | null
   status: string
-  contract_date?: string
+  contract_date?: string | null
 }
 
 interface ContractViewDialogProps {

@@ -15,8 +15,8 @@ interface QuotationDetailDialogProps {
     supply_amount: number
     vat_amount: number
     total_amount: number
-    valid_until?: string
-    notes?: string
+    valid_until?: string | null
+    notes?: string | null
     created_at: string
   }
   clientName?: string

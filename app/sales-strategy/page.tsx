@@ -1166,7 +1166,7 @@ interface CellWithHistoryProps {
   onColorChange: (color: string | null) => void;
   hasHistory: boolean;
   history: StrategyHistory[];
-  textareaRef: React.RefObject<HTMLTextAreaElement>;
+  textareaRef: React.RefObject<HTMLTextAreaElement | null>;
   isSaving: boolean;
   originalValue: string | null;
 }

@@ -23,6 +23,7 @@ interface Task {
     id: string
     account?: {
       company_name: string
+      brand_name?: string | null
     }
   }
 }

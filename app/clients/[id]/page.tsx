@@ -231,7 +231,7 @@ function ClientDetailPageClient({ clientId }: { clientId: string }) {
   const [nextContactDateOpen, setNextContactDateOpen] = useState(false)
   const [firstContactDateOpen, setFirstContactDateOpen] = useState(false)
   const [activities, setActivities] = useState<any[]>([])
-  const [needsOptions, setNeedsOptions] = useState<string[]>([])
+  const [needsOptions, setNeedsOptions] = useState<{ value: string; label: string }[]>([])
   const [sourceOptions, setSourceOptions] = useState<string[]>([])
   const [channelOptions, setChannelOptions] = useState<string[]>([])
   const [gradeOptions, setGradeOptions] = useState<string[]>([])
@@ -568,7 +568,7 @@ function ClientDetailPageClient({ clientId }: { clientId: string }) {
     }
 
     console.log("[v0] 거래 업데이트 성공 - state 업데이트 중")
-    setDealData((prev) => ({ ...prev, ...updates }))
+    setDealData((prev: any) => ({ ...prev, ...updates }))
 
     if (isClosingDeal || isCompleteDeal) {
       console.log("[v0] 종료/계약완료로 변경 완료 - 데이터 리로드")
@@ -853,7 +853,7 @@ function ClientDetailPageClient({ clientId }: { clientId: string }) {
       return
     }
 
-    setDealData((prev) => ({
+    setDealData((prev: any) => ({
       ...prev,
       account: { ...prev.account, ...updates },
     }))
@@ -998,7 +998,7 @@ function ClientDetailPageClient({ clientId }: { clientId: string }) {
         } else {
           handleUpdateDeal({ [field]: newValue })
         }
-        setDealData((prev) => ({ ...prev, editingField: undefined }))
+        setDealData((prev: any) => ({ ...prev, editingField: undefined }))
       },
       [field, isAccountField],
     )
@@ -1013,7 +1013,7 @@ function ClientDetailPageClient({ clientId }: { clientId: string }) {
         ) : (
           <p
             className="text-sm font-medium text-foreground mt-1 cursor-pointer hover:bg-accent/50 rounded px-2 py-1 -mx-2"
-            onClick={() => setDealData((prev) => ({ ...prev, editingField: field }))}
+            onClick={() => setDealData((prev: any) => ({ ...prev, editingField: field }))}
           >
             {currentValue || "클릭하여 입력"}
           </p>
@@ -1068,7 +1068,7 @@ function ClientDetailPageClient({ clientId }: { clientId: string }) {
     }
 
     try {
-      let attachments = []
+      let attachments: any[] = []
       if (newActivity.attachments.length > 0) {
         attachments = await uploadAttachments(newActivity.attachments)
       }
@@ -2411,7 +2411,7 @@ function ClientDetailPageClient({ clientId }: { clientId: string }) {
                           )}
                         </Button>
                       </div>
-                      <Button onClick={() => setDealData((prev) => ({ ...prev, showAddActivity: true }))} size="sm">
+                      <Button onClick={() => setDealData((prev: any) => ({ ...prev, showAddActivity: true }))} size="sm">
                         <Plus className="mr-2 h-4 w-4" />
                         활동 추가
                       </Button>
@@ -2638,7 +2638,7 @@ function ClientDetailPageClient({ clientId }: { clientId: string }) {
                                       variant="outline"
                                       size="sm"
                                       onClick={() => {
-                                        setDealData((prev) => ({ ...prev, showAddActivity: false }))
+                                        setDealData((prev: any) => ({ ...prev, showAddActivity: false }))
                                         setNewActivity({
                                           activity_type: "통화",
                                           content: "",
@@ -2687,7 +2687,7 @@ function ClientDetailPageClient({ clientId }: { clientId: string }) {
                                             <Popover
                                               open={editingActivity[activity.id]?.calendarOpen}
                                               onOpenChange={(open) =>
-                                                setEditingActivity((prev) => ({
+                                                setEditingActivity((prev: any) => ({
                                                   ...prev,
                                                   [activity.id]: {
                                                     ...prev[activity.id],
@@ -2711,7 +2711,7 @@ function ClientDetailPageClient({ clientId }: { clientId: string }) {
                                               <PopoverContent
                                                 className="w-auto p-0"
                                                 onInteractOutside={() =>
-                                                  setEditingActivity((prev) => ({
+                                                  setEditingActivity((prev: any) => ({
                                                     ...prev,
                                                     [activity.id]: {
                                                       ...prev[activity.id],
@@ -2754,7 +2754,7 @@ function ClientDetailPageClient({ clientId }: { clientId: string }) {
                                             <Select
                                               value={editingActivity[activity.id]?.activity_type || "통화"}
                                               onValueChange={(value) =>
-                                                setEditingActivity((prev) => ({
+                                                setEditingActivity((prev: any) => ({
                                                   ...prev,
                                                   [activity.id]: {
                                                     ...prev[activity.id],
@@ -2800,7 +2800,7 @@ function ClientDetailPageClient({ clientId }: { clientId: string }) {
                                             <Select
                                               value={editingActivity[activity.id]?.assigned_to?.replace(/\s*(대표|과장|사원|팀장|부장|차장|이사|사장)$/g, '').trim() || "미정"}
                                               onValueChange={(value) =>
-                                                setEditingActivity((prev) => ({
+                                                setEditingActivity((prev: any) => ({
                                                   ...prev,
                                                   [activity.id]: {
                                                     ...prev[activity.id],
@@ -2827,7 +2827,7 @@ function ClientDetailPageClient({ clientId }: { clientId: string }) {
                                           <Textarea
                                             value={editingActivity[activity.id]?.content || ""}
                                             onChange={(e) =>
-                                              setEditingActivity((prev) => ({
+                                              setEditingActivity((prev: any) => ({
                                                 ...prev,
                                                 [activity.id]: {
                                                   ...prev[activity.id],
@@ -2848,7 +2848,7 @@ function ClientDetailPageClient({ clientId }: { clientId: string }) {
                                             onChange={(e) => {
                                               if (e.target.files) {
                                                 const newFiles = Array.from(e.target.files)
-                                                setEditingActivity((prev) => ({
+                                                setEditingActivity((prev: any) => ({
                                                   ...prev,
                                                   [activity.id]: {
                                                     ...prev[activity.id],
@@ -2910,7 +2910,7 @@ function ClientDetailPageClient({ clientId }: { clientId: string }) {
                                                         size="sm"
                                                         className="h-5 w-5 p-0"
                                                         onClick={() => {
-                                                          setEditingActivity((prev) => ({
+                                                          setEditingActivity((prev: any) => ({
                                                             ...prev,
                                                             [activity.id]: {
                                                               ...prev[activity.id],

@@ -16,8 +16,10 @@ interface Task {
   id: string
   title: string
   description: string | null
+  task_type: string
   priority: "높음" | "보통" | "낮음"
   due_date: string
+  due_time: string | null
   status: "진행중" | "완료" | "보류"
   assigned_to: string
   deal_id: string | null
@@ -26,6 +28,7 @@ interface Task {
     id: string
     account?: {
       company_name: string
+      brand_name?: string | null
     }
   }
 }

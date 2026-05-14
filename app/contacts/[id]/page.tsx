@@ -126,7 +126,7 @@ function ContactDetailPageClient({ accountId }: { accountId: string }) {
     try {
       const supabase = createBrowserClient()
 
-      const fieldMap = {
+      const fieldMap: Record<string, string> = {
         contact_name: "contact_name",
         contact_position: "contact_position",
         contact_department: "contact_department",
@@ -158,7 +158,7 @@ function ContactDetailPageClient({ accountId }: { accountId: string }) {
           throw error
         }
 
-        setContactData((prev) => ({ ...prev, [field]: newValue }))
+        setContactData((prev: any) => ({ ...prev, [field]: newValue }))
       }
     } catch (error) {
       console.error("[v0] === SAVE ERROR ===", error)

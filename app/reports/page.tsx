@@ -70,11 +70,14 @@ export default function ReportsPage() {
         return
       }
 
-      // @ts-ignore - account join 처리
-      const mappedDeals = data.map((deal) => ({
-        ...deal,
-        notes: deal.account?.notes || null,
-      }))
+      // Supabase 관계 join 은 객체 또는 배열을 반환할 수 있음 → 안전하게 양쪽 모두 처리
+      const mappedDeals = (data as any[]).map((deal) => {
+        const acc = Array.isArray(deal.account) ? deal.account[0] : deal.account
+        return {
+          ...deal,
+          notes: acc?.notes || null,
+        }
+      })
 
       setDeals(mappedDeals)
     } catch (error) {
@@ -109,11 +112,13 @@ export default function ReportsPage() {
         return
       }
 
-      // @ts-ignore - account join 처리
-      const mappedDeals = data.map((deal) => ({
-        ...deal,
-        notes: deal.account?.notes || null,
-      }))
+      const mappedDeals = (data as any[]).map((deal) => {
+        const acc = Array.isArray(deal.account) ? deal.account[0] : deal.account
+        return {
+          ...deal,
+          notes: acc?.notes || null,
+        }
+      })
 
       setRecontactDeals(mappedDeals)
     } catch (error) {

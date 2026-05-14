@@ -345,7 +345,7 @@ function DealDetailPageClient({ dealId }: { dealId: string }) {
   const [nextContactDateOpen, setNextContactDateOpen] = useState(false)
   const [firstContactDateOpen, setFirstContactDateOpen] = useState(false)
   const [activities, setActivities] = useState<any[]>([])
-  const [needsOptions, setNeedsOptions] = useState<string[]>([])
+  const [needsOptions, setNeedsOptions] = useState<{ value: string; label: string }[]>([])
   const [sourceOptions, setSourceOptions] = useState<string[]>([])
   const [channelOptions, setChannelOptions] = useState<string[]>([])
   const [gradeOptions, setGradeOptions] = useState<string[]>([])
@@ -641,7 +641,7 @@ function DealDetailPageClient({ dealId }: { dealId: string }) {
     }
 
     console.log("[v0] 거래 업데이트 성공 - state 업데이트 중")
-    setDealData((prev) => ({ ...prev, ...updates }))
+    setDealData((prev: any) => ({ ...prev, ...updates }))
 
     if (isClosingDeal || isCompleteDeal) {
       console.log("[v0] 종료/계약완료로 변경 완료 - 데이터 리로드")
@@ -1208,7 +1208,7 @@ function DealDetailPageClient({ dealId }: { dealId: string }) {
       return
     }
 
-    setDealData((prev) => ({
+    setDealData((prev: any) => ({
       ...prev,
       account: { ...prev.account, ...updates },
     }))
@@ -1241,7 +1241,7 @@ function DealDetailPageClient({ dealId }: { dealId: string }) {
 
   // EditableField 관련 콜백 함수들
   const handleStartEdit = useCallback((field: string) => {
-    setDealData((prev) => ({ ...prev, editingField: field }))
+    setDealData((prev: any) => ({ ...prev, editingField: field }))
   }, [])
 
   const handleEditableSave = useCallback((field: string, value: string, isAccountField: boolean) => {
@@ -1250,7 +1250,7 @@ function DealDetailPageClient({ dealId }: { dealId: string }) {
     } else {
       handleUpdateDeal({ [field]: value })
     }
-    setDealData((prev) => ({ ...prev, editingField: undefined }))
+    setDealData((prev: any) => ({ ...prev, editingField: undefined }))
   }, [handleUpdateAccount, handleUpdateDeal])
 
   const uploadAttachments = async (files: File[]) => {
@@ -1302,7 +1302,7 @@ function DealDetailPageClient({ dealId }: { dealId: string }) {
 
     setIsAddingActivity(true)
     try {
-      let attachments = []
+      let attachments: any[] = []
       if (newActivity.attachments.length > 0) {
         attachments = await uploadAttachments(newActivity.attachments)
       }
@@ -1743,7 +1743,7 @@ function DealDetailPageClient({ dealId }: { dealId: string }) {
                               const currentNeeds = dealData.needs_summary?.split(",").filter(Boolean) || []
                               let newNeeds: string[]
                               if (isSelected) {
-                                newNeeds = currentNeeds.filter((n) => n !== option.value)
+                                newNeeds = currentNeeds.filter((n: string) => n !== option.value)
                               } else {
                                 newNeeds = [...currentNeeds, option.value]
                               }
@@ -2583,7 +2583,7 @@ function DealDetailPageClient({ dealId }: { dealId: string }) {
                           )}
                         </Button>
                       </div>
-                      <Button onClick={() => setDealData((prev) => ({ ...prev, showAddActivity: true }))} size="sm">
+                      <Button onClick={() => setDealData((prev: any) => ({ ...prev, showAddActivity: true }))} size="sm">
                         <Plus className="mr-2 h-4 w-4" />
                         활동 추가
                       </Button>
@@ -2814,7 +2814,7 @@ function DealDetailPageClient({ dealId }: { dealId: string }) {
                                       size="sm"
                                       disabled={isAddingActivity}
                                       onClick={() => {
-                                        setDealData((prev) => ({ ...prev, showAddActivity: false }))
+                                        setDealData((prev: any) => ({ ...prev, showAddActivity: false }))
                                         setNewActivity({
                                           activity_type: "통화",
                                           content: "",
@@ -2870,7 +2870,7 @@ function DealDetailPageClient({ dealId }: { dealId: string }) {
                                             <Popover
                                               open={editingActivity[activity.id]?.calendarOpen}
                                               onOpenChange={(open) =>
-                                                setEditingActivity((prev) => ({
+                                                setEditingActivity((prev: any) => ({
                                                   ...prev,
                                                   [activity.id]: {
                                                     ...prev[activity.id],
@@ -2894,7 +2894,7 @@ function DealDetailPageClient({ dealId }: { dealId: string }) {
                                               <PopoverContent
                                                 className="w-auto p-0"
                                                 onInteractOutside={() =>
-                                                  setEditingActivity((prev) => ({
+                                                  setEditingActivity((prev: any) => ({
                                                     ...prev,
                                                     [activity.id]: {
                                                       ...prev[activity.id],
@@ -2937,7 +2937,7 @@ function DealDetailPageClient({ dealId }: { dealId: string }) {
                                             <Select
                                               value={editingActivity[activity.id]?.activity_type || "통화"}
                                               onValueChange={(value) =>
-                                                setEditingActivity((prev) => ({
+                                                setEditingActivity((prev: any) => ({
                                                   ...prev,
                                                   [activity.id]: {
                                                     ...prev[activity.id],
@@ -2983,7 +2983,7 @@ function DealDetailPageClient({ dealId }: { dealId: string }) {
                                             <Select
                                               value={editingActivity[activity.id]?.assigned_to?.replace(/\s*(대표|과장|사원|팀장|부장|차장|이사|사장)$/g, '').trim() || "미정"}
                                               onValueChange={(value) =>
-                                                setEditingActivity((prev) => ({
+                                                setEditingActivity((prev: any) => ({
                                                   ...prev,
                                                   [activity.id]: {
                                                     ...prev[activity.id],
@@ -3010,7 +3010,7 @@ function DealDetailPageClient({ dealId }: { dealId: string }) {
                                           <Textarea
                                             value={editingActivity[activity.id]?.content || ""}
                                             onChange={(e) =>
-                                              setEditingActivity((prev) => ({
+                                              setEditingActivity((prev: any) => ({
                                                 ...prev,
                                                 [activity.id]: {
                                                   ...prev[activity.id],
@@ -3031,7 +3031,7 @@ function DealDetailPageClient({ dealId }: { dealId: string }) {
                                             onChange={(e) => {
                                               if (e.target.files) {
                                                 const newFiles = Array.from(e.target.files)
-                                                setEditingActivity((prev) => ({
+                                                setEditingActivity((prev: any) => ({
                                                   ...prev,
                                                   [activity.id]: {
                                                     ...prev[activity.id],
@@ -3093,7 +3093,7 @@ function DealDetailPageClient({ dealId }: { dealId: string }) {
                                                         size="sm"
                                                         className="h-5 w-5 p-0"
                                                         onClick={() => {
-                                                          setEditingActivity((prev) => ({
+                                                          setEditingActivity((prev: any) => ({
                                                             ...prev,
                                                             [activity.id]: {
                                                               ...prev[activity.id],
