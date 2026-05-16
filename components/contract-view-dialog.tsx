@@ -11,6 +11,7 @@ import {
   formatContractDateKR,
   replacePlaceholders,
 } from "@/lib/contract-utils"
+import { enrichContractWithLiveAccount } from "@/lib/contract-sync"
 
 // ============================================================================
 // 페이지 사이즈 상수 (A4)
@@ -516,17 +517,38 @@ interface ContractViewDialogProps {
 export function ContractViewDialog({ open, onOpenChange, contract, onDelete }: ContractViewDialogProps) {
   const [deleting, setDeleting] = useState(false)
   const [pages, setPages] = useState<PageData[]>([])
+  // 거래처 정보를 실시간으로 가져온 버전. 호출자가 enrich 안 했어도 안전.
+  const [liveContract, setLiveContract] = useState<Contract>(contract)
 
-  // open 상태 + contract 변경 시 페이지 측정 재실행
+  // open / contract 변경 시: 거래처 최신 정보 fetch 후 페이지 측정.
   useEffect(() => {
-    if (!open) return
-    if (!contract.clauses || contract.clauses.length === 0) {
-      setPages([])
+    if (!open) {
+      setLiveContract(contract)
       return
     }
 
-    // 폰트 로딩 대기 후 측정 (한글 폰트 메트릭이 다르면 페이지가 어긋남)
+    let cancelled = false
+
     const run = async () => {
+      // 1) 거래처 최신 정보로 client_info 덮어쓰기 (deal_id 있을 때만 실제 fetch)
+      let workingContract: Contract = contract
+      if (contract.deal_id) {
+        try {
+          const supabase = createBrowserClient()
+          const enriched = await enrichContractWithLiveAccount(supabase, contract)
+          if (!cancelled) workingContract = enriched as Contract
+        } catch (err) {
+          console.warn("[contract-view] 거래처 최신 정보 fetch 실패:", err)
+        }
+      }
+      if (!cancelled) setLiveContract(workingContract)
+
+      if (!workingContract.clauses || workingContract.clauses.length === 0) {
+        if (!cancelled) setPages([])
+        return
+      }
+
+      // 2) 폰트 로딩 대기 후 페이지 측정
       try {
         if (typeof document !== "undefined" && (document as any).fonts?.ready) {
           await (document as any).fonts.ready
@@ -534,18 +556,24 @@ export function ContractViewDialog({ open, onOpenChange, contract, onDelete }: C
       } catch {
         // 무시
       }
-      const dateF = formatContractDateKR(contract.contract_date)
-      const measured = measureHeights(contract, dateF)
-      const result = paginate(contract, measured)
-      setPages(result)
+      if (cancelled) return
+
+      const dateF = formatContractDateKR(workingContract.contract_date)
+      const measured = measureHeights(workingContract, dateF)
+      const result = paginate(workingContract, measured)
+      if (!cancelled) setPages(result)
     }
     run()
+
+    return () => {
+      cancelled = true
+    }
   }, [open, contract])
 
   const previewHTML = useMemo(() => {
     if (pages.length === 0) return ""
-    return buildFullHTML(contract, pages, { mode: "preview" })
-  }, [contract, pages])
+    return buildFullHTML(liveContract, pages, { mode: "preview" })
+  }, [liveContract, pages])
 
   const handlePrint = () => {
     if (pages.length === 0) {
@@ -559,7 +587,7 @@ export function ContractViewDialog({ open, onOpenChange, contract, onDelete }: C
       return
     }
 
-    const html = buildFullHTML(contract, pages, { mode: "print" })
+    const html = buildFullHTML(liveContract, pages, { mode: "print" })
     printWin.document.open()
     printWin.document.write(html)
     printWin.document.close()

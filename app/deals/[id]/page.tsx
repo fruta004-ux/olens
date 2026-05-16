@@ -16,7 +16,6 @@ import {
   inferCategoryFromNeeds,
 } from "@/lib/contract-utils"
 import { DEFAULT_SEAL_COMPANY } from "@/lib/contract-utils"
-import { syncContractsForAccount } from "@/lib/contract-sync"
 import { CrmSidebar } from "@/components/crm-sidebar"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
@@ -1208,19 +1207,8 @@ function DealDetailPageClient({ dealId }: { dealId: string }) {
 
     const { error } = await supabase.from("accounts").update(updates).eq("id", dealData.account_id)
 
-    // 계약서 갑 정보 자동 동기화 — OCR / 수기 수정 모두 이 경로를 거침
-    if (!error) {
-      const SYNC_FIELDS = ["company_name", "representative", "business_number", "address"]
-      const changedSyncField = Object.keys(updates).some((k) => SYNC_FIELDS.includes(k))
-      if (changedSyncField) {
-        const result = await syncContractsForAccount(supabase, dealData.account_id)
-        if (result.error) {
-          console.warn("[v0] 계약서 자동 동기화 실패:", result.error)
-        } else if (result.updated > 0) {
-          console.log(`[v0] 계약서 ${result.updated}건의 갑 정보 자동 동기화됨`)
-        }
-      }
-    }
+    // 계약서 갑 정보는 contracts 테이블에 복사 저장하지 않음.
+    // 계약서 조회 시점마다 deal → account 에서 실시간으로 가져오므로 자동 반영됨.
 
     if (error) {
       console.error("[v0] 거래처 업데이트 오류:", error)

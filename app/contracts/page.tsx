@@ -16,6 +16,7 @@ import { ContractViewDialog } from "@/components/contract-view-dialog"
 import { createBrowserClient } from "@/lib/supabase/client"
 import type { Contract as BaseContract } from "@/lib/types/contract"
 import { CONTRACT_CATEGORIES } from "@/lib/types/contract"
+import { enrichContractsWithLiveAccount } from "@/lib/contract-sync"
 
 type Contract = BaseContract & {
   deal_name?: string
@@ -73,7 +74,10 @@ export default function ContractsPage() {
         deal_name: c.deal_id ? dealsMap[c.deal_id] || "-" : "-",
       }))
 
-      setContracts(mapped)
+      // 거래처 정보(client_info) 를 deal → account 에서 실시간으로 덮어씀.
+      // 계약서마다 따로 저장된 client_info 가 outdated 되어도 거래처 최신 값이 노출됨.
+      const enriched = await enrichContractsWithLiveAccount(supabase, mapped)
+      setContracts(enriched)
     } catch (err) {
       console.error("계약서 로드 오류:", err)
     } finally {
