@@ -42,6 +42,9 @@ export async function middleware(request: NextRequest) {
     pathname === "/login" ||
     // webhook 은 외부 자동화(MacroDroid 등)에서 호출 — 라우트 내부에서 secret 검증
     pathname.startsWith("/api/webhook/") ||
+    // 자체 전자서명 — 거래처가 토큰 링크로 접근. 라우트 내부에서 토큰 검증.
+    pathname.startsWith("/sign/") ||
+    pathname.startsWith("/api/sign/") ||
     // Next.js 정적 / 메타 리소스
     pathname.startsWith("/_next/") ||
     pathname.startsWith("/favicon") ||

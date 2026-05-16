@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState } from "react"
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog"
 import { Button } from "@/components/ui/button"
-import { FileDown, Trash2 } from "lucide-react"
+import { FileDown, Trash2, Send } from "lucide-react"
 import { createBrowserClient } from "@/lib/supabase/client"
 import type { Contract, ContractClause } from "@/lib/types/contract"
 import {
@@ -12,23 +12,25 @@ import {
   replacePlaceholders,
 } from "@/lib/contract-utils"
 import { enrichContractWithLiveAccount } from "@/lib/contract-sync"
+import { SignatureRequestDialog } from "@/components/signature-request-dialog"
 
 // ============================================================================
 // 페이지 사이즈 상수 (A4)
 // 변경 시 buildPrintCSS 의 변수도 같이 바뀌도록 일치시킴
 //
-// 페이지 여백은 4 방향 모두 15mm 로 균일. 사용자 요청 ("좌/우와 같이 위/아래도").
+// 페이지 여백은 4 방향 모두 20mm 로 균일.
+// (15mm → 20mm 로 넓힘. 더 여유로운 레이아웃)
 // ============================================================================
 const PAGE_WIDTH_MM = 210
 const PAGE_HEIGHT_MM = 297
-const PAGE_PADDING_TOP_MM = 15
-const PAGE_PADDING_BOTTOM_MM = 15
-const PAGE_PADDING_LEFT_MM = 15
-const PAGE_PADDING_RIGHT_MM = 15
+const PAGE_PADDING_TOP_MM = 20
+const PAGE_PADDING_BOTTOM_MM = 20
+const PAGE_PADDING_LEFT_MM = 20
+const PAGE_PADDING_RIGHT_MM = 20
 // 서명 블록은 padding 안쪽 끝에 정렬 (= padding-bottom 과 같은 거리)
-const SIGNATURE_BOTTOM_MM = 15
-// 페이지 번호는 더 아래쪽 가장자리에 작게 (페이지 가독성에 영향 없음)
-const PAGE_NUMBER_BOTTOM_MM = 6
+const SIGNATURE_BOTTOM_MM = 20
+// 페이지 번호는 padding 영역 안쪽에 살짝 (페이지 가독성에 영향 없음)
+const PAGE_NUMBER_BOTTOM_MM = 8
 
 const MM_TO_PX = 96 / 25.4
 const CONTENT_HEIGHT_PX = (PAGE_HEIGHT_MM - PAGE_PADDING_TOP_MM - PAGE_PADDING_BOTTOM_MM) * MM_TO_PX
@@ -76,6 +78,17 @@ function buildSignatureHTML(contract: Contract, contractDateFormatted: string): 
   const ci = contract.client_info || {}
   const co = contract.company_info || {}
   const sealUrl = contract.seal_url || ""
+  // 갑(거래처) 측 도장 — 자체 서명 시스템으로 받은 도장
+  const clientSealUrl = contract.client_seal_url || ""
+
+  // 도장 자리 — (인) 텍스트는 항상 표시, 도장 있으면 그 위에 absolute 오버레이.
+  // id 부여 → 외부에서 postMessage 로 동적 갱신 가능 (실시간 서명 미리보기).
+  const buildSealZone = (zoneId: string, seal: string, alt: string) => `
+    <span class="seal-zone" id="${zoneId}">
+      <span class="seal-text">(인)</span>
+      ${seal ? `<img class="seal-img" src="${escapeHtml(seal)}" alt="${escapeHtml(alt)}" />` : ""}
+    </span>
+  `.trim()
 
   return `
     <div class="signature">
@@ -86,7 +99,11 @@ function buildSignatureHTML(contract: Contract, contractDateFormatted: string): 
           <div class="row"><span class="label">주 소 :</span><span>${escapeHtml(ci.address || "")}</span></div>
           <div class="row"><span class="label">사 업 자 :</span><span>${escapeHtml(ci.business_number || "")}</span></div>
           <div class="row"><span class="label">회 사 명 :</span><span>${escapeHtml(ci.company_name || "")}</span></div>
-          <div class="row"><span class="label">대 표 자 :</span><span>${escapeHtml(ci.representative || "")}</span><span class="seal-text">(인)</span></div>
+          <div class="row row-rep">
+            <span class="label">대 표 자 :</span>
+            <span>${escapeHtml(ci.representative || "")}</span>
+            ${buildSealZone("client-seal-zone", clientSealUrl, "갑 도장")}
+          </div>
         </div>
         <div class="party">
           <h3>(을)</h3>
@@ -96,9 +113,7 @@ function buildSignatureHTML(contract: Contract, contractDateFormatted: string): 
           <div class="row row-rep">
             <span class="label">대 표 자 :</span>
             <span>${escapeHtml(co.representative || "")}</span>
-            ${sealUrl
-              ? `<img class="seal-img" src="${escapeHtml(sealUrl)}" alt="도장" />`
-              : `<span class="seal-text">(인)</span>`}
+            ${buildSealZone("seller-seal-zone", sealUrl, "을 도장")}
           </div>
         </div>
       </div>
@@ -171,15 +186,15 @@ function buildBaseCSS(): string {
     }
     h1.title {
       text-align: center;
-      font-size: 20px;
+      font-size: 22px;
       font-weight: bold;
-      margin: 0 0 20px 0;
+      margin: 0 0 40px 0;
       letter-spacing: 0.05em;
     }
     .preamble {
       font-size: 10.5px;
       line-height: 1.7;
-      margin: 0 0 20px 0;
+      margin: 0 0 28px 0;
     }
     .clause {
       margin-bottom: 10px;
@@ -233,21 +248,35 @@ function buildBaseCSS(): string {
       width: 56px;
       flex-shrink: 0;
     }
-    .row .seal-text {
-      margin-left: 16px;
-      color: #aaa;
-    }
     .row-rep {
       position: relative;
       align-items: center;
     }
-    .seal-img {
+    /* (인) + 도장 자리. (인) 텍스트는 항상 표시되고, 도장이 있으면 그 위에 absolute 오버레이. */
+    .seal-zone {
+      position: relative;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      margin-left: 16px;
+      width: 64px;
+      height: 64px;
+      vertical-align: middle;
+    }
+    .seal-text {
+      color: #aaa;
+      font-size: 10.5px;
+    }
+    .seal-zone .seal-img {
       position: absolute;
-      right: 0;
-      bottom: -8px;
+      left: 50%;
+      top: 50%;
+      transform: translate(-50%, -50%);
       width: 64px;
       height: 64px;
       object-fit: contain;
+      pointer-events: none;
+      opacity: 0.92;
     }
     .addr-narrow {
       font-size: 10px;
@@ -476,6 +505,22 @@ function paginate(contract: Contract, measure: MeasureResult): PageData[] {
 // 미리보기 / 인쇄 HTML 빌더
 // ============================================================================
 
+export function buildContractFullHTML(
+  contract: Contract,
+  pages: PageData[],
+  options: { mode: "preview" | "print"; title?: string }
+): string {
+  return buildFullHTML(contract, pages, options)
+}
+
+export function measureContractHeights(contract: Contract, contractDateFormatted: string) {
+  return measureHeights(contract, contractDateFormatted)
+}
+
+export function paginateContract(contract: Contract, measure: MeasureResult) {
+  return paginate(contract, measure)
+}
+
 function buildFullHTML(
   contract: Contract,
   pages: PageData[],
@@ -489,6 +534,33 @@ function buildFullHTML(
 
   const docTitle = options.title || `${contract.client_info?.company_name || "거래처"}_${contract.title}`
 
+  // preview 모드에서만 — 외부에서 도장 실시간 업데이트 가능하게 listener 주입
+  const liveSealScript = options.mode === "preview" ? `
+<script>
+(function() {
+  if (window.__contractSealReady) return;
+  window.__contractSealReady = true;
+  window.addEventListener("message", function(ev) {
+    var d = ev.data || {};
+    if (d.type !== "updateClientSeal") return;
+    var zone = document.getElementById("client-seal-zone");
+    if (!zone) return;
+    var old = zone.querySelector("img.seal-img");
+    if (old) old.remove();
+    if (d.dataUrl) {
+      var img = document.createElement("img");
+      img.src = d.dataUrl;
+      img.className = "seal-img";
+      img.alt = "갑 도장";
+      zone.appendChild(img);
+    }
+  });
+  // 부모에게 ready 신호 — 부모가 첫 페인트 시점에 도장 이미 그려져 있어도 동기화 가능
+  try { window.parent.postMessage({ type: "contractPreviewReady" }, "*"); } catch (e) {}
+})();
+</script>
+` : ""
+
   return `<!DOCTYPE html>
 <html lang="ko">
 <head>
@@ -499,6 +571,7 @@ function buildFullHTML(
 </head>
 <body>
   ${pagesHTML}
+  ${liveSealScript}
 </body>
 </html>`
 }
@@ -519,6 +592,7 @@ export function ContractViewDialog({ open, onOpenChange, contract, onDelete }: C
   const [pages, setPages] = useState<PageData[]>([])
   // 거래처 정보를 실시간으로 가져온 버전. 호출자가 enrich 안 했어도 안전.
   const [liveContract, setLiveContract] = useState<Contract>(contract)
+  const [showSignDialog, setShowSignDialog] = useState(false)
 
   // open / contract 변경 시: 거래처 최신 정보 fetch 후 페이지 측정.
   useEffect(() => {
@@ -682,12 +756,35 @@ export function ContractViewDialog({ open, onOpenChange, contract, onDelete }: C
                 {deleting ? "삭제 중..." : "삭제"}
               </Button>
             )}
+            {contract.id && (
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setShowSignDialog(true)}
+                disabled={pages.length === 0}
+                className="gap-1"
+              >
+                <Send className="h-4 w-4" />
+                서명 요청
+              </Button>
+            )}
             <Button onClick={handlePrint} className="gap-2" disabled={pages.length === 0}>
               <FileDown className="h-4 w-4" />
               인쇄 / PDF 저장
             </Button>
           </div>
         </div>
+
+        {contract.id && (
+          <SignatureRequestDialog
+            open={showSignDialog}
+            onOpenChange={setShowSignDialog}
+            contractId={contract.id}
+            contractTitle={contract.title}
+            defaultEmail=""
+            defaultName={liveContract.client_info?.representative || liveContract.client_info?.company_name || ""}
+          />
+        )}
 
         {/* 미리보기는 iframe srcDoc 으로 인쇄와 동일한 HTML 을 띄움 → 100% 일치 */}
         <div className="flex-1 min-h-0 overflow-hidden bg-slate-100">

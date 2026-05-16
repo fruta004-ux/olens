@@ -52,6 +52,10 @@ export interface Contract {
   bank_info: ContractBankInfo
   company_info: ContractCompanyInfo
   seal_url?: string | null
+  /** 갑(거래처) 측 서명/도장 — 자체 전자서명 시스템으로 수신 */
+  client_seal_url?: string | null
+  client_signed_at?: string | null
+  active_signature_request_id?: string | null
   status: string
   contract_date?: string | null
   created_at?: string

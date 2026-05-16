@@ -21,6 +21,29 @@ import type { Contract, ContractClientInfo } from "@/lib/types/contract"
 export interface EnrichableContract {
   deal_id?: string | null
   client_info?: ContractClientInfo
+  company_info?: { company_name?: string }
+  seal_url?: string | null
+}
+
+/**
+ * 활성화된 도장 목록을 가져와서 회사명 → seal_url 맵으로 반환.
+ * 한 회사에 여러 활성 도장이 있으면 가장 최근 것 사용.
+ */
+async function loadActiveSeals(supabase: SupabaseClient): Promise<Map<string, string>> {
+  const map = new Map<string, string>()
+  const { data, error } = await supabase
+    .from("company_seals")
+    .select("company, seal_url, created_at")
+    .eq("is_active", true)
+    .order("created_at", { ascending: false })
+
+  if (error || !data) return map
+  for (const row of data as Array<{ company: string; seal_url: string }>) {
+    if (!map.has(row.company)) {
+      map.set(row.company, row.seal_url)
+    }
+  }
+  return map
 }
 
 /** 단일 계약서를 거래처 최신 정보로 enrich. deal_id 없으면 그대로 반환. */
@@ -35,7 +58,13 @@ export async function enrichContractWithLiveAccount<T extends EnrichableContract
 
 /**
  * 여러 계약서를 한 번의 쿼리로 enrich (목록 화면 등에서 사용).
- * deal_id 가 있는 것들만 모아서 deals + accounts join 한 번 → 결과를 매핑.
+ * 두 가지 정보를 동시에 live 로 갱신:
+ *   1) 갑(client_info): deal_id → account 정보
+ *   2) 을 도장(seal_url): company_info.company_name → company_seals 활성 도장
+ *
+ * 효과:
+ *   - 거래처 정보 변경 → 즉시 반영 (스냅샷 X)
+ *   - 도장 새로 업로드 → 기존 계약서들도 즉시 반영
  */
 export async function enrichContractsWithLiveAccount<T extends EnrichableContract>(
   supabase: SupabaseClient,
@@ -43,42 +72,57 @@ export async function enrichContractsWithLiveAccount<T extends EnrichableContrac
 ): Promise<T[]> {
   if (!contracts || contracts.length === 0) return contracts
 
+  // 1) 거래처 (갑) 정보 일괄 조회
   const dealIds = Array.from(
     new Set(contracts.filter((c) => c.deal_id).map((c) => c.deal_id as string))
   )
-  if (dealIds.length === 0) return contracts
-
-  const { data: deals, error } = await supabase
-    .from("deals")
-    .select("id, account:accounts!account_id ( company_name, representative, business_number, address )")
-    .in("id", dealIds)
-
-  if (error || !deals) {
-    // 조회 실패해도 원본 client_info 로 fallback — 화면이 비지 않게.
-    if (error) console.warn("[contract-enrich] deals 조회 실패:", error.message)
-    return contracts
-  }
-
-  // Supabase 의 join 결과는 객체 또는 배열(N:1 / 1:N)일 수 있어 양쪽 처리
   const dealToAccount = new Map<string, ContractClientInfo>()
-  for (const d of deals as Array<{ id: string; account: unknown }>) {
-    const acc = Array.isArray(d.account) ? (d.account[0] as ContractClientInfo) : (d.account as ContractClientInfo)
-    if (!acc) continue
-    dealToAccount.set(d.id, {
-      company_name: acc.company_name || "",
-      representative: acc.representative || "",
-      business_number: acc.business_number || "",
-      address: acc.address || "",
-    })
+  if (dealIds.length > 0) {
+    const { data: deals, error } = await supabase
+      .from("deals")
+      .select("id, account:accounts!account_id ( company_name, representative, business_number, address )")
+      .in("id", dealIds)
+
+    if (error) {
+      console.warn("[contract-enrich] deals 조회 실패:", error.message)
+    } else if (deals) {
+      for (const d of deals as Array<{ id: string; account: unknown }>) {
+        const acc = Array.isArray(d.account)
+          ? (d.account[0] as ContractClientInfo)
+          : (d.account as ContractClientInfo)
+        if (!acc) continue
+        dealToAccount.set(d.id, {
+          company_name: acc.company_name || "",
+          representative: acc.representative || "",
+          business_number: acc.business_number || "",
+          address: acc.address || "",
+        })
+      }
+    }
   }
+
+  // 2) 도장 (을) 일괄 조회 — 회사명 → seal_url
+  const sealsMap = await loadActiveSeals(supabase)
 
   return contracts.map((c) => {
-    if (!c.deal_id) return c
-    const live = dealToAccount.get(c.deal_id as string)
-    if (!live) return c
-    // 거래처 정보가 있으면 client_info 를 그것으로 덮어씀.
-    // 빈 값이라도 거래처가 정답이라 그대로 덮어씀 (계약서별 수동 변경 X).
-    return { ...c, client_info: live }
+    let next = c
+
+    // 갑 정보 enrich
+    if (c.deal_id) {
+      const live = dealToAccount.get(c.deal_id as string)
+      if (live) next = { ...next, client_info: live }
+    }
+
+    // 도장 enrich — 을 회사명에 해당하는 활성 도장이 있으면 그걸 사용
+    const sellerCompany = next.company_info?.company_name
+    if (sellerCompany) {
+      const liveSeal = sealsMap.get(sellerCompany)
+      if (liveSeal) {
+        next = { ...next, seal_url: liveSeal }
+      }
+    }
+
+    return next
   })
 }
 
