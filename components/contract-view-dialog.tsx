@@ -15,14 +15,18 @@ import {
 // ============================================================================
 // 페이지 사이즈 상수 (A4)
 // 변경 시 buildPrintCSS 의 변수도 같이 바뀌도록 일치시킴
+//
+// 페이지 여백은 4 방향 모두 15mm 로 균일. 사용자 요청 ("좌/우와 같이 위/아래도").
 // ============================================================================
 const PAGE_WIDTH_MM = 210
 const PAGE_HEIGHT_MM = 297
-const PAGE_PADDING_TOP_MM = 12
-const PAGE_PADDING_BOTTOM_MM = 14
+const PAGE_PADDING_TOP_MM = 15
+const PAGE_PADDING_BOTTOM_MM = 15
 const PAGE_PADDING_LEFT_MM = 15
 const PAGE_PADDING_RIGHT_MM = 15
-const SIGNATURE_BOTTOM_MM = 14
+// 서명 블록은 padding 안쪽 끝에 정렬 (= padding-bottom 과 같은 거리)
+const SIGNATURE_BOTTOM_MM = 15
+// 페이지 번호는 더 아래쪽 가장자리에 작게 (페이지 가독성에 영향 없음)
 const PAGE_NUMBER_BOTTOM_MM = 6
 
 const MM_TO_PX = 96 / 25.4
@@ -599,9 +603,11 @@ export function ContractViewDialog({ open, onOpenChange, contract, onDelete }: C
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="!max-w-[900px] max-h-[95vh] overflow-hidden p-0 flex flex-col">
+      <DialogContent
+        className="!max-w-[min(1200px,96vw)] !w-[min(1200px,96vw)] !h-[95vh] !max-h-[95vh] overflow-hidden p-0 flex flex-col"
+      >
         <DialogTitle className="sr-only">계약서 상세</DialogTitle>
-        <div className="p-4 border-b flex justify-between items-center bg-background">
+        <div className="px-4 py-3 border-b flex justify-between items-center bg-background shrink-0">
           <div className="flex items-center gap-2">
             <h2 className="text-lg font-semibold">계약서 상세</h2>
             <span
@@ -640,13 +646,13 @@ export function ContractViewDialog({ open, onOpenChange, contract, onDelete }: C
         </div>
 
         {/* 미리보기는 iframe srcDoc 으로 인쇄와 동일한 HTML 을 띄움 → 100% 일치 */}
-        <div className="flex-1 overflow-hidden bg-slate-100">
+        <div className="flex-1 min-h-0 overflow-hidden bg-slate-100">
           {previewHTML ? (
             <iframe
               key={previewHTML.length /* 내용 바뀌면 재마운트 */}
               srcDoc={previewHTML}
               title="계약서 미리보기"
-              className="w-full h-full"
+              className="w-full h-full block"
               style={{ border: 0, background: "#f1f5f9" }}
             />
           ) : (
