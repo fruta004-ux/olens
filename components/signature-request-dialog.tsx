@@ -1,11 +1,13 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useRef, type KeyboardEvent } from "react"
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Textarea } from "@/components/ui/textarea"
-import { Mail, Send, CheckCircle2, AlertCircle } from "lucide-react"
+import { Mail, Send, CheckCircle2, AlertCircle, X } from "lucide-react"
+
+const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
 
 interface SignatureRequestDialogProps {
   open: boolean
@@ -22,6 +24,7 @@ interface SuccessInfo {
   signUrl: string
   expiresAt: string
   emailId?: string
+  ccCount?: number
 }
 
 export function SignatureRequestDialog({
@@ -40,6 +43,12 @@ export function SignatureRequestDialog({
   const [error, setError] = useState<string | null>(null)
   const [success, setSuccess] = useState<SuccessInfo | null>(null)
 
+  // 참조 (CC) 이메일 — chip 입력
+  const [ccEmails, setCcEmails] = useState<string[]>([])
+  const [ccInput, setCcInput] = useState("")
+  const [ccError, setCcError] = useState<string | null>(null)
+  const ccInputRef = useRef<HTMLInputElement | null>(null)
+
   const reset = () => {
     setError(null)
     setSuccess(null)
@@ -49,11 +58,69 @@ export function SignatureRequestDialog({
   const handleClose = (next: boolean) => {
     if (sending) return
     if (!next) {
-      // 닫을 때 초기화 (다시 열 때 새 입력)
       setMessage("")
+      setCcEmails([])
+      setCcInput("")
+      setCcError(null)
       reset()
     }
     onOpenChange(next)
+  }
+
+  /** ccInput 의 현재 텍스트를 chip 으로 commit (콤마/공백/Enter 시 호출됨). */
+  const commitCcInput = (): boolean => {
+    const raw = ccInput.trim().replace(/,$/g, "")
+    if (!raw) return true
+    if (!EMAIL_RE.test(raw)) {
+      setCcError(`이메일 형식이 올바르지 않습니다: ${raw}`)
+      return false
+    }
+    if (raw.toLowerCase() === email.trim().toLowerCase()) {
+      setCcError("받는 사람과 동일한 이메일은 추가할 수 없습니다.")
+      return false
+    }
+    if (ccEmails.includes(raw)) {
+      setCcInput("")
+      setCcError(null)
+      return true
+    }
+    setCcEmails((prev) => [...prev, raw])
+    setCcInput("")
+    setCcError(null)
+    return true
+  }
+
+  const handleCcKeyDown = (e: KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === "Enter" || e.key === "," || e.key === " " || e.key === "Tab") {
+      // Tab 은 폼 흐름 유지 (preventDefault X)
+      if (e.key !== "Tab") e.preventDefault()
+      commitCcInput()
+    } else if (e.key === "Backspace" && !ccInput && ccEmails.length > 0) {
+      setCcEmails((prev) => prev.slice(0, -1))
+      setCcError(null)
+    }
+  }
+
+  const handleCcPaste = (e: React.ClipboardEvent<HTMLInputElement>) => {
+    const pasted = e.clipboardData.getData("text")
+    if (!pasted.match(/[,\s]/)) return
+    e.preventDefault()
+    const parts = pasted.split(/[,\s]+/).map((s) => s.trim()).filter(Boolean)
+    setCcEmails((prev) => {
+      const next = [...prev]
+      for (const p of parts) {
+        if (!EMAIL_RE.test(p)) continue
+        if (p.toLowerCase() === email.trim().toLowerCase()) continue
+        if (!next.includes(p)) next.push(p)
+      }
+      return next
+    })
+    setCcInput("")
+  }
+
+  const removeCc = (idx: number) => {
+    setCcEmails((prev) => prev.filter((_, i) => i !== idx))
+    setCcError(null)
   }
 
   const handleSend = async () => {
@@ -62,6 +129,12 @@ export function SignatureRequestDialog({
       setError("받는 사람 이메일을 입력해주세요.")
       return
     }
+    // 발송 직전에 ccInput 에 남은 텍스트도 chip 으로 commit
+    if (ccInput.trim()) {
+      const ok = commitCcInput()
+      if (!ok) return
+    }
+
     setSending(true)
     try {
       const res = await fetch(`/api/contracts/${contractId}/send-for-signature`, {
@@ -71,6 +144,7 @@ export function SignatureRequestDialog({
           recipient_email: email.trim(),
           recipient_name: name.trim() || undefined,
           message: message.trim() || undefined,
+          cc_emails: ccEmails,
         }),
       })
       const data = await res.json()
@@ -83,6 +157,7 @@ export function SignatureRequestDialog({
         signUrl: data.sign_url,
         expiresAt: data.expires_at,
         emailId: data.email_id,
+        ccCount: data.cc_count ?? 0,
       })
       onSent?.({ signUrl: data.sign_url, expiresAt: data.expires_at })
     } catch (err) {
@@ -133,6 +208,9 @@ export function SignatureRequestDialog({
                 <p className="font-medium">메일이 발송되었습니다.</p>
                 <p className="text-xs mt-0.5">
                   거래처가 링크를 클릭하면 서명 페이지가 열립니다.
+                  {success.ccCount && success.ccCount > 0
+                    ? ` (참조 ${success.ccCount}명 포함)`
+                    : ""}
                 </p>
               </div>
             </div>
@@ -186,6 +264,63 @@ export function SignatureRequestDialog({
                 className="mt-1"
                 disabled={sending}
               />
+            </div>
+
+            <div>
+              <label className="text-sm font-medium">참조 (선택, 여러명 가능)</label>
+              <div
+                className={`mt-1 flex flex-wrap items-center gap-1.5 min-h-[42px] px-2 py-1.5 border rounded-md bg-background focus-within:ring-2 focus-within:ring-ring focus-within:border-input ${
+                  sending ? "opacity-60 pointer-events-none" : ""
+                }`}
+                onClick={() => ccInputRef.current?.focus()}
+              >
+                {ccEmails.map((cc, idx) => (
+                  <span
+                    key={cc + idx}
+                    className="inline-flex items-center gap-1 bg-indigo-100 text-indigo-700 text-xs px-2 py-0.5 rounded-full"
+                  >
+                    {cc}
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        removeCc(idx)
+                      }}
+                      disabled={sending}
+                      className="hover:bg-indigo-200 rounded-full p-0.5"
+                      aria-label={`${cc} 제거`}
+                    >
+                      <X className="h-3 w-3" />
+                    </button>
+                  </span>
+                ))}
+                <input
+                  ref={ccInputRef}
+                  type="email"
+                  value={ccInput}
+                  onChange={(e) => {
+                    setCcInput(e.target.value)
+                    setCcError(null)
+                  }}
+                  onKeyDown={handleCcKeyDown}
+                  onPaste={handleCcPaste}
+                  onBlur={commitCcInput}
+                  placeholder={
+                    ccEmails.length === 0
+                      ? "이메일 입력 후 Enter / , (콤마)"
+                      : ""
+                  }
+                  className="flex-1 min-w-[180px] text-sm bg-transparent outline-none border-0 px-1 py-1"
+                  disabled={sending}
+                />
+              </div>
+              {ccError ? (
+                <p className="text-xs text-red-600 mt-1">{ccError}</p>
+              ) : (
+                <p className="text-xs text-muted-foreground mt-1">
+                  Enter / 콤마 / 공백 으로 여러명 추가. 최대 10명.
+                </p>
+              )}
             </div>
 
             <div>

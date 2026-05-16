@@ -16,7 +16,10 @@ interface Body {
   recipient_email?: string
   recipient_name?: string
   message?: string
+  cc_emails?: string[]
 }
+
+const MAX_CC_COUNT = 10
 
 function getBaseUrl(req: NextRequest): string {
   // 1) 명시적 환경변수 우선
@@ -68,6 +71,37 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
       return NextResponse.json({ error: "올바른 이메일 주소가 아닙니다." }, { status: 400 })
     }
 
+    // 참조(CC) 이메일 정제 + 검증
+    // - 받는 사람(to)과 동일한 주소는 제외 (중복 발송 방지)
+    // - 잘못된 형식은 거부 (어떤 게 틀렸는지 알려줌)
+    // - 최대 10명
+    const cc_emails: string[] = []
+    const invalid_cc: string[] = []
+    if (Array.isArray(body.cc_emails)) {
+      for (const raw of body.cc_emails) {
+        const e = String(raw || "").trim().toLowerCase()
+        if (!e) continue
+        if (e === recipient_email) continue
+        if (!EMAIL_RE.test(e)) {
+          invalid_cc.push(e)
+          continue
+        }
+        if (!cc_emails.includes(e)) cc_emails.push(e)
+      }
+    }
+    if (invalid_cc.length > 0) {
+      return NextResponse.json(
+        { error: `참조인 이메일 중 잘못된 형식: ${invalid_cc.join(", ")}` },
+        { status: 400 }
+      )
+    }
+    if (cc_emails.length > MAX_CC_COUNT) {
+      return NextResponse.json(
+        { error: `참조인은 최대 ${MAX_CC_COUNT}명까지 가능합니다.` },
+        { status: 400 }
+      )
+    }
+
     // 계약서 존재 확인 + 회사명/제목 가져오기 (인증된 사용자라 RLS 통과)
     const supabase = guard.supabase
     const { data: contract, error: contractErr } = await supabase
@@ -96,6 +130,7 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
         status: "pending",
         expires_at: expiresAt.toISOString(),
         created_by: guard.user.id,
+        cc_emails,
       })
       .select("id, token, expires_at")
       .single()
@@ -133,6 +168,7 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
     const result = await sendMail({
       to: recipient_email,
       toName: recipient_name || undefined,
+      cc: cc_emails.length > 0 ? cc_emails : undefined,
       subject: mail.subject,
       html: mail.html,
       text: mail.text,
@@ -161,6 +197,7 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
       sign_url: signUrl,
       expires_at: sigReq.expires_at,
       email_id: result.id,
+      cc_count: cc_emails.length,
     })
   } catch (err) {
     const message = err instanceof Error ? err.message : "unknown"

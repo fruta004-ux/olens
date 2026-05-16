@@ -21,6 +21,9 @@ function getResend(): Resend {
 export interface SendMailOptions {
   to: string
   toName?: string
+  /** 참조 (CC) — 여러명 가능. 빈 배열이거나 undefined 면 미사용. */
+  cc?: string[]
+  bcc?: string[]
   subject: string
   html: string
   text?: string
@@ -46,6 +49,8 @@ export async function sendMail(opts: SendMailOptions): Promise<SendMailResult> {
     const result = await resend.emails.send({
       from,
       to: [opts.to],
+      cc: opts.cc && opts.cc.length > 0 ? opts.cc : undefined,
+      bcc: opts.bcc && opts.bcc.length > 0 ? opts.bcc : undefined,
       subject: opts.subject,
       html: opts.html,
       text: opts.text,
