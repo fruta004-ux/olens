@@ -33,8 +33,9 @@ const MM_TO_PX = 96 / 25.4
 const CONTENT_HEIGHT_PX = (PAGE_HEIGHT_MM - PAGE_PADDING_TOP_MM - PAGE_PADDING_BOTTOM_MM) * MM_TO_PX
 const CONTENT_WIDTH_MM = PAGE_WIDTH_MM - PAGE_PADDING_LEFT_MM - PAGE_PADDING_RIGHT_MM // 180mm
 
-// 측정 안정성을 위한 여유 (안전 마진)
-const SAFETY_MARGIN_PX = 8
+// 측정 안정성을 위한 여유 (안전 마진).
+// 페이지마다 본문이 절대 페이지 번호/서명 블록 영역을 침범하지 않도록 보수적으로 잡음.
+const SAFETY_MARGIN_PX = 16
 
 // ============================================================================
 // HTML 빌더 — 미리보기와 인쇄가 같은 HTML 사용 (100% 일치 보장)
@@ -340,15 +341,30 @@ function measureHeights(contract: Contract, contractDateFormatted: string): Meas
   measureRoot.appendChild(inner)
   document.body.appendChild(measureRoot)
 
+  // 형제 요소들의 offsetTop 차이로 측정 → margin-collapse / margin-bottom 까지 포함.
+  // offsetHeight 만 쓰면 .clause 의 margin-bottom 10px 가 누락되어 페이지가 넘침.
   const preambleEl = inner.querySelector('[data-m="preamble"]') as HTMLElement | null
-  const preambleHeight = preambleEl?.offsetHeight ?? 0
+  const clauseEls: (HTMLElement | null)[] = clauses.map(
+    (_, i) => inner.querySelector(`[data-m="clause-${i}"]`) as HTMLElement | null
+  )
+  const sigEl = inner.querySelector('[data-m="signature-inline"]') as HTMLElement | null
+
+  const preambleTop = preambleEl?.offsetTop ?? 0
+  const firstClauseTop = clauseEls[0]?.offsetTop ?? preambleTop
+  const preambleHeight = firstClauseTop - preambleTop
 
   const clauseHeights: number[] = clauses.map((_, i) => {
-    const el = inner.querySelector(`[data-m="clause-${i}"]`) as HTMLElement | null
-    return el?.offsetHeight ?? 0
+    const cur = clauseEls[i]
+    if (!cur) return 0
+    const next = i + 1 < clauseEls.length ? clauseEls[i + 1] : sigEl
+    if (next) {
+      // 다음 형제까지의 거리 = 현재 요소 + margin-bottom
+      return next.offsetTop - cur.offsetTop
+    }
+    // 마지막 형제 → 자체 높이 + margin-bottom 추정치
+    return cur.offsetHeight + 10
   })
 
-  const sigEl = inner.querySelector('[data-m="signature-inline"]') as HTMLElement | null
   const signatureHeight = (sigEl?.offsetHeight ?? 0) + SAFETY_MARGIN_PX
 
   document.body.removeChild(measureRoot)
