@@ -22,12 +22,23 @@ interface Body {
 const MAX_CC_COUNT = 10
 
 function getBaseUrl(req: NextRequest): string {
-  // 1) 명시적 환경변수 우선
-  if (process.env.APP_BASE_URL) return process.env.APP_BASE_URL.replace(/\/$/, "")
-  // 2) Vercel 자동
+  // 우선순위:
+  //  1) APP_BASE_URL — 명시적으로 설정한 값 (가장 신뢰)
+  //  2) VERCEL_PROJECT_PRODUCTION_URL — Vercel 의 production 도메인 (custom domain 포함)
+  //     → preview 배포에서 메일을 발송해도 production URL 로 링크가 나가게 함
+  //  3) VERCEL_URL — 현재 deployment URL (preview 면 preview URL — fallback)
+  //  4) 요청 헤더의 host (로컬 dev)
+  const clean = (s: string) => s.replace(/\/$/, "")
+
+  if (process.env.APP_BASE_URL) return clean(process.env.APP_BASE_URL)
+
+  if (process.env.VERCEL_PROJECT_PRODUCTION_URL) {
+    return `https://${process.env.VERCEL_PROJECT_PRODUCTION_URL}`
+  }
+
   if (process.env.NEXT_PUBLIC_VERCEL_URL) return `https://${process.env.NEXT_PUBLIC_VERCEL_URL}`
   if (process.env.VERCEL_URL) return `https://${process.env.VERCEL_URL}`
-  // 3) 요청 헤더에서 추출 (로컬 dev)
+
   const host = req.headers.get("host")
   const proto = req.headers.get("x-forwarded-proto") || "https"
   if (host) return `${proto}://${host}`
