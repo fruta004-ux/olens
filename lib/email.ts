@@ -38,11 +38,22 @@ export interface SendMailResult {
 }
 
 /**
+ * EMAIL_FROM 환경변수를 정제 — Vercel 같은 환경에서 따옴표가 값에 포함되는 경우가 흔함.
+ * "오렌즈 계약서 <addr>" 형태로 들어와도 자동으로 양끝 따옴표 제거.
+ */
+function getNormalizedFrom(): string {
+  const raw = (process.env.EMAIL_FROM || "오렌즈 계약서 <onboarding@resend.dev>").trim()
+  // 양끝 따옴표 (작은/큰) 자동 제거
+  const unquoted = raw.replace(/^["']+|["']+$/g, "").trim()
+  return unquoted
+}
+
+/**
  * 트랜잭셔널 메일 발송. 실패해도 throw 하지 않고 SendMailResult 로 반환.
  * 호출 측에서 ok 확인 후 사용자에게 표시.
  */
 export async function sendMail(opts: SendMailOptions): Promise<SendMailResult> {
-  const from = process.env.EMAIL_FROM || "오렌즈 계약서 <onboarding@resend.dev>"
+  const from = getNormalizedFrom()
 
   try {
     const resend = getResend()
