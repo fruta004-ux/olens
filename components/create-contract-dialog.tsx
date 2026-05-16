@@ -12,8 +12,15 @@ import { Badge } from "@/components/ui/badge"
 import { Separator } from "@/components/ui/separator"
 import { Save, FileText, Pencil, Eye, ChevronDown, ChevronUp } from "lucide-react"
 import { createBrowserClient } from "@/lib/supabase/client"
+import { CONTRACT_CATEGORIES } from "@/lib/types/contract"
+import {
+  calculateDepositBalance,
+  extractNumericAmount,
+  formatAmountKR,
+  generateContractNumber,
+} from "@/lib/contract-utils"
 
-const CATEGORIES = ["홈페이지", "마케팅", "디자인", "앱개발", "ERP개발", "영상"]
+const CATEGORIES = CONTRACT_CATEGORIES
 
 interface DealData {
   id: string
@@ -156,28 +163,17 @@ export function CreateContractDialog({ open, onOpenChange, dealData, editContrac
     setContentDescription(dealData.needs_summary?.replace(/,/g, ", ") || "")
 
     const costRaw = ci?.cost || dealData.amount_range || ""
-    const costClean = costRaw.replace(/[^\d,]/g, "").replace(/,/g, "")
     setAmount(costRaw.includes("(") ? costRaw.split("(")[0].trim() : costRaw)
 
-    if (costClean) {
-      const numericAmount = parseInt(costClean)
-      if (!isNaN(numericAmount)) {
-        const dep = Math.round(numericAmount * 0.5 * 1.1)
-        const bal = Math.round(numericAmount * 0.5 * 1.1)
-        setDepositAmount(dep.toLocaleString())
-        setBalanceAmount(bal.toLocaleString())
-      }
+    const numericAmount = extractNumericAmount(costRaw)
+    if (numericAmount > 0) {
+      const { deposit, balance } = calculateDepositBalance(numericAmount)
+      setDepositAmount(formatAmountKR(deposit))
+      setBalanceAmount(formatAmountKR(balance))
     }
 
     setContractDate(ci?.contract_date || new Date().toISOString().split("T")[0].replace(/-/g, "."))
     setDevStart(ci?.work_start_date || "")
-  }
-
-  const generateContractNumber = () => {
-    const now = new Date()
-    const dateStr = `${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, "0")}${String(now.getDate()).padStart(2, "0")}`
-    const seq = String(Math.floor(Math.random() * 999) + 1).padStart(3, "0")
-    return `C-${dateStr}-${seq}`
   }
 
   const handleSave = async () => {

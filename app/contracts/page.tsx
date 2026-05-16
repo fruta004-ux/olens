@@ -14,22 +14,10 @@ import { Eye, Pencil, Plus, Search, FileText, ScrollText } from "lucide-react"
 import { CreateContractDialog } from "@/components/create-contract-dialog"
 import { ContractViewDialog } from "@/components/contract-view-dialog"
 import { createBrowserClient } from "@/lib/supabase/client"
+import type { Contract as BaseContract } from "@/lib/types/contract"
+import { CONTRACT_CATEGORIES } from "@/lib/types/contract"
 
-type Contract = {
-  id: string
-  contract_number: string
-  category: string
-  title: string
-  client_info: any
-  contract_data: any
-  clauses: any[]
-  bank_info: any
-  company_info: any
-  seal_url: string | null
-  status: string
-  contract_date: string | null
-  deal_id: string | null
-  created_at: string
+type Contract = BaseContract & {
   deal_name?: string
 }
 
@@ -93,7 +81,7 @@ export default function ContractsPage() {
     }
   }
 
-  const categories = ["전체", "홈페이지", "마케팅", "디자인", "앱개발", "ERP개발", "영상"]
+  const categories = ["전체", ...CONTRACT_CATEGORIES] as const
 
   const filteredContracts = contracts.filter(c => {
     const matchCategory = selectedCategory === "전체" || c.category === selectedCategory
@@ -249,7 +237,7 @@ export default function ContractsPage() {
                       <TableCell className="font-medium">{contract.client_info?.company_name || contract.deal_name || "-"}</TableCell>
                       <TableCell className="text-sm">{contract.title}</TableCell>
                       <TableCell>{getStatusBadge(contract.status)}</TableCell>
-                      <TableCell className="text-sm">{contract.contract_date || formatDate(contract.created_at)}</TableCell>
+                      <TableCell className="text-sm">{contract.contract_date || formatDate(contract.created_at ?? null)}</TableCell>
                       <TableCell className="text-center">
                         <div className="flex items-center justify-center gap-1" onClick={e => e.stopPropagation()}>
                           <Button

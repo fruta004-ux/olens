@@ -8,6 +8,14 @@ import { createBrowserClient } from "@/lib/supabase/client"
 import { useRouter } from "next/navigation"
 import { cn } from "@/lib/utils"
 import { sanitizeHtml } from "@/lib/sanitize"
+import {
+  calculateDepositBalance,
+  extractNumericAmount,
+  formatAmountKR,
+  generateContractNumber,
+  inferCategoryFromNeeds,
+} from "@/lib/contract-utils"
+import { DEFAULT_SEAL_COMPANY } from "@/lib/contract-utils"
 import { CrmSidebar } from "@/components/crm-sidebar"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
@@ -816,31 +824,27 @@ function DealDetailPageClient({ dealId }: { dealId: string }) {
         .order("display_order")
 
       const needsStr = dealData.needs_summary || ""
-      let matchedCategory = "홈페이지"
-      if (needsStr.includes("마케팅")) matchedCategory = "마케팅"
-      else if (needsStr.includes("디자인")) matchedCategory = "디자인"
-      else if (needsStr.includes("앱")) matchedCategory = "앱개발"
-      else if (needsStr.includes("ERP") || needsStr.includes("커스텀")) matchedCategory = "ERP개발"
-      else if (needsStr.includes("영상")) matchedCategory = "영상"
+      const matchedCategory = inferCategoryFromNeeds(needsStr)
 
       const template = templates?.find((t: any) => t.category === matchedCategory) || templates?.[0]
       if (!template) return
 
-      const { data: seals } = await supabase.from("company_seals").select("seal_url").eq("is_active", true).eq("company", dealData.company || "플루타").limit(1)
+      // 도장 회사 (을 측). 거래에 회사 지정 없으면 기본값 사용.
+      const sealCompany = dealData.company || DEFAULT_SEAL_COMPANY
+      const { data: seals } = await supabase
+        .from("company_seals")
+        .select("seal_url")
+        .eq("is_active", true)
+        .eq("company", sealCompany)
+        .limit(1)
       const sealUrl = seals?.[0]?.seal_url || ""
 
-      const now = new Date()
-      const dateStr = `${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, "0")}${String(now.getDate()).padStart(2, "0")}`
-      const seq = String(Math.floor(Math.random() * 999) + 1).padStart(3, "0")
-
       const costRaw = contractFormData.cost || dealData.amount_range || ""
-      const costClean = costRaw.replace(/[^\d]/g, "")
-      const numericAmount = parseInt(costClean) || 0
-      const dep = numericAmount > 0 ? Math.round(numericAmount * 0.5 * 1.1) : 0
-      const bal = numericAmount > 0 ? Math.round(numericAmount * 0.5 * 1.1) : 0
+      const numericAmount = extractNumericAmount(costRaw)
+      const { deposit, balance } = calculateDepositBalance(numericAmount)
 
       await supabase.from("contracts").insert({
-        contract_number: `C-${dateStr}-${seq}`,
+        contract_number: generateContractNumber(),
         template_id: template.id,
         deal_id: resolvedId,
         category: matchedCategory,
@@ -855,9 +859,9 @@ function DealDetailPageClient({ dealId }: { dealId: string }) {
           content_description: needsStr.replace(/,/g, ", "),
           amount: costRaw.includes("(") ? costRaw.split("(")[0].trim() : costRaw,
           deposit_percent: "50%",
-          deposit_amount: dep > 0 ? dep.toLocaleString() : "",
+          deposit_amount: deposit > 0 ? formatAmountKR(deposit) : "",
           balance_percent: "50%",
-          balance_amount: bal > 0 ? bal.toLocaleString() : "",
+          balance_amount: balance > 0 ? formatAmountKR(balance) : "",
           dev_start: contractFormData.work_start_date || "",
           dev_end: "",
         },

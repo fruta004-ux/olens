@@ -1,189 +1,583 @@
 "use client"
 
-import { useEffect, useState, useRef } from "react"
-import { createPortal } from "react-dom"
+import { useEffect, useMemo, useState } from "react"
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog"
 import { Button } from "@/components/ui/button"
 import { FileDown, Trash2 } from "lucide-react"
 import { createBrowserClient } from "@/lib/supabase/client"
+import type { Contract, ContractClause } from "@/lib/types/contract"
+import {
+  escapeHtml,
+  formatContractDateKR,
+  replacePlaceholders,
+} from "@/lib/contract-utils"
 
-const PRINT_STYLE_ID = "contract-print-styles"
-const printStyles = `
-  @media print {
-    @page {
-      size: A4 portrait;
+// ============================================================================
+// 페이지 사이즈 상수 (A4)
+// 변경 시 buildPrintCSS 의 변수도 같이 바뀌도록 일치시킴
+// ============================================================================
+const PAGE_WIDTH_MM = 210
+const PAGE_HEIGHT_MM = 297
+const PAGE_PADDING_TOP_MM = 12
+const PAGE_PADDING_BOTTOM_MM = 14
+const PAGE_PADDING_LEFT_MM = 15
+const PAGE_PADDING_RIGHT_MM = 15
+const SIGNATURE_BOTTOM_MM = 14
+const PAGE_NUMBER_BOTTOM_MM = 6
+
+const MM_TO_PX = 96 / 25.4
+const CONTENT_HEIGHT_PX = (PAGE_HEIGHT_MM - PAGE_PADDING_TOP_MM - PAGE_PADDING_BOTTOM_MM) * MM_TO_PX
+const CONTENT_WIDTH_MM = PAGE_WIDTH_MM - PAGE_PADDING_LEFT_MM - PAGE_PADDING_RIGHT_MM // 180mm
+
+// 측정 안정성을 위한 여유 (안전 마진)
+const SAFETY_MARGIN_PX = 8
+
+// ============================================================================
+// HTML 빌더 — 미리보기와 인쇄가 같은 HTML 사용 (100% 일치 보장)
+// ============================================================================
+
+interface PageData {
+  clauses: ContractClause[]
+  isFirst: boolean
+  isLast: boolean
+}
+
+function buildPreambleInnerHTML(contract: Contract, contractDateFormatted: string): string {
+  const clientName = contract.client_info?.company_name || "홍길동"
+  const dealName = contract.contract_data?.content_description
+    ? `${clientName} 홈페이지 구축`
+    : `${clientName} ${contract.category} 프로젝트`
+
+  const clientLabel = contract.client_info?.company_name
+    ? `주식회사 ${escapeHtml(contract.client_info.company_name)}`
+    : "주식회사 홍길동"
+  const sellerLabel = escapeHtml(contract.company_info?.company_name || "플루타")
+  const cat = escapeHtml(contract.category)
+
+  return `${clientLabel} (이하 &quot;갑&quot;이라 한다)와 ${sellerLabel} (이하 &quot;을&quot;이라 한다)은 ${escapeHtml(contractDateFormatted)}자로 &apos;${escapeHtml(dealName)}&apos;(이하 &quot;${cat} 구축&quot;이라 한다.)에 관해 다음과 같이 계약을 체결한다.`
+}
+
+function buildClauseHTML(clauseTitle: string, clauseBody: string): string {
+  return `
+    <div class="clause">
+      <p class="clause-title">${escapeHtml(clauseTitle)}</p>
+      <p class="clause-body">${escapeHtml(clauseBody)}</p>
+    </div>
+  `.trim()
+}
+
+function buildSignatureHTML(contract: Contract, contractDateFormatted: string): string {
+  const ci = contract.client_info || {}
+  const co = contract.company_info || {}
+  const sealUrl = contract.seal_url || ""
+
+  return `
+    <div class="signature">
+      <div class="sig-date">계약일자 : ${escapeHtml(contractDateFormatted)}</div>
+      <div class="parties">
+        <div class="party">
+          <h3>(갑)</h3>
+          <div class="row"><span class="label">주 소 :</span><span>${escapeHtml(ci.address || "")}</span></div>
+          <div class="row"><span class="label">사 업 자 :</span><span>${escapeHtml(ci.business_number || "")}</span></div>
+          <div class="row"><span class="label">회 사 명 :</span><span>${escapeHtml(ci.company_name || "")}</span></div>
+          <div class="row"><span class="label">대 표 자 :</span><span>${escapeHtml(ci.representative || "")}</span><span class="seal-text">(인)</span></div>
+        </div>
+        <div class="party">
+          <h3>(을)</h3>
+          <div class="row"><span class="label">주 소 :</span><span class="addr-narrow">${escapeHtml(co.address || "")}</span></div>
+          <div class="row"><span class="label">사 업 자 :</span><span>${escapeHtml(co.business_number || "")}</span></div>
+          <div class="row"><span class="label">회 사 명 :</span><span>${escapeHtml(co.company_name || "")}</span></div>
+          <div class="row row-rep">
+            <span class="label">대 표 자 :</span>
+            <span>${escapeHtml(co.representative || "")}</span>
+            ${sealUrl
+              ? `<img class="seal-img" src="${escapeHtml(sealUrl)}" alt="도장" />`
+              : `<span class="seal-text">(인)</span>`}
+          </div>
+        </div>
+      </div>
+    </div>
+  `.trim()
+}
+
+function buildPageHTML(
+  contract: Contract,
+  page: PageData,
+  pageIdx: number,
+  contractDateFormatted: string
+): string {
+  const titleAndPreamble = page.isFirst
+    ? `
+      <h1 class="title">${escapeHtml(contract.title)}</h1>
+      <p class="preamble">${buildPreambleInnerHTML(contract, contractDateFormatted)}</p>
+    `
+    : ""
+
+  const clausesHTML = page.clauses
+    .map((c) => buildClauseHTML(c.title, replacePlaceholders(c.body, contract)))
+    .join("\n")
+
+  const signatureHTML = page.isLast ? buildSignatureHTML(contract, contractDateFormatted) : ""
+
+  return `
+    <div class="page">
+      ${titleAndPreamble}
+      ${clausesHTML}
+      ${signatureHTML}
+      <div class="page-number">- ${pageIdx + 1} -</div>
+    </div>
+  `.trim()
+}
+
+// ============================================================================
+// CSS — 인쇄 + 미리보기 공용. 미리보기에는 음영 추가.
+// ============================================================================
+
+function buildBaseCSS(): string {
+  return `
+    @page { size: A4 portrait; margin: 0; }
+    * { box-sizing: border-box; }
+    html, body {
       margin: 0;
+      padding: 0;
+      -webkit-print-color-adjust: exact;
+      print-color-adjust: exact;
+      color-adjust: exact;
     }
-    body * {
-      visibility: hidden;
+    body {
+      font-family: 'Noto Sans KR', 'Malgun Gothic', '맑은 고딕', sans-serif;
+      background: white;
+      color: #111;
     }
-    #contract-print-root,
-    #contract-print-root * {
-      visibility: visible;
-    }
-    #contract-print-root {
-      position: absolute;
-      left: 0;
-      top: 0;
-      width: 210mm;
-    }
-    .contract-print-page {
-      width: 210mm !important;
-      height: 297mm !important;
-      padding: 12mm 15mm !important;
-      margin: 0 !important;
-      box-sizing: border-box !important;
-      background: white !important;
+    .page {
+      width: ${PAGE_WIDTH_MM}mm;
+      height: ${PAGE_HEIGHT_MM}mm;
+      padding: ${PAGE_PADDING_TOP_MM}mm ${PAGE_PADDING_RIGHT_MM}mm ${PAGE_PADDING_BOTTOM_MM}mm ${PAGE_PADDING_LEFT_MM}mm;
       position: relative;
       overflow: hidden;
       page-break-after: always;
-      -webkit-print-color-adjust: exact !important;
-      print-color-adjust: exact !important;
+      break-after: page;
+      background: white;
     }
-    .contract-print-page:last-child {
+    .page:last-child {
       page-break-after: auto;
+      break-after: auto;
     }
-    html, body {
-      overflow: visible !important;
-      height: auto !important;
+    h1.title {
+      text-align: center;
+      font-size: 20px;
+      font-weight: bold;
+      margin: 0 0 20px 0;
+      letter-spacing: 0.05em;
     }
-  }
-`
-
-interface ContractData {
-  id?: string
-  contract_number: string
-  category: string
-  title: string
-  client_info: {
-    address?: string
-    business_number?: string
-    company_name?: string
-    representative?: string
-  }
-  contract_data: {
-    content_description?: string
-    amount?: string
-    deposit_percent?: string
-    deposit_amount?: string
-    balance_percent?: string
-    balance_amount?: string
-    dev_start?: string
-    dev_end?: string
-  }
-  clauses: Array<{ order: number; title: string; body: string }>
-  bank_info: { bank?: string; account?: string; holder?: string }
-  company_info: {
-    address?: string
-    business_number?: string
-    company_name?: string
-    representative?: string
-  }
-  seal_url?: string | null
-  status: string
-  contract_date?: string | null
+    .preamble {
+      font-size: 10.5px;
+      line-height: 1.7;
+      margin: 0 0 20px 0;
+    }
+    .clause {
+      margin-bottom: 10px;
+      page-break-inside: avoid;
+      break-inside: avoid;
+    }
+    .clause-title {
+      font-weight: bold;
+      font-size: 11px;
+      margin: 0 0 2px 0;
+    }
+    .clause-body {
+      font-size: 10.5px;
+      line-height: 1.55;
+      white-space: pre-wrap;
+      margin: 0;
+    }
+    .signature {
+      position: absolute;
+      bottom: ${SIGNATURE_BOTTOM_MM}mm;
+      left: ${PAGE_PADDING_LEFT_MM}mm;
+      right: ${PAGE_PADDING_RIGHT_MM}mm;
+      font-size: 10.5px;
+    }
+    .sig-date {
+      text-align: center;
+      margin-bottom: 16px;
+      font-size: 11px;
+      font-weight: 600;
+    }
+    .parties {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 24px;
+    }
+    .party {
+      position: relative;
+    }
+    .party h3 {
+      font-weight: bold;
+      margin: 0 0 8px 0;
+      font-size: 10.5px;
+    }
+    .row {
+      margin-bottom: 4px;
+      display: flex;
+      align-items: flex-start;
+    }
+    .row .label {
+      font-weight: 600;
+      width: 56px;
+      flex-shrink: 0;
+    }
+    .row .seal-text {
+      margin-left: 16px;
+      color: #aaa;
+    }
+    .row-rep {
+      position: relative;
+      align-items: center;
+    }
+    .seal-img {
+      position: absolute;
+      right: 0;
+      bottom: -8px;
+      width: 64px;
+      height: 64px;
+      object-fit: contain;
+    }
+    .addr-narrow {
+      font-size: 10px;
+      line-height: 1.4;
+    }
+    .page-number {
+      position: absolute;
+      bottom: ${PAGE_NUMBER_BOTTOM_MM}mm;
+      left: 0;
+      right: 0;
+      text-align: center;
+      font-size: 10px;
+      color: #999;
+    }
+  `
 }
+
+function buildPreviewCSS(): string {
+  return (
+    buildBaseCSS() +
+    `
+      body { background: #f1f5f9; padding: 16px 0; }
+      .page {
+        margin: 0 auto 16px;
+        box-shadow: 0 4px 16px rgba(0,0,0,0.12);
+        border: 1px solid #e2e8f0;
+      }
+    `
+  )
+}
+
+// ============================================================================
+// 페이지네이션 — DOM 에 hidden 으로 한 번 렌더링하고 실제 픽셀 높이로 분할
+// 사용자 정의 규칙:
+//   1. 조 단위로 분할 (조 중간에서 짤리지 않음)
+//   2. 페이지 꽉 채우기 (들어가는 만큼 다 채움)
+//   3. 마지막 조항 + 서명 블록을 같은 페이지에 두려고 시도
+//      못 들어가면 마지막 조항을 다음 페이지로 옮겨서 서명 블록과 함께
+// ============================================================================
+
+interface MeasureResult {
+  preambleHeight: number
+  clauseHeights: number[]
+  signatureHeight: number
+}
+
+/**
+ * 모든 조항/preamble/서명 블록을 한 번에 hidden 컨테이너에 렌더링하고
+ * 각각의 실제 픽셀 높이를 측정한다.
+ *
+ * 측정용 컨테이너는 페이지의 콘텐츠 너비(180mm)와 동일해야 줄바꿈이
+ * 실제 페이지와 같음.
+ */
+function measureHeights(contract: Contract, contractDateFormatted: string): MeasureResult {
+  const measureRoot = document.createElement("div")
+  measureRoot.setAttribute("data-contract-measure", "1")
+  measureRoot.style.cssText = `
+    position: fixed;
+    left: -10000px;
+    top: 0;
+    width: ${CONTENT_WIDTH_MM}mm;
+    visibility: hidden;
+    pointer-events: none;
+    background: white;
+    color: #111;
+    font-family: 'Noto Sans KR', 'Malgun Gothic', '맑은 고딕', sans-serif;
+  `
+
+  // base CSS 의 일부 (page 컨테이너 없이 클래스만 적용 가능)
+  const styleEl = document.createElement("style")
+  styleEl.textContent = buildBaseCSS()
+  measureRoot.appendChild(styleEl)
+
+  const clauses = contract.clauses || []
+
+  // preamble + clauses + signature 를 한 컨테이너에 모두 렌더링
+  // 단, signature 는 absolute positioned 라 wrapper 의 offsetHeight 로 측정 안 됨.
+  // → signature 는 inline 으로 렌더해서 측정하는 별도 영역을 만든다.
+  const inner = document.createElement("div")
+  inner.innerHTML = `
+    <div data-m="preamble">
+      <h1 class="title">${escapeHtml(contract.title)}</h1>
+      <p class="preamble">${buildPreambleInnerHTML(contract, contractDateFormatted)}</p>
+    </div>
+    ${clauses
+      .map(
+        (c, i) => `<div data-m="clause-${i}">${buildClauseHTML(c.title, replacePlaceholders(c.body, contract))}</div>`
+      )
+      .join("")}
+    <div data-m="signature-inline">${buildSignatureInlineForMeasure(contract, contractDateFormatted)}</div>
+  `
+  measureRoot.appendChild(inner)
+  document.body.appendChild(measureRoot)
+
+  const preambleEl = inner.querySelector('[data-m="preamble"]') as HTMLElement | null
+  const preambleHeight = preambleEl?.offsetHeight ?? 0
+
+  const clauseHeights: number[] = clauses.map((_, i) => {
+    const el = inner.querySelector(`[data-m="clause-${i}"]`) as HTMLElement | null
+    return el?.offsetHeight ?? 0
+  })
+
+  const sigEl = inner.querySelector('[data-m="signature-inline"]') as HTMLElement | null
+  const signatureHeight = (sigEl?.offsetHeight ?? 0) + SAFETY_MARGIN_PX
+
+  document.body.removeChild(measureRoot)
+
+  return { preambleHeight, clauseHeights, signatureHeight }
+}
+
+/**
+ * 서명 블록은 실제 인쇄 시 absolute positioned 라 offsetHeight 로 못 잡음.
+ * 측정 전용으로 absolute 떼고 같은 내용을 inline 으로 렌더링한 HTML 을 만든다.
+ */
+function buildSignatureInlineForMeasure(contract: Contract, contractDateFormatted: string): string {
+  const ci = contract.client_info || {}
+  const co = contract.company_info || {}
+  return `
+    <div style="font-size:10.5px; padding-top: 8px;">
+      <div style="text-align:center;margin-bottom:16px;font-size:11px;font-weight:600">계약일자 : ${escapeHtml(contractDateFormatted)}</div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:24px">
+        <div>
+          <h3 style="font-weight:bold;margin:0 0 8px 0;font-size:10.5px">(갑)</h3>
+          <div style="margin-bottom:4px;display:flex"><span style="font-weight:600;width:56px;flex-shrink:0">주 소 :</span><span>${escapeHtml(ci.address || "")}</span></div>
+          <div style="margin-bottom:4px;display:flex"><span style="font-weight:600;width:56px;flex-shrink:0">사 업 자 :</span><span>${escapeHtml(ci.business_number || "")}</span></div>
+          <div style="margin-bottom:4px;display:flex"><span style="font-weight:600;width:56px;flex-shrink:0">회 사 명 :</span><span>${escapeHtml(ci.company_name || "")}</span></div>
+          <div style="display:flex"><span style="font-weight:600;width:56px;flex-shrink:0">대 표 자 :</span><span>${escapeHtml(ci.representative || "")}</span></div>
+        </div>
+        <div>
+          <h3 style="font-weight:bold;margin:0 0 8px 0;font-size:10.5px">(을)</h3>
+          <div style="margin-bottom:4px;display:flex"><span style="font-weight:600;width:56px;flex-shrink:0">주 소 :</span><span style="font-size:10px">${escapeHtml(co.address || "")}</span></div>
+          <div style="margin-bottom:4px;display:flex"><span style="font-weight:600;width:56px;flex-shrink:0">사 업 자 :</span><span>${escapeHtml(co.business_number || "")}</span></div>
+          <div style="margin-bottom:4px;display:flex"><span style="font-weight:600;width:56px;flex-shrink:0">회 사 명 :</span><span>${escapeHtml(co.company_name || "")}</span></div>
+          <div style="display:flex"><span style="font-weight:600;width:56px;flex-shrink:0">대 표 자 :</span><span>${escapeHtml(co.representative || "")}</span></div>
+        </div>
+      </div>
+    </div>
+  `
+}
+
+function paginate(contract: Contract, measure: MeasureResult): PageData[] {
+  const clauses = [...(contract.clauses || [])].sort((a, b) => a.order - b.order)
+  if (clauses.length === 0) return []
+
+  const { preambleHeight, clauseHeights, signatureHeight } = measure
+
+  const pages: PageData[] = []
+  let currentClauses: ContractClause[] = []
+  let currentHeight = 0
+
+  const availableForPage = (isFirst: boolean) =>
+    CONTENT_HEIGHT_PX - (isFirst ? preambleHeight : 0) - SAFETY_MARGIN_PX
+
+  for (let i = 0; i < clauses.length; i++) {
+    const isLastClause = i === clauses.length - 1
+    const reservedSig = isLastClause ? signatureHeight : 0
+    const clauseH = clauseHeights[i] || 0
+    const isFirstPageNow = pages.length === 0
+
+    if (
+      currentHeight + clauseH + reservedSig > availableForPage(isFirstPageNow) &&
+      currentClauses.length > 0
+    ) {
+      // 현재 페이지 마감 (서명 블록 없이)
+      pages.push({
+        clauses: currentClauses,
+        isFirst: isFirstPageNow,
+        isLast: false,
+      })
+      currentClauses = [clauses[i]]
+      currentHeight = clauseH
+    } else {
+      currentClauses.push(clauses[i])
+      currentHeight += clauseH
+    }
+  }
+
+  // 남은 조항 + 서명 블록 마무리
+  if (currentClauses.length > 0) {
+    const isFirstPageNow = pages.length === 0
+    const available = availableForPage(isFirstPageNow)
+
+    // 마지막 조항 + 서명 블록이 같은 페이지에 들어가는지 마지막 안전장치
+    if (currentHeight + signatureHeight <= available) {
+      // 들어감 → 같은 페이지에 서명 블록 함께
+      pages.push({
+        clauses: currentClauses,
+        isFirst: isFirstPageNow,
+        isLast: true,
+      })
+    } else {
+      // 안 들어감 → 마지막 조항을 다음 페이지로 옮겨서 서명과 같이
+      // (단, 현재 페이지에 조항이 1개뿐이고 그게 안 들어가는 케이스면 어쩔 수 없이
+      //  서명 블록만 새 페이지에 둠)
+      if (currentClauses.length > 1) {
+        const lastClause = currentClauses[currentClauses.length - 1]
+        const rest = currentClauses.slice(0, -1)
+        pages.push({ clauses: rest, isFirst: isFirstPageNow, isLast: false })
+        pages.push({ clauses: [lastClause], isFirst: false, isLast: true })
+      } else {
+        pages.push({ clauses: currentClauses, isFirst: isFirstPageNow, isLast: false })
+        pages.push({ clauses: [], isFirst: false, isLast: true })
+      }
+    }
+  }
+
+  return pages
+}
+
+// ============================================================================
+// 미리보기 / 인쇄 HTML 빌더
+// ============================================================================
+
+function buildFullHTML(
+  contract: Contract,
+  pages: PageData[],
+  options: { mode: "preview" | "print"; title?: string }
+): string {
+  const contractDateFormatted = formatContractDateKR(contract.contract_date)
+  const css = options.mode === "print" ? buildBaseCSS() : buildPreviewCSS()
+  const pagesHTML = pages
+    .map((page, idx) => buildPageHTML(contract, page, idx, contractDateFormatted))
+    .join("\n")
+
+  const docTitle = options.title || `${contract.client_info?.company_name || "거래처"}_${contract.title}`
+
+  return `<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>${escapeHtml(docTitle)}</title>
+  <style>${css}</style>
+</head>
+<body>
+  ${pagesHTML}
+</body>
+</html>`
+}
+
+// ============================================================================
+// React 컴포넌트
+// ============================================================================
 
 interface ContractViewDialogProps {
   open: boolean
   onOpenChange: (open: boolean) => void
-  contract: ContractData
+  contract: Contract
   onDelete?: () => void
 }
 
-function replacePlaceholders(text: string, data: ContractData): string {
-  const vars: Record<string, string> = {
-    "{{content_description}}": data.contract_data?.content_description || "웹/앱 반응형 제작",
-    "{{amount}}": data.contract_data?.amount || "0,000,000",
-    "{{bank_name}}": data.bank_info?.bank || "",
-    "{{bank_account}}": data.bank_info?.account || "",
-    "{{bank_holder}}": data.bank_info?.holder || "",
-    "{{deposit_percent}}": data.contract_data?.deposit_percent || "50%",
-    "{{deposit_amount}}": data.contract_data?.deposit_amount || "000,000",
-    "{{balance_percent}}": data.contract_data?.balance_percent || "50%",
-    "{{balance_amount}}": data.contract_data?.balance_amount || "000,000",
-    "{{dev_start}}": data.contract_data?.dev_start || "2026년 00월 00일",
-    "{{dev_end}}": data.contract_data?.dev_end || "2026년 00월 00일",
-  }
-  let result = text
-  for (const [key, value] of Object.entries(vars)) {
-    result = result.replace(new RegExp(key.replace(/[{}]/g, "\\$&"), "g"), value)
-  }
-  return result
-}
-
-const PAGE_HEIGHT_PX = 1032
-const SIGNATURE_BLOCK_HEIGHT = 220
-
 export function ContractViewDialog({ open, onOpenChange, contract, onDelete }: ContractViewDialogProps) {
   const [deleting, setDeleting] = useState(false)
-  const [pages, setPages] = useState<Array<{ clauses: Array<{ order: number; title: string; body: string }>; isLast: boolean }>>([])
-  const [printRootReady, setPrintRootReady] = useState(false)
+  const [pages, setPages] = useState<PageData[]>([])
 
-  // Inject print styles
+  // open 상태 + contract 변경 시 페이지 측정 재실행
   useEffect(() => {
-    if (!document.getElementById(PRINT_STYLE_ID)) {
-      const el = document.createElement("style")
-      el.id = PRINT_STYLE_ID
-      el.textContent = printStyles
-      document.head.appendChild(el)
+    if (!open) return
+    if (!contract.clauses || contract.clauses.length === 0) {
+      setPages([])
+      return
     }
-  }, [])
 
-  // Create print root element in body (outside dialog)
-  useEffect(() => {
-    let root = document.getElementById("contract-print-root")
-    if (!root) {
-      root = document.createElement("div")
-      root.id = "contract-print-root"
-      root.style.cssText = "position:absolute;left:-9999px;top:0;width:210mm;overflow:hidden;"
-      document.body.appendChild(root)
-    }
-    setPrintRootReady(true)
-    return () => {}
-  }, [])
-
-  // Paginate clauses
-  useEffect(() => {
-    if (!open || !contract.clauses?.length) return
-    const LINE_HEIGHT = 16
-    const CLAUSE_TITLE_HEIGHT = 22
-    const CLAUSE_GAP = 10
-    const PREAMBLE_HEIGHT = 140
-
-    const clausesList = [...contract.clauses].sort((a, b) => a.order - b.order)
-    const result: Array<{ clauses: typeof clausesList; isLast: boolean }> = []
-    let currentClauses: typeof clausesList = []
-    let currentHeight = PREAMBLE_HEIGHT
-
-    for (let i = 0; i < clausesList.length; i++) {
-      const clause = clausesList[i]
-      const body = replacePlaceholders(clause.body, contract)
-      const lineCount = body.split("\n").reduce((acc, line) => acc + Math.max(1, Math.ceil(line.length / 55)), 0)
-      const clauseHeight = CLAUSE_TITLE_HEIGHT + (lineCount * LINE_HEIGHT) + CLAUSE_GAP
-      const isLastClause = i === clausesList.length - 1
-      const reservedSpace = isLastClause ? SIGNATURE_BLOCK_HEIGHT : 0
-
-      if (currentHeight + clauseHeight + reservedSpace > PAGE_HEIGHT_PX && currentClauses.length > 0) {
-        result.push({ clauses: currentClauses, isLast: false })
-        currentClauses = []
-        currentHeight = 0
+    // 폰트 로딩 대기 후 측정 (한글 폰트 메트릭이 다르면 페이지가 어긋남)
+    const run = async () => {
+      try {
+        if (typeof document !== "undefined" && (document as any).fonts?.ready) {
+          await (document as any).fonts.ready
+        }
+      } catch {
+        // 무시
       }
-      currentClauses.push(clause)
-      currentHeight += clauseHeight
+      const dateF = formatContractDateKR(contract.contract_date)
+      const measured = measureHeights(contract, dateF)
+      const result = paginate(contract, measured)
+      setPages(result)
     }
-    if (currentClauses.length > 0) {
-      result.push({ clauses: currentClauses, isLast: true })
-    }
-    setPages(result)
+    run()
   }, [open, contract])
 
+  const previewHTML = useMemo(() => {
+    if (pages.length === 0) return ""
+    return buildFullHTML(contract, pages, { mode: "preview" })
+  }, [contract, pages])
+
   const handlePrint = () => {
-    const originalTitle = document.title
-    const clientStr = contract.client_info?.company_name || "거래처"
-    document.title = `${clientStr}_${contract.title}`
-    window.print()
-    setTimeout(() => { document.title = originalTitle }, 1000)
+    if (pages.length === 0) {
+      alert("계약서 내용이 없습니다.")
+      return
+    }
+
+    const printWin = window.open("", "_blank", "width=900,height=1200")
+    if (!printWin) {
+      alert("팝업이 차단되었습니다. 브라우저 팝업 차단 설정을 확인해주세요.")
+      return
+    }
+
+    const html = buildFullHTML(contract, pages, { mode: "print" })
+    printWin.document.open()
+    printWin.document.write(html)
+    printWin.document.close()
+
+    // 폰트/이미지 로드 대기 후 인쇄 트리거
+    const triggerPrint = () => {
+      try {
+        printWin.focus()
+        printWin.print()
+      } catch (err) {
+        console.error("인쇄 트리거 실패:", err)
+      }
+    }
+
+    // afterprint 시 자동으로 새 창 닫기 (사용자가 PDF 저장 / 취소 둘 다 동작)
+    printWin.onafterprint = () => {
+      try {
+        printWin.close()
+      } catch {
+        // 무시
+      }
+    }
+
+    // 이미지(도장)가 있으면 로딩 후, 없으면 짧은 지연 후 인쇄
+    if (printWin.document.readyState === "complete") {
+      setTimeout(triggerPrint, 200)
+    } else {
+      printWin.onload = () => setTimeout(triggerPrint, 200)
+    }
+
+    // 안전장치: 1분 후에도 안 닫혔으면 강제 닫기
+    setTimeout(() => {
+      try {
+        if (!printWin.closed) printWin.close()
+      } catch {
+        // 무시
+      }
+    }, 60_000)
   }
 
   const handleDelete = async () => {
@@ -203,209 +597,65 @@ export function ContractViewDialog({ open, onOpenChange, contract, onDelete }: C
     }
   }
 
-  const clientName = contract.client_info?.company_name || "홍길동"
-  const clientRep = contract.client_info?.representative || "홍길동"
-  const dealName = contract.contract_data?.content_description
-    ? `${clientName} 홈페이지 구축`
-    : `${clientName} ${contract.category} 프로젝트`
-  const contractDateFormatted = contract.contract_date
-    ? (() => {
-        const d = contract.contract_date.replace(/\./g, "-")
-        const parts = d.split("-")
-        return parts.length === 3 ? `${parts[0]}년 ${parts[1]}월 ${parts[2]}일` : contract.contract_date
-      })()
-    : "2026년 00월 00일"
-
-  const renderClause = (clause: { order: number; title: string; body: string }) => {
-    const body = replacePlaceholders(clause.body, contract)
-    return (
-      <div key={clause.order} className="mb-2.5">
-        <p style={{ fontWeight: "bold", fontSize: "11px", marginBottom: "2px" }}>{clause.title}</p>
-        <p style={{ fontSize: "10.5px", lineHeight: "1.55", whiteSpace: "pre-wrap" }}>{body}</p>
-      </div>
-    )
-  }
-
-  const renderSignatureBlock = () => (
-    <div style={{ position: "absolute", bottom: "14mm", left: "12mm", right: "12mm" }}>
-      <div style={{ textAlign: "center", marginBottom: "16px" }}>
-        <p style={{ fontSize: "11px", fontWeight: 600 }}>계약일자 : {contractDateFormatted}</p>
-      </div>
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "24px", fontSize: "10.5px" }}>
-        {/* 갑 */}
-        <div>
-          <p style={{ fontWeight: "bold", marginBottom: "8px" }}>(갑)</p>
-          <p style={{ marginBottom: "4px" }}><span style={{ fontWeight: 600, display: "inline-block", width: "56px" }}>주 소 :</span>{contract.client_info?.address || ""}</p>
-          <p style={{ marginBottom: "4px" }}><span style={{ fontWeight: 600, display: "inline-block", width: "56px" }}>사 업 자 :</span>{contract.client_info?.business_number || ""}</p>
-          <p style={{ marginBottom: "4px" }}><span style={{ fontWeight: 600, display: "inline-block", width: "56px" }}>회 사 명 :</span>{contract.client_info?.company_name || ""}</p>
-          <p><span style={{ fontWeight: 600, display: "inline-block", width: "56px" }}>대 표 자 :</span>{clientRep}<span style={{ marginLeft: "16px", color: "#aaa" }}>(인)</span></p>
-        </div>
-        {/* 을 */}
-        <div style={{ position: "relative" }}>
-          <p style={{ fontWeight: "bold", marginBottom: "8px" }}>(을)</p>
-          <p style={{ marginBottom: "4px", fontSize: "10px" }}><span style={{ fontWeight: 600, display: "inline-block", width: "56px", fontSize: "10.5px" }}>주 소 :</span>{contract.company_info?.address || ""}</p>
-          <p style={{ marginBottom: "4px" }}><span style={{ fontWeight: 600, display: "inline-block", width: "56px" }}>사 업 자 :</span>{contract.company_info?.business_number || ""}</p>
-          <p style={{ marginBottom: "4px" }}><span style={{ fontWeight: 600, display: "inline-block", width: "56px" }}>회 사 명 :</span>{contract.company_info?.company_name || ""}</p>
-          <p>
-            <span style={{ fontWeight: 600, display: "inline-block", width: "56px" }}>대 표 자 :</span>
-            {contract.company_info?.representative || ""}
-            {contract.seal_url ? (
-              <img src={contract.seal_url} alt="도장" style={{ position: "absolute", right: 0, bottom: "-4px", width: "64px", height: "64px", objectFit: "contain" }} />
-            ) : (
-              <span style={{ marginLeft: "16px", color: "#aaa" }}>(인)</span>
-            )}
-          </p>
-        </div>
-      </div>
-    </div>
-  )
-
-  const renderPage = (page: typeof pages[0], pageIdx: number) => (
-    <div
-      key={pageIdx}
-      className="contract-print-page"
-      style={{
-        width: "210mm",
-        height: "297mm",
-        padding: "12mm 15mm",
-        boxSizing: "border-box",
-        background: "white",
-        fontFamily: "'Noto Sans KR', 'Malgun Gothic', sans-serif",
-        position: "relative",
-        overflow: "hidden",
-      }}
-    >
-      {pageIdx === 0 && (
-        <>
-          <h1 style={{ textAlign: "center", fontSize: "20px", fontWeight: "bold", marginBottom: "20px", letterSpacing: "0.05em" }}>{contract.title}</h1>
-          <p style={{ fontSize: "10.5px", lineHeight: "1.7", marginBottom: "20px" }}>
-            {contract.client_info?.company_name ? `주식회사 ${contract.client_info.company_name}` : "주식회사 홍길동"} (이하 "갑"이라 한다)와 {contract.company_info?.company_name || "플루타"} (이하 "을"이라 한다)은 {contractDateFormatted}자로
-            '{dealName}'(이하 "{contract.category} 구축"이라 한다.)에 관해 다음과 같이 계약을 체결한다.
-          </p>
-        </>
-      )}
-      {page.clauses.map(renderClause)}
-      {page.isLast && renderSignatureBlock()}
-      <div style={{ position: "absolute", bottom: "6mm", left: 0, right: 0, textAlign: "center", fontSize: "10px", color: "#999" }}>
-        - {pageIdx + 1} -
-      </div>
-    </div>
-  )
-
-  // The hidden print root rendered via portal into body
-  const printContent = printRootReady && open && pages.length > 0
-    ? createPortal(
-        <>{pages.map((page, idx) => renderPage(page, idx))}</>,
-        document.getElementById("contract-print-root")!
-      )
-    : null
-
   return (
-    <>
-      {printContent}
-      <Dialog open={open} onOpenChange={onOpenChange}>
-        <DialogContent className="!max-w-[900px] max-h-[95vh] overflow-y-auto p-0">
-          <DialogTitle className="sr-only">계약서 상세</DialogTitle>
-          <div className="p-4 border-b flex justify-between items-center sticky top-0 bg-background z-10">
-            <div className="flex items-center gap-2">
-              <h2 className="text-lg font-semibold">계약서 상세</h2>
-              <span className={`text-xs px-2 py-0.5 rounded-full ${
-                contract.status === "확정" ? "bg-green-100 text-green-700" :
-                contract.status === "서명완료" ? "bg-blue-100 text-blue-700" :
-                "bg-yellow-100 text-yellow-700"
-              }`}>{contract.status}</span>
-            </div>
-            <div className="flex items-center gap-2">
-              {contract.id && (
-                <Button variant="outline" size="sm" onClick={handleDelete} disabled={deleting}
-                  className="gap-1 text-destructive hover:text-destructive hover:bg-destructive/10">
-                  <Trash2 className="h-4 w-4" />
-                  {deleting ? "삭제 중..." : "삭제"}
-                </Button>
-              )}
-              <Button onClick={handlePrint} className="gap-2">
-                <FileDown className="h-4 w-4" />
-                인쇄 / PDF 저장
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="!max-w-[900px] max-h-[95vh] overflow-hidden p-0 flex flex-col">
+        <DialogTitle className="sr-only">계약서 상세</DialogTitle>
+        <div className="p-4 border-b flex justify-between items-center bg-background">
+          <div className="flex items-center gap-2">
+            <h2 className="text-lg font-semibold">계약서 상세</h2>
+            <span
+              className={`text-xs px-2 py-0.5 rounded-full ${
+                contract.status === "확정"
+                  ? "bg-green-100 text-green-700"
+                  : contract.status === "서명완료"
+                    ? "bg-blue-100 text-blue-700"
+                    : "bg-yellow-100 text-yellow-700"
+              }`}
+            >
+              {contract.status}
+            </span>
+            {pages.length > 0 && (
+              <span className="text-xs text-muted-foreground ml-2">총 {pages.length} 페이지</span>
+            )}
+          </div>
+          <div className="flex items-center gap-2">
+            {contract.id && (
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={handleDelete}
+                disabled={deleting}
+                className="gap-1 text-destructive hover:text-destructive hover:bg-destructive/10"
+              >
+                <Trash2 className="h-4 w-4" />
+                {deleting ? "삭제 중..." : "삭제"}
               </Button>
-            </div>
+            )}
+            <Button onClick={handlePrint} className="gap-2" disabled={pages.length === 0}>
+              <FileDown className="h-4 w-4" />
+              인쇄 / PDF 저장
+            </Button>
           </div>
+        </div>
 
-          {/* Preview area (screen only) */}
-          <div className="bg-gray-100 p-4">
-            {pages.map((page, pageIdx) => (
-              <div key={pageIdx}>
-                {pageIdx > 0 && <div className="h-3" />}
-                <div
-                  className="mx-auto shadow-lg border"
-                  style={{
-                    width: "210mm",
-                    minHeight: "297mm",
-                    padding: "12mm 15mm",
-                    boxSizing: "border-box",
-                    background: "white",
-                    fontFamily: "'Noto Sans KR', 'Malgun Gothic', sans-serif",
-                    position: "relative",
-                    overflow: "hidden",
-                  }}
-                >
-                  {pageIdx === 0 && (
-                    <>
-                      <h1 className="text-center text-xl font-bold mb-5 tracking-wider">{contract.title}</h1>
-                      <p className="text-[10.5px] leading-[1.7] mb-5">
-                        {contract.client_info?.company_name ? `주식회사 ${contract.client_info.company_name}` : "주식회사 홍길동"} (이하 &quot;갑&quot;이라 한다)와 {contract.company_info?.company_name || "플루타"} (이하 &quot;을&quot;이라 한다)은 {contractDateFormatted}자로
-                        &apos;{dealName}&apos;(이하 &quot;{contract.category} 구축&quot;이라 한다.)에 관해 다음과 같이 계약을 체결한다.
-                      </p>
-                    </>
-                  )}
-                  {page.clauses.map(c => {
-                    const body = replacePlaceholders(c.body, contract)
-                    return (
-                      <div key={c.order} className="mb-2.5">
-                        <p className="font-bold text-[11px] mb-0.5">{c.title}</p>
-                        <p className="text-[10.5px] leading-[1.55] whitespace-pre-wrap">{body}</p>
-                      </div>
-                    )
-                  })}
-                  {page.isLast && (
-                    <div style={{ position: "absolute", bottom: "14mm", left: "12mm", right: "12mm" }}>
-                      <div className="text-center mb-4">
-                        <p className="text-[11px] font-semibold">계약일자 : {contractDateFormatted}</p>
-                      </div>
-                      <div className="grid grid-cols-2 gap-6 text-[10.5px]">
-                        <div className="space-y-1.5">
-                          <p className="font-bold mb-2">(갑)</p>
-                          <div className="flex gap-2"><span className="font-semibold w-14 shrink-0">주 소 :</span><span>{contract.client_info?.address || ""}</span></div>
-                          <div className="flex gap-2"><span className="font-semibold w-14 shrink-0">사 업 자 :</span><span>{contract.client_info?.business_number || ""}</span></div>
-                          <div className="flex gap-2"><span className="font-semibold w-14 shrink-0">회 사 명 :</span><span>{contract.client_info?.company_name || ""}</span></div>
-                          <div className="flex gap-2 items-center"><span className="font-semibold w-14 shrink-0">대 표 자 :</span><span>{clientRep}</span><span className="ml-4 text-gray-400">(인)</span></div>
-                        </div>
-                        <div className="space-y-1.5 relative">
-                          <p className="font-bold mb-2">(을)</p>
-                          <div className="flex gap-2"><span className="font-semibold w-14 shrink-0">주 소 :</span><span className="text-[10px] leading-tight">{contract.company_info?.address || ""}</span></div>
-                          <div className="flex gap-2"><span className="font-semibold w-14 shrink-0">사 업 자 :</span><span>{contract.company_info?.business_number || ""}</span></div>
-                          <div className="flex gap-2"><span className="font-semibold w-14 shrink-0">회 사 명 :</span><span>{contract.company_info?.company_name || ""}</span></div>
-                          <div className="flex gap-2 items-center relative">
-                            <span className="font-semibold w-14 shrink-0">대 표 자 :</span>
-                            <span>{contract.company_info?.representative || ""}</span>
-                            {contract.seal_url ? (
-                              <img src={contract.seal_url} alt="도장" className="absolute right-0 -top-4 w-16 h-16 object-contain" />
-                            ) : (
-                              <span className="ml-4 text-gray-400">(인)</span>
-                            )}
-                          </div>
-                        </div>
-                      </div>
-                    </div>
-                  )}
-                  <div style={{ position: "absolute", bottom: "6mm", left: 0, right: 0, textAlign: "center", fontSize: "10px", color: "#999" }}>
-                    - {pageIdx + 1} -
-                  </div>
-                </div>
-              </div>
-            ))}
-          </div>
-        </DialogContent>
-      </Dialog>
-    </>
+        {/* 미리보기는 iframe srcDoc 으로 인쇄와 동일한 HTML 을 띄움 → 100% 일치 */}
+        <div className="flex-1 overflow-hidden bg-slate-100">
+          {previewHTML ? (
+            <iframe
+              key={previewHTML.length /* 내용 바뀌면 재마운트 */}
+              srcDoc={previewHTML}
+              title="계약서 미리보기"
+              className="w-full h-full"
+              style={{ border: 0, background: "#f1f5f9" }}
+            />
+          ) : (
+            <div className="flex items-center justify-center h-full text-muted-foreground">
+              {contract.clauses?.length === 0 ? "계약서 내용이 없습니다." : "페이지 계산 중..."}
+            </div>
+          )}
+        </div>
+      </DialogContent>
+    </Dialog>
   )
 }
