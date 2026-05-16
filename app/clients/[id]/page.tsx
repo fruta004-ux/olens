@@ -8,6 +8,7 @@ import { createBrowserClient } from "@/lib/supabase/client"
 import { useRouter } from "next/navigation"
 import { cn } from "@/lib/utils"
 import { sanitizeHtml } from "@/lib/sanitize"
+import { syncContractsForAccount } from "@/lib/contract-sync"
 import { CrmSidebar } from "@/components/crm-sidebar"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
@@ -857,6 +858,20 @@ function ClientDetailPageClient({ clientId }: { clientId: string }) {
       ...prev,
       account: { ...prev.account, ...updates },
     }))
+
+    // 거래처 정보가 바뀌면 이 거래처에 연결된 모든 계약서의 갑(client_info)을 자동 동기화.
+    // OCR 결과든 수기 수정이든 모두 이 한 곳을 통과하므로 일관되게 처리됨.
+    // 핵심 필드만 동기화 — 그 외 필드 변경 시엔 호출하지 않아 무의미한 update 회피.
+    const SYNC_FIELDS = ["company_name", "representative", "business_number", "address"]
+    const changedSyncField = Object.keys(updates).some((k) => SYNC_FIELDS.includes(k))
+    if (changedSyncField) {
+      const result = await syncContractsForAccount(supabase, dealData.account_id)
+      if (result.error) {
+        console.warn("[v0] 계약서 자동 동기화 실패:", result.error)
+      } else if (result.updated > 0) {
+        console.log(`[v0] 계약서 ${result.updated}건의 갑 정보 자동 동기화됨`)
+      }
+    }
   }
 
   // 사업자등록증 업로드 → Supabase Storage 저장
