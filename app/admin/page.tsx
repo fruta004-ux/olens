@@ -228,30 +228,121 @@ export default function AdminPage() {
   }
 
   const handleUploadSeal = async () => {
-    if (!sealFile) return
-    const fileExt = sealFile.name.split(".").pop()
-    const fileName = `${sealUploadCompany}_${Date.now()}.${fileExt}`
-
-    const { error: uploadError } = await supabase.storage
-      .from("company-seals")
-      .upload(fileName, sealFile, { upsert: true })
-
-    if (uploadError) {
-      alert("도장 업로드 실패: " + uploadError.message)
+    if (!sealFile) {
+      alert("업로드할 도장 파일을 선택해주세요.")
       return
     }
 
-    const { data: urlData } = supabase.storage.from("company-seals").getPublicUrl(fileName)
-    if (!urlData?.publicUrl) return
+    try {
+      console.log("[seal] 업로드 시작:", { name: sealFile.name, size: sealFile.size, company: sealUploadCompany })
 
-    await supabase.from("company_seals").update({ is_active: false }).eq("company", sealUploadCompany)
-    await supabase.from("company_seals").insert({
-      company: sealUploadCompany,
-      seal_url: urlData.publicUrl,
-      is_active: true,
-    })
-    setSealFile(null)
-    loadCompanySeals()
+      // 1) 인증 상태 확인 — RLS 가 잠긴 후로 미인증 시 storage / DB 모두 막힘
+      const { data: { user }, error: authErr } = await supabase.auth.getUser()
+      if (authErr || !user) {
+        alert("로그인이 필요합니다. 페이지를 새로고침한 뒤 다시 시도해주세요.")
+        console.error("[seal] 인증 실패:", authErr)
+        return
+      }
+
+      // 회사명이 한글이면 storage 파일명에서 거부될 수 있어 영문 슬러그로 변환
+      const COMPANY_SLUG: Record<string, string> = {
+        "플루타": "pluta",
+        "오코랩스": "ocolabs",
+      }
+      const slug = COMPANY_SLUG[sealUploadCompany] || "seal"
+      const fileExt = (sealFile.name.split(".").pop() || "png").toLowerCase().replace(/[^a-z0-9]/g, "")
+      const fileName = `${slug}_${Date.now()}.${fileExt || "png"}`
+
+      // 2) Storage 업로드
+      const { error: uploadError } = await supabase.storage
+        .from("company-seals")
+        .upload(fileName, sealFile, { upsert: true, contentType: sealFile.type || "image/png" })
+
+      if (uploadError) {
+        console.error("[seal] storage 업로드 실패:", uploadError)
+        const msg = uploadError.message || ""
+        const lower = msg.toLowerCase()
+        const detail = `\n\n원본 에러: ${msg}\n파일명: ${fileName}\nMIME: ${sealFile.type}\n사이즈: ${sealFile.size}`
+
+        if (lower.includes("bucket") || lower.includes("not found")) {
+          alert(
+            "도장 업로드 실패: Supabase Storage 에 'company-seals' 버킷이 없거나 접근 불가합니다.\n" +
+            "Supabase Dashboard → Storage → New bucket 으로 'company-seals' (Public) 버킷을 만들어주세요." +
+            detail
+          )
+        } else if (lower.includes("policy") || lower.includes("permission") || lower.includes("rls") || lower.includes("unauthorized")) {
+          alert(
+            "도장 업로드 실패: Storage RLS 정책에 막혔습니다.\n" +
+            "Supabase Dashboard → SQL Editor 에서 아래를 실행해주세요:\n\n" +
+            "DROP POLICY IF EXISTS \"company_seals_insert\" ON storage.objects;\n" +
+            "CREATE POLICY \"company_seals_insert\" ON storage.objects\n" +
+            "  FOR INSERT TO authenticated\n" +
+            "  WITH CHECK (bucket_id = 'company-seals');\n\n" +
+            "DROP POLICY IF EXISTS \"company_seals_update\" ON storage.objects;\n" +
+            "CREATE POLICY \"company_seals_update\" ON storage.objects\n" +
+            "  FOR UPDATE TO authenticated\n" +
+            "  USING (bucket_id = 'company-seals')\n" +
+            "  WITH CHECK (bucket_id = 'company-seals');" +
+            detail
+          )
+        } else if (lower.includes("mime") || lower.includes("type") || lower.includes("invalid")) {
+          alert(
+            "도장 업로드 실패: 파일 형식 또는 MIME 타입이 거부됐습니다." +
+            detail
+          )
+        } else {
+          alert("도장 파일 업로드 실패: " + msg + detail)
+        }
+        return
+      }
+
+      // 3) Public URL 생성
+      const { data: urlData } = supabase.storage.from("company-seals").getPublicUrl(fileName)
+      if (!urlData?.publicUrl) {
+        alert("도장 URL 생성에 실패했습니다.")
+        return
+      }
+      console.log("[seal] public URL:", urlData.publicUrl)
+
+      // 4) 기존 활성 도장 비활성화 — 에러도 사용자에게 보여줌
+      const { error: updateError } = await supabase
+        .from("company_seals")
+        .update({ is_active: false })
+        .eq("company", sealUploadCompany)
+
+      if (updateError) {
+        console.error("[seal] 기존 도장 비활성화 실패:", updateError)
+        alert(
+          "기존 도장 비활성화 실패 (RLS 정책 확인 필요): " + updateError.message +
+          "\n\n새 도장은 storage 에는 업로드됐습니다."
+        )
+        return
+      }
+
+      // 5) 새 도장 INSERT
+      const { error: insertError } = await supabase.from("company_seals").insert({
+        company: sealUploadCompany,
+        seal_url: urlData.publicUrl,
+        is_active: true,
+      })
+
+      if (insertError) {
+        console.error("[seal] DB INSERT 실패:", insertError)
+        alert(
+          "도장 정보 저장 실패 (RLS 정책 확인 필요): " + insertError.message +
+          "\n\n파일은 업로드됐지만 DB 에 기록되지 않았습니다."
+        )
+        return
+      }
+
+      console.log("[seal] 전체 성공")
+      setSealFile(null)
+      await loadCompanySeals()
+      alert(`${sealUploadCompany} 도장이 등록되었습니다.`)
+    } catch (err: any) {
+      console.error("[seal] 예외:", err)
+      alert("도장 업로드 중 예외 발생: " + (err?.message || "알 수 없는 오류"))
+    }
   }
 
   useEffect(() => {
