@@ -93,6 +93,15 @@ export default function SignPage() {
     }
   }, [token, router])
 
+  // 브라우저 탭 제목 — "{업체명} 전자계약" (외부 거래처용 화면이라 내부 브랜드명 노출 X)
+  useEffect(() => {
+    const companyName = contract?.client_info?.company_name?.trim()
+    document.title = companyName ? `${companyName} 전자계약` : "전자계약"
+    return () => {
+      document.title = "Olens - 영업 관리 시스템"
+    }
+  }, [contract])
+
   // 계약서 미리보기 HTML 빌드 (한 번만 — 이후 도장은 postMessage 로 갱신)
   useEffect(() => {
     if (!contract) {
