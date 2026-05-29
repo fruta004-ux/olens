@@ -57,8 +57,8 @@ function buildPreambleInnerHTML(contract: Contract, contractDateFormatted: strin
     : `${clientName} ${contract.category} 프로젝트`
 
   const clientLabel = contract.client_info?.company_name
-    ? `주식회사 ${escapeHtml(contract.client_info.company_name)}`
-    : "주식회사 홍길동"
+    ? escapeHtml(contract.client_info.company_name)
+    : "홍길동"
   const sellerLabel = escapeHtml(contract.company_info?.company_name || "플루타")
   const cat = escapeHtml(contract.category)
 
