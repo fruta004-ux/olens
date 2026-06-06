@@ -21,6 +21,28 @@ export interface ParsedSpecRow {
 }
 
 /**
+ * 프로젝트 명세서 행의 프로젝트명을 자동 생성한다.
+ * 형식: "업체명 카테고리_비용종류"
+ *  - 예) 메타애드 홈페이지_계약금
+ *  - 예) 메타애드 마케팅_월 대행비
+ * "그 외" 카테고리는 "영상" 으로 표기한다.
+ * 업체명이 없으면 "카테고리_비용종류" 만 반환.
+ */
+export function buildSpecProjectName(
+  companyName: string | null | undefined,
+  category: string | null | undefined,
+  costType: string | null | undefined
+): string {
+  const company = (companyName || "").trim()
+  const catRaw = (category || "").trim()
+  const cat = catRaw === "그 외" ? "영상" : catRaw
+  const cost = (costType || "").trim()
+  const suffix = [cat, cost].filter(Boolean).join("_")
+  if (!suffix) return company
+  return company ? `${company} ${suffix}` : suffix
+}
+
+/**
  * "1,500,000원", "1500000", "150만원", "1.5억", "월 50만원" 등을 정수(원)로 변환
  */
 export function parseAmountToWon(raw: string): number | null {

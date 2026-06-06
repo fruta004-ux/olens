@@ -3,6 +3,7 @@
 import { usePathname } from "next/navigation"
 import { FloatingFeedbackButton } from "@/components/floating-feedback-button"
 import { FloatingInquiryBell } from "@/components/floating-inquiry-bell"
+import FinanceSpecPopup from "@/components/finance-spec-popup"
 import { Toaster } from "@/components/ui/sonner"
 
 /**
@@ -27,6 +28,7 @@ export function LayoutWrapper({ children }: { children: React.ReactNode }) {
       {children}
       {showInternalUI && (
         <>
+          <FinanceSpecPopup />
           <FloatingInquiryBell />
           <FloatingFeedbackButton />
         </>

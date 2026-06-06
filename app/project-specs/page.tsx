@@ -58,6 +58,7 @@ import {
 import SearchableSelect from "@/components/searchable-select"
 import { createBrowserClient } from "@/lib/supabase/client"
 import { cn } from "@/lib/utils"
+import { buildSpecProjectName } from "@/lib/parse-contract-conditions"
 
 type Category = "마케팅" | "홈페이지" | "개발" | "그 외"
 type CostType = "계약금" | "중도금" | "완납금" | "일괄 완납금" | "월 대행비"
@@ -197,7 +198,6 @@ const dateKeyToLabel = (key: string) => {
 
 const CATEGORIES: Category[] = ["마케팅", "홈페이지", "개발", "그 외"]
 const COST_TYPES: CostType[] = ["계약금", "중도금", "완납금", "일괄 완납금", "월 대행비"]
-const PROGRESS_STATUSES: ProgressStatus[] = ["작성대기", "작성필요", "작성완료"]
 const INVOICE_STATUSES: InvoiceStatus[] = ["발행필요", "발행대기", "발행완료", "카드결제"]
 
 const CATEGORY_COLORS: Record<Category, string> = {
@@ -215,23 +215,11 @@ const COST_TYPE_COLORS: Record<CostType, string> = {
   "월 대행비": "bg-amber-50 text-amber-700 border-amber-200",
 }
 
-const PROGRESS_COLORS: Record<ProgressStatus, string> = {
-  "작성대기": "bg-gray-50 text-gray-700 border-gray-200",
-  "작성필요": "bg-amber-50 text-amber-700 border-amber-200",
-  "작성완료": "bg-green-50 text-green-700 border-green-200",
-}
-
 const INVOICE_COLORS: Record<InvoiceStatus, string> = {
   "발행필요": "bg-rose-50 text-rose-700 border-rose-200",
   "발행대기": "bg-yellow-50 text-yellow-700 border-yellow-200",
   "발행완료": "bg-green-50 text-green-700 border-green-200",
   "카드결제": "bg-blue-50 text-blue-700 border-blue-200",
-}
-
-const PROGRESS_LABELS: Record<ProgressStatus, string> = {
-  "작성대기": "대기",
-  "작성필요": "필요",
-  "작성완료": "완료",
 }
 
 const INVOICE_LABELS: Record<InvoiceStatus, string> = {
@@ -297,7 +285,6 @@ export default function ProjectSpecsPage() {
 
   // 필터
   const [filterCategory, setFilterCategory] = useState<string>("전체")
-  const [filterProgress, setFilterProgress] = useState<string>("전체")
   const [filterInvoice, setFilterInvoice] = useState<string>("전체")
   const [filterAssigned, setFilterAssigned] = useState<string>("전체")
   const [filterCostType, setFilterCostType] = useState<string>("전체")
@@ -507,7 +494,6 @@ export default function ProjectSpecsPage() {
   const filteredSpecs = useMemo(() => {
     return specs.filter((s) => {
       if (filterCategory !== "전체" && s.category !== filterCategory) return false
-      if (filterProgress !== "전체" && s.progress_status !== filterProgress) return false
       if (filterInvoice !== "전체" && s.invoice_status !== filterInvoice) return false
       if (filterAssigned !== "전체" && (s.assigned_to || "") !== filterAssigned) return false
       if (filterCostType !== "전체" && s.cost_type !== filterCostType) return false
@@ -530,7 +516,6 @@ export default function ProjectSpecsPage() {
   }, [
     specs,
     filterCategory,
-    filterProgress,
     filterInvoice,
     filterAssigned,
     filterCostType,
@@ -661,7 +646,7 @@ export default function ProjectSpecsPage() {
         const invoiceIssueDay = m.invoice_issue_day ?? null
         const paymentOffset = m.payment_offset_months ?? 0
         const assignedTo = m.assigned_to ?? null
-        const financeAssignedTo = m.finance_assigned_to ?? null
+        const financeAssignedTo = m.finance_assigned_to ?? "김다예"
         const notes = m.notes ?? ""
 
         return {
@@ -690,7 +675,7 @@ export default function ProjectSpecsPage() {
             invoice_issue_day: m.invoice_issue_day ?? null,
             payment_offset_months: m.payment_offset_months ?? 0,
             assigned_to: m.assigned_to ?? null,
-            finance_assigned_to: m.finance_assigned_to ?? null,
+            finance_assigned_to: m.finance_assigned_to ?? "김다예",
             notes: m.notes ?? "",
           },
         }
@@ -800,7 +785,7 @@ export default function ProjectSpecsPage() {
           invoice_issue_date: null,
           notes: `자동 생성: 정기 ${monthKeyToLabel(targetMonth)}`,
           assigned_to: r.assigned_to,
-          finance_assigned_to: r.finance_assigned_to,
+          finance_assigned_to: r.finance_assigned_to || "김다예",
         }
       })
 
@@ -903,7 +888,7 @@ export default function ProjectSpecsPage() {
         client_id: acc.client_id,
         account_id: acc.id,
         category: newRowCategory,
-        project_name: newRowProjectName || acc.company_name,
+        project_name: newRowProjectName || buildSpecProjectName(acc.company_name, newRowCategory, "일괄 완납금"),
         cost_type: "일괄 완납금",
         amount: null,
         progress_status: "작성필요",
@@ -911,6 +896,8 @@ export default function ProjectSpecsPage() {
         notes: null,
         // 인포(client)의 영업 담당자를 기본 적용 — 사용자는 표에서 변경 가능
         assigned_to: acc.client_assigned_to || null,
+        // 현재 재무 담당자가 1명이므로 기본 자동 배정
+        finance_assigned_to: "김다예",
       })
       .select("*")
       .single()
@@ -1094,19 +1081,6 @@ export default function ProjectSpecsPage() {
                   {CATEGORIES.map((c) => (
                     <SelectItem key={c} value={c}>
                       {c}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-              <Select value={filterProgress} onValueChange={setFilterProgress}>
-                <SelectTrigger className="w-[130px] h-8 text-xs">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="전체">진행상황 전체</SelectItem>
-                  {PROGRESS_STATUSES.map((s) => (
-                    <SelectItem key={s} value={s}>
-                      {PROGRESS_LABELS[s]}
                     </SelectItem>
                   ))}
                 </SelectContent>
@@ -1335,14 +1309,13 @@ export default function ProjectSpecsPage() {
                     <TableHead className="w-[40px]">순번</TableHead>
                     <TableHead className="w-[70px]">소속월</TableHead>
                     <TableHead className="w-[80px]">카테고리</TableHead>
-                    <TableHead className="w-[220px] min-w-[220px]">프로젝트명</TableHead>
+                    <TableHead className="w-[300px] min-w-[300px]">프로젝트명</TableHead>
                     <TableHead className="w-[160px]">인포 (거래처)</TableHead>
                     <TableHead className="w-[70px]">담당자</TableHead>
                     <TableHead className="w-[100px]">비용 종류</TableHead>
                     <TableHead className="w-[140px]">금액 (VAT 별도)</TableHead>
                     <TableHead className="w-[130px]">발행 예정일</TableHead>
                     <TableHead className="w-[130px]">입금 예정일</TableHead>
-                    <TableHead className="w-[80px]">진행상황</TableHead>
                     <TableHead className="w-[130px]">실제 발행일</TableHead>
                     <TableHead className="w-[80px]">계산서</TableHead>
                     <TableHead className="w-[70px]">재무 담당자</TableHead>
@@ -1353,7 +1326,7 @@ export default function ProjectSpecsPage() {
                 <TableBody>
                   {filteredSpecs.length === 0 ? (
                     <TableRow>
-                      <TableCell colSpan={16} className="text-center py-12 text-muted-foreground">
+                      <TableCell colSpan={15} className="text-center py-12 text-muted-foreground">
                         명세서 행이 없습니다. S5 계약완료 시 자동 생성되거나, [행 추가] 버튼으로 추가할 수 있어요.
                       </TableCell>
                     </TableRow>
@@ -1536,32 +1509,6 @@ export default function ProjectSpecsPage() {
                               value={spec.payment_due_date}
                               onChange={(v) => updateField(spec.id, { payment_due_date: v })}
                             />
-                          </TableCell>
-
-                          {/* 진행상황 */}
-                          <TableCell>
-                            <Select
-                              value={spec.progress_status}
-                              onValueChange={(v) =>
-                                updateField(spec.id, { progress_status: v as ProgressStatus })
-                              }
-                            >
-                              <SelectTrigger
-                                className={cn(
-                                  "h-7 text-xs border-0",
-                                  PROGRESS_COLORS[spec.progress_status]
-                                )}
-                              >
-                                <SelectValue />
-                              </SelectTrigger>
-                              <SelectContent>
-                                {PROGRESS_STATUSES.map((s) => (
-                                  <SelectItem key={s} value={s} className="text-xs">
-                                    {PROGRESS_LABELS[s]}
-                                  </SelectItem>
-                                ))}
-                              </SelectContent>
-                            </Select>
                           </TableCell>
 
                           {/* 계산서 발행일 */}

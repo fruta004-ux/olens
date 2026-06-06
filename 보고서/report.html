@@ -1,0 +1,243 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8" />
+<style>
+  @page { size: A4; margin: 14mm 12mm 16mm 12mm; }
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0; padding: 0;
+    font-family: "Pretendard", "Noto Sans KR", "Malgun Gothic", sans-serif;
+    color: #1f2937; font-size: 11px; line-height: 1.55;
+    -webkit-print-color-adjust: exact; print-color-adjust: exact;
+  }
+  .page { page-break-after: always; }
+  .page:last-child { page-break-after: auto; }
+
+  /* 표지 */
+  .cover { height: 250mm; display: flex; flex-direction: column; justify-content: center; }
+  .cover .badge { align-self: flex-start; background: #0f172a; color:#fff; font-size: 12px; font-weight:600;
+    padding: 5px 12px; border-radius: 999px; letter-spacing: .5px; }
+  .cover h1 { font-size: 34px; line-height: 1.3; margin: 18px 0 10px; color:#0f172a; font-weight: 800; }
+  .cover .sub { font-size: 15px; color:#475569; margin-bottom: 40px; }
+  .cover .meta { border-top: 2px solid #0f172a; padding-top: 16px; font-size: 13px; color:#334155; }
+  .cover .meta div { margin-bottom: 6px; }
+  .cover .meta b { display:inline-block; width: 90px; color:#0f172a; }
+
+  h2 { font-size: 16px; color:#fff; background:#0f172a; padding: 8px 12px; border-radius: 6px;
+    margin: 0 0 14px; page-break-after: avoid; }
+  h3 { font-size: 13px; color:#0f172a; margin: 4px 0 8px; page-break-after: avoid; }
+  p.desc { margin: 0 0 14px; color:#475569; font-size: 11px; }
+
+  .compare { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; page-break-inside: avoid; }
+  .shot { border: 1px solid #e2e8f0; border-radius: 8px; overflow: hidden; background:#fff; }
+  .shot .cap { font-size: 11px; font-weight: 700; padding: 6px 10px; color:#fff; }
+  .shot.before .cap { background:#64748b; }
+  .shot.after  .cap { background:#0369a1; }
+  .shot .body { padding: 10px; background:#f8fafc; min-height: 140px; }
+
+  /* CRM 테이블 모형 */
+  table.ui { width: 100%; border-collapse: collapse; font-size: 8px; background:#fff;
+    border:1px solid #e5e7eb; border-radius: 6px; overflow: hidden; }
+  table.ui th { background:#f1f5f9; color:#334155; font-weight:600; padding: 5px 4px; text-align:center;
+    border-bottom: 1px solid #e5e7eb; white-space: nowrap; }
+  table.ui td { padding: 5px 4px; text-align:center; border-bottom: 1px solid #f1f5f9; white-space: nowrap; }
+  table.ui th.hl, table.ui td.hl { background:#fef9c3; }
+  .pill { display:inline-block; padding: 2px 6px; border-radius: 5px; font-size: 8px; font-weight:600; }
+  .pill.purple { background:#f3e8ff; color:#7e22ce; }
+  .pill.cyan { background:#cffafe; color:#0e7490; }
+  .pill.amber { background:#fef3c7; color:#b45309; }
+  .pill.blue { background:#dbeafe; color:#1d4ed8; }
+  .pill.green { background:#dcfce7; color:#15803d; }
+  .pill.gray { background:#f1f5f9; color:#94a3b8; }
+  .pill.rose { background:#ffe4e6; color:#be123c; }
+  .name-cell { text-align:left; }
+
+  /* 팝업 모형 */
+  .popup-stage { position: relative; background:#e2e8f0; border-radius: 8px; min-height: 200px;
+    display:flex; align-items:center; justify-content:center; padding: 14px; }
+  .popup-stage.empty { color:#94a3b8; font-size: 11px; font-style: italic; }
+  .modal { width: 100%; max-width: 280px; background:#fff; border-radius: 10px; box-shadow: 0 10px 30px rgba(0,0,0,.18);
+    overflow: hidden; border:1px solid #e5e7eb; }
+  .modal .mh { padding: 12px 14px 8px; border-bottom:1px solid #eef2f7; }
+  .modal .mh .ttl { font-size: 12px; font-weight: 700; color:#0f172a; display:flex; align-items:center; gap:6px; }
+  .modal .mh .cnt { background:#fef3c7; color:#b45309; font-size: 9px; font-weight:700; padding: 1px 6px; border-radius: 5px; }
+  .modal .mh .sub { font-size: 9px; color:#64748b; margin-top: 4px; }
+  .modal .mb { padding: 10px 14px; display:flex; flex-direction: column; gap: 6px; }
+  .card { border:1px solid #fcd34d; background:#fffbeb; border-radius: 8px; padding: 8px 10px;
+    display:flex; align-items:center; justify-content:space-between; gap: 8px; }
+  .card .co { font-size: 10px; font-weight: 700; color:#92400e; }
+  .card .pj { font-size: 9px; color:#b45309; margin-top: 2px; }
+  .btn-ok { background:#d97706; color:#fff; font-size: 9px; font-weight:700; padding: 4px 9px; border-radius: 6px; white-space:nowrap; }
+  .modal .mf { padding: 10px 14px; border-top:1px solid #eef2f7; display:flex; justify-content:flex-end; gap:6px; }
+  .btn-line { border:1px solid #cbd5e1; color:#475569; font-size: 9px; padding: 4px 9px; border-radius: 6px; }
+  .btn-amber { border:1px solid #fcd34d; color:#b45309; font-size: 9px; padding: 4px 9px; border-radius: 6px; }
+  .btn-dark { background:#0f172a; color:#fff; font-size: 9px; padding: 4px 9px; border-radius: 6px; }
+
+  .note { background:#f8fafc; border-left: 4px solid #0369a1; padding: 10px 12px; margin-top: 12px;
+    font-size: 10.5px; color:#334155; border-radius: 0 6px 6px 0; }
+  .note b { color:#0f172a; }
+  table.kv { width:100%; border-collapse: collapse; margin-top: 8px; font-size: 10.5px; page-break-inside: avoid; }
+  table.kv td { border:1px solid #e5e7eb; padding: 7px 10px; vertical-align: top; }
+  table.kv td.k { background:#f1f5f9; font-weight:700; width: 26%; color:#0f172a; }
+  .foot { margin-top: 26px; text-align:right; color:#94a3b8; font-size: 10px; }
+</style>
+</head>
+<body>
+
+<!-- 표지 -->
+<div class="page cover">
+  <span class="badge">CHANGE REPORT</span>
+  <h1>프로젝트 명세서 요청서<br/>기능 수정 보고서</h1>
+  <div class="sub">재무 담당자 자동 배정 · 진행상황 항목 정리 · 신규 알림 팝업 추가 (수정 전 / 후 비교)</div>
+  <div class="meta">
+    <div><b>시스템</b> : 오렌즈 - 오르트 영업 관리 시스템</div>
+    <div><b>대상 화면</b> : 프로젝트 명세서 요청서</div>
+    <div><b>작성 일자</b> : 2026-06-06</div>
+    <div><b>변경 건수</b> : 총 3건</div>
+  </div>
+</div>
+
+<!-- 1. 재무 담당자 자동 배정 -->
+<div class="page">
+  <h2>1. 재무 담당자 자동 배정 (김다예)</h2>
+  <p class="desc">
+    신규 명세서 행 생성 시 <b>재무 담당자</b>가 비어 있던(미지정) 문제를, 현재 재무 담당자가 1명이므로
+    <b>김다예</b>로 자동 배정되도록 변경했습니다. (행 추가 · 계약완료 자동 생성 · 정기 갱신 전 경로 공통 적용)
+  </p>
+
+  <div class="compare">
+    <div class="shot before">
+      <div class="cap">변경 전</div>
+      <div class="body">
+        <table class="ui">
+          <tr><th>프로젝트명</th><th>비용 종류</th><th>재무 담당자</th></tr>
+          <tr><td class="name-cell">메타애드</td><td><span class="pill blue">계약금</span></td><td class="hl"><span class="pill gray">미지정</span></td></tr>
+          <tr><td class="name-cell">유민스테인레스</td><td><span class="pill amber">월 대행비</span></td><td class="hl"><span class="pill gray">미지정</span></td></tr>
+        </table>
+      </div>
+    </div>
+    <div class="shot after">
+      <div class="cap">변경 후</div>
+      <div class="body">
+        <table class="ui">
+          <tr><th>프로젝트명</th><th>비용 종류</th><th>재무 담당자</th></tr>
+          <tr><td class="name-cell">메타애드 홈페이지_계약금</td><td><span class="pill blue">계약금</span></td><td class="hl"><span class="pill cyan">김다예</span></td></tr>
+          <tr><td class="name-cell">유민스테인레스 마케팅_월 대행비</td><td><span class="pill amber">월 대행비</span></td><td class="hl"><span class="pill cyan">김다예</span></td></tr>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <div class="note">
+    <b>요약</b> · 재무 담당자 열이 <b>미지정 → 김다예</b>로 자동 채워집니다. 추후 재무 담당자가 늘어나면
+    역할(role) 기반으로 손쉽게 확장할 수 있도록 설계했습니다.
+  </div>
+
+  <table class="kv">
+    <tr><td class="k">변경 위치</td><td>거래 상세 / 거래처 상세 / 프로젝트 명세서(행 추가) 생성 로직</td></tr>
+    <tr><td class="k">기본값</td><td>finance_assigned_to = "김다예"</td></tr>
+    <tr><td class="k">효과</td><td>명세서 생성 즉시 재무 담당자 지정 → 누락 방지, 수기 입력 제거</td></tr>
+  </table>
+</div>
+
+<!-- 2. 진행상황 삭제 -->
+<div class="page">
+  <h2>2. 진행상황 항목 삭제 + 프로젝트명 영역 확장</h2>
+  <p class="desc">
+    사용 빈도가 낮던 <b>진행상황</b> 컬럼(및 필터)을 제거하고, 확보한 공간만큼 <b>프로젝트명</b> 열 너비를 넓혔습니다.
+  </p>
+
+  <h3>변경 전 — 진행상황 컬럼 있음 / 프로젝트명 좁음</h3>
+  <div class="shot before" style="margin-bottom:14px;">
+    <div class="cap">변경 전</div>
+    <div class="body">
+      <table class="ui">
+        <tr><th>순번</th><th>카테고리</th><th>프로젝트명</th><th>담당자</th><th>비용 종류</th><th class="hl">진행상황</th><th>계산서</th><th>재무 담당자</th></tr>
+        <tr><td>1</td><td><span class="pill cyan">홈페이지</span></td><td class="name-cell">메타애드</td><td>오일환</td><td><span class="pill blue">계약금</span></td><td class="hl"><span class="pill amber">필요</span></td><td><span class="pill rose">필요</span></td><td><span class="pill gray">미지정</span></td></tr>
+        <tr><td>2</td><td><span class="pill purple">마케팅</span></td><td class="name-cell">유민스테인레스</td><td>박상혁</td><td><span class="pill amber">월 대행비</span></td><td class="hl"><span class="pill green">완료</span></td><td><span class="pill green">완료</span></td><td><span class="pill gray">미지정</span></td></tr>
+      </table>
+    </div>
+  </div>
+
+  <h3>변경 후 — 진행상황 제거 / 프로젝트명 확장</h3>
+  <div class="shot after">
+    <div class="cap">변경 후</div>
+    <div class="body">
+      <table class="ui">
+        <tr><th>순번</th><th>카테고리</th><th style="width:38%">프로젝트명</th><th>담당자</th><th>비용 종류</th><th>계산서</th><th>재무 담당자</th></tr>
+        <tr><td>1</td><td><span class="pill cyan">홈페이지</span></td><td class="name-cell hl">메타애드 홈페이지_계약금</td><td>오일환</td><td><span class="pill blue">계약금</span></td><td><span class="pill rose">필요</span></td><td><span class="pill cyan">김다예</span></td></tr>
+        <tr><td>2</td><td><span class="pill purple">마케팅</span></td><td class="name-cell hl">유민스테인레스 마케팅_월 대행비</td><td>박상혁</td><td><span class="pill amber">월 대행비</span></td><td><span class="pill green">완료</span></td><td><span class="pill cyan">김다예</span></td></tr>
+      </table>
+    </div>
+  </div>
+
+  <div class="note">
+    <b>요약</b> · 상단 필터의 "진행상황 전체"와 표의 진행상황 열을 함께 제거했습니다. 비워진 폭은 프로젝트명 열에 더해
+    긴 프로젝트명(예: <b>메타애드 홈페이지_계약금</b>)이 잘리지 않고 보이도록 했습니다.
+  </div>
+</div>
+
+<!-- 3. 팝업 -->
+<div class="page">
+  <h2>3. 신규 명세서 알림 팝업 (재무 담당자 전용)</h2>
+  <p class="desc">
+    재무 담당자(role=finance) 계정으로 로그인하면, 새 명세서가 생길 때 <b>화면 중앙 팝업</b>으로 알립니다.
+    각 항목을 <b>확인</b> 버튼으로 처리해야 사라지며, 그냥 닫으면 새로고침 시 다시 떠서 <b>누락을 방지</b>합니다.
+  </p>
+
+  <div class="compare">
+    <div class="shot before">
+      <div class="cap">변경 전</div>
+      <div class="body">
+        <div class="popup-stage empty">별도 알림 없음 — 재무 담당자가 직접 목록을 확인해야 함</div>
+      </div>
+    </div>
+    <div class="shot after">
+      <div class="cap">변경 후</div>
+      <div class="body">
+        <div class="popup-stage">
+          <div class="modal">
+            <div class="mh">
+              <div class="ttl">🔔 새 프로젝트 명세서 요청 <span class="cnt">2건</span></div>
+              <div class="sub">각 항목을 <b>확인</b> 눌러야 사라집니다. 그냥 닫으면 새로고침 시 다시 표시돼요.</div>
+            </div>
+            <div class="mb">
+              <div class="card">
+                <div>
+                  <div class="co">메타애드</div>
+                  <div class="pj">메타애드 홈페이지_계약금</div>
+                </div>
+                <div class="btn-ok">✓ 확인</div>
+              </div>
+              <div class="card">
+                <div>
+                  <div class="co">유민스테인레스</div>
+                  <div class="pj">유민스테인레스 마케팅_월 대행비</div>
+                </div>
+                <div class="btn-ok">✓ 확인</div>
+              </div>
+            </div>
+            <div class="mf">
+              <span class="btn-line">나중에</span>
+              <span class="btn-dark">요청서 열기</span>
+              <span class="btn-amber">모두 확인</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <table class="kv">
+    <tr><td class="k">노출 대상</td><td>user_profiles.role = 'finance' 계정 (현재: 김다예)</td></tr>
+    <tr><td class="k">노출 조건</td><td>재무 담당자 = 김다예로 배정된 신규 명세서 (최근 7일 내 생성분 기준)</td></tr>
+    <tr><td class="k">닫기 규칙</td><td>항목별 <b>확인</b> = 영구 제거 / 그냥 닫기 = 임시(새로고침 시 재노출)</td></tr>
+    <tr><td class="k">목적</td><td>재무 처리 누락 방지 — 확인 전까지 계속 알림</td></tr>
+  </table>
+
+  <div class="foot">— 보고서 끝 —</div>
+</div>
+
+</body>
+</html>

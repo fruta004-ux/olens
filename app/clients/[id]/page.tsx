@@ -64,7 +64,7 @@ import { QuotationViewDialog } from "@/components/quotation-view-dialog"
 import { CloseReasonDialog } from "@/components/close-reason-dialog"
 import { getCloseReasonText } from "@/lib/close-reasons"
 import { BusinessRegistrationVerifyDialog, type BusinessRegistrationFields } from "@/components/business-registration-verify-dialog"
-import { parseContractConditions, inferProjectCategory, normalizeDateString } from "@/lib/parse-contract-conditions"
+import { parseContractConditions, inferProjectCategory, normalizeDateString, buildSpecProjectName } from "@/lib/parse-contract-conditions"
 import { formatAccountName } from "@/lib/account-display"
 import { Sparkles, Upload, Loader2 } from "lucide-react"
 
@@ -624,6 +624,7 @@ function ClientDetailPageClient({ clientId }: { clientId: string }) {
     try {
       const parsed = parseContractConditions(info.conditions || "", info.cost || "")
       const category = inferProjectCategory(needsSummary || info.needs || "")
+      const companyName = dealData.account?.company_name || dealData.deal_name || ""
       const dueDate =
         normalizeDateString(info.invoice_date) ||
         normalizeDateString(info.contract_date) ||
@@ -635,7 +636,7 @@ function ClientDetailPageClient({ clientId }: { clientId: string }) {
         linked_contract_id: contractId,
         linked_deal_id: null,
         category,
-        project_name: info.name || dealData.deal_name || "",
+        project_name: buildSpecProjectName(companyName, category, row.cost_type),
         cost_type: row.cost_type,
         amount: row.amount,
         payment_due_date: dueDate,
@@ -644,6 +645,7 @@ function ClientDetailPageClient({ clientId }: { clientId: string }) {
         invoice_issue_date: null,
         notes: row.ratio_label ? `자동 생성: ${row.ratio_label}` : "자동 생성",
         assigned_to: dealData.assigned_to || null,
+        finance_assigned_to: "김다예",
       }))
 
       if (rows.length === 0) return { ok: true }

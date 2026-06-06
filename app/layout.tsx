@@ -5,8 +5,8 @@ import { LayoutWrapper } from "@/components/layout-wrapper"
 import "./globals.css"
 
 export const metadata: Metadata = {
-  title: "Olens - 영업 관리 시스템",
-  description: "Olens CRM",
+  title: "오렌즈 - 오르트 영업 관리 시스템",
+  description: "오렌즈 - 오르트 영업 관리 시스템",
   robots: {
     index: false,
     follow: false,
@@ -18,19 +18,12 @@ export const metadata: Metadata = {
   icons: {
     icon: [
       {
-        url: "/icon-light-32x32.png",
-        media: "(prefers-color-scheme: light)",
-      },
-      {
-        url: "/icon-dark-32x32.png",
-        media: "(prefers-color-scheme: dark)",
-      },
-      {
-        url: "/icon.svg",
-        type: "image/svg+xml",
+        url: "/favicon.png",
+        type: "image/png",
       },
     ],
-    apple: "/apple-icon.png",
+    shortcut: "/favicon.png",
+    apple: "/favicon.png",
   },
 }
 

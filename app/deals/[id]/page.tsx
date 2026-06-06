@@ -68,7 +68,7 @@ import { QuotationViewDialog } from "@/components/quotation-view-dialog"
 import { CloseReasonDialog } from "@/components/close-reason-dialog"
 import { getCloseReasonText } from "@/lib/close-reasons"
 import { RecontactDialog } from "@/components/recontact-dialog"
-import { parseContractConditions, inferProjectCategory, normalizeDateString } from "@/lib/parse-contract-conditions"
+import { parseContractConditions, inferProjectCategory, normalizeDateString, buildSpecProjectName } from "@/lib/parse-contract-conditions"
 import { formatAccountName } from "@/lib/account-display"
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { getRecontactReasonText } from "@/lib/recontact-reasons"
@@ -895,6 +895,7 @@ function DealDetailPageClient({ dealId }: { dealId: string }) {
   ): Promise<{ ok: boolean; tableMissing?: boolean }> => {
     try {
       const category = inferProjectCategory(needsSummary || info.needs || "")
+      const companyName = dealData.account?.company_name || dealData.deal_name || ""
       const dueDate =
         normalizeDateString(info.invoice_date) ||
         normalizeDateString(info.contract_date) ||
@@ -945,14 +946,14 @@ function DealDetailPageClient({ dealId }: { dealId: string }) {
             account_id: dealData.account_id || null,
             source_deal_id: resolvedId,
             category,
-            project_name: info.name || dealData.deal_name || "",
+            project_name: buildSpecProjectName(companyName, category, "월 대행비"),
             monthly_amount: monthlyAmount,
             payment_day: paymentDay,
             invoice_issue_day: invoiceIssueDay,
             payment_offset_months: paymentOffset,
             cost_type: "월 대행비",
             assigned_to: dealData.assigned_to || null,
-            finance_assigned_to: null,
+            finance_assigned_to: "김다예",
             notes: null,
             is_active: true,
             start_month: startMonthKey,
@@ -983,7 +984,7 @@ function DealDetailPageClient({ dealId }: { dealId: string }) {
           recurring_project_id: master?.id || null,
           spec_month: startMonthKey,
           category,
-          project_name: info.name || dealData.deal_name || "",
+          project_name: buildSpecProjectName(companyName, category, "월 대행비"),
           cost_type: "월 대행비",
           amount: monthlyAmount,
           payment_due_date: firstPaymentDueDate,
@@ -993,6 +994,7 @@ function DealDetailPageClient({ dealId }: { dealId: string }) {
           invoice_issue_date: null,
           notes: `자동 생성: 정기 ${monthKeyToLabelKor(startMonthKey)} (1회차)`,
           assigned_to: dealData.assigned_to || null,
+          finance_assigned_to: "김다예",
         })
 
         if (specErr) {
@@ -1020,7 +1022,7 @@ function DealDetailPageClient({ dealId }: { dealId: string }) {
         linked_contract_id: contractId,
         linked_deal_id: resolvedId,
         category,
-        project_name: info.name || dealData.deal_name || "",
+        project_name: buildSpecProjectName(companyName, category, row.cost_type),
         cost_type: row.cost_type,
         amount: row.amount,
         payment_due_date: dueDate,
@@ -1030,6 +1032,7 @@ function DealDetailPageClient({ dealId }: { dealId: string }) {
         invoice_issue_date: null,
         notes: row.ratio_label ? `자동 생성: ${row.ratio_label}` : "자동 생성",
         assigned_to: dealData.assigned_to || null,
+        finance_assigned_to: "김다예",
       }))
 
       if (rows.length === 0) return { ok: true }

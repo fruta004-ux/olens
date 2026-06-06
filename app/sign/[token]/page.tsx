@@ -98,7 +98,7 @@ export default function SignPage() {
     const companyName = contract?.client_info?.company_name?.trim()
     document.title = companyName ? `${companyName} 전자계약` : "전자계약"
     return () => {
-      document.title = "Olens - 영업 관리 시스템"
+      document.title = "오렌즈 - 오르트 영업 관리 시스템"
     }
   }, [contract])
 
