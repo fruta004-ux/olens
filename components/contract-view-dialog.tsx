@@ -58,9 +58,11 @@ const PREAMBLE_PURPOSE_BY_CATEGORY: Record<string, string> = {
 
 function buildPreambleInnerHTML(contract: Contract, contractDateFormatted: string): string {
   const clientName = contract.client_info?.company_name || "홍길동"
+  // 갑이 "개인" 이면 전문에서만 성명 뒤에 "님" 을 붙인다 (서명란에는 붙이지 않음)
+  const individualSuffix = contract.client_info?.client_type === "개인" ? "님" : ""
   const clientLabel = contract.client_info?.company_name
-    ? escapeHtml(contract.client_info.company_name)
-    : "홍길동"
+    ? escapeHtml(contract.client_info.company_name) + individualSuffix
+    : "홍길동" + individualSuffix
   const sellerLabel = escapeHtml(contract.company_info?.company_name || "플루타")
   const cat = escapeHtml(contract.category)
 

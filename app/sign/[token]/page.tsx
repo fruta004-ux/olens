@@ -4,7 +4,7 @@ import { useEffect, useMemo, useRef, useState } from "react"
 import { useParams, useRouter } from "next/navigation"
 import { Button } from "@/components/ui/button"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
-import { Loader2, Upload, X, Check, AlertCircle, Stamp, PenTool } from "lucide-react"
+import { Loader2, Upload, X, Check, AlertCircle, Stamp, PenTool, CheckCircle2 } from "lucide-react"
 import {
   buildContractFullHTML,
   measureContractHeights,
@@ -45,6 +45,10 @@ export default function SignPage() {
   const [submitting, setSubmitting] = useState(false)
   const [submitError, setSubmitError] = useState<string | null>(null)
 
+  // 서명 완료 상태 — 제출 직후 또는 이미 서명된 링크 재방문 시
+  const [isSigned, setIsSigned] = useState(false)
+  const [signedAt, setSignedAt] = useState<string | null>(null)
+
   const [previewHTML, setPreviewHTML] = useState<string>("")
   const iframeRef = useRef<HTMLIFrameElement | null>(null)
   const iframeReadyRef = useRef(false)
@@ -70,6 +74,7 @@ export default function SignPage() {
             return
           }
           if (reason === "signed") {
+            // 구버전 API 응답 fallback — 계약서 데이터 없이 완료만 알려준 경우
             router.replace("/sign/done")
             return
           }
@@ -79,6 +84,11 @@ export default function SignPage() {
 
         setRequest(data.request)
         setContract(data.contract)
+        // 이미 서명된 링크 재방문 → 완료된 계약서 보기 모드
+        if (data.signed) {
+          setIsSigned(true)
+          setSignedAt(data.signed_at || null)
+        }
       } catch (err) {
         if (!cancelled) {
           setLoadError(err instanceof Error ? err.message : "로드 실패")
@@ -146,24 +156,25 @@ export default function SignPage() {
   }, [contract])
 
   // iframe 안에서 ready 메시지 받으면 현재 도장 동기화
+  // 서명 완료 후엔 도장이 HTML 에 이미 박혀 있으므로 전송하지 않는다 (빈 값 전송 시 도장이 지워짐).
   useEffect(() => {
     const onMessage = (e: MessageEvent) => {
       const d = e.data as { type?: string } | null
       if (d?.type === "contractPreviewReady") {
         iframeReadyRef.current = true
         // 이미 그려둔 도장이 있으면 즉시 전송
-        sendSealToIframe(livePreviewSealDataUrl)
+        if (!isSigned) sendSealToIframe(livePreviewSealDataUrl)
       }
     }
     window.addEventListener("message", onMessage)
     return () => window.removeEventListener("message", onMessage)
-  }, [livePreviewSealDataUrl])
+  }, [livePreviewSealDataUrl, isSigned])
 
   // 도장이 바뀔 때마다 iframe 에 실시간 전송
   useEffect(() => {
-    if (!iframeReadyRef.current) return
+    if (!iframeReadyRef.current || isSigned) return
     sendSealToIframe(livePreviewSealDataUrl)
-  }, [livePreviewSealDataUrl])
+  }, [livePreviewSealDataUrl, isSigned])
 
   const sendSealToIframe = (dataUrl: string | null) => {
     const win = iframeRef.current?.contentWindow
@@ -288,7 +299,13 @@ export default function SignPage() {
         setSubmitError(data?.error || `서버 오류 (${res.status})`)
         return
       }
-      router.replace("/sign/done")
+      // 페이지 이동 없이 이 자리에서 완료 화면으로 전환.
+      // 계약서에 갑 도장을 박아 미리보기를 다시 빌드 → 서명 다 된 모습이 보인다.
+      setContract((prev) =>
+        prev ? { ...prev, client_seal_url: data.seal_url || livePreviewSealDataUrl } : prev
+      )
+      setSignedAt(data.signed_at || new Date().toISOString())
+      setIsSigned(true)
     } catch (err) {
       setSubmitError(err instanceof Error ? err.message : "제출 실패")
     } finally {
@@ -305,6 +322,17 @@ export default function SignPage() {
       minute: "2-digit",
     })
   }, [request])
+
+  const signedAtStr = useMemo(() => {
+    if (!signedAt) return ""
+    return new Date(signedAt).toLocaleString("ko-KR", {
+      year: "numeric",
+      month: "long",
+      day: "numeric",
+      hour: "2-digit",
+      minute: "2-digit",
+    })
+  }, [signedAt])
 
   if (loading) {
     return (
@@ -356,7 +384,28 @@ export default function SignPage() {
         )}
       </main>
 
-      {/* 우측: 서명 패널 (sticky, 자체 스크롤은 패널 안에서만) */}
+      {/* 우측: 서명 완료 후엔 같은 자리에서 완료 안내 패널로 전환 */}
+      {isSigned ? (
+        <aside className="w-full lg:w-[360px] lg:min-w-[360px] h-[40vh] lg:h-full bg-white border-t lg:border-t-0 lg:border-l flex flex-col">
+          <div className="flex-1 flex items-center justify-center p-8 overflow-y-auto">
+            <div className="text-center">
+              <div className="w-16 h-16 bg-green-100 rounded-full mx-auto mb-4 flex items-center justify-center">
+                <CheckCircle2 className="h-9 w-9 text-green-600" />
+              </div>
+              <h2 className="text-lg font-bold text-gray-900 mb-2">서명이 완료되었습니다</h2>
+              <p className="text-sm text-gray-600 leading-relaxed">
+                계약서 서명이 정상적으로 처리되었습니다.
+                <br />
+                서명이 반영된 계약서를 확인하실 수 있습니다.
+              </p>
+              {signedAtStr && (
+                <p className="text-xs text-gray-500 mt-3">서명 일시 : {signedAtStr}</p>
+              )}
+              <p className="text-xs text-gray-400 mt-6">이 창은 닫으셔도 됩니다.</p>
+            </div>
+          </div>
+        </aside>
+      ) : (
       <aside className="w-full lg:w-[360px] lg:min-w-[360px] h-[40vh] lg:h-full bg-white border-t lg:border-t-0 lg:border-l flex flex-col">
         <div className="p-5 border-b">
           <h2 className="text-base font-semibold text-gray-900">서명</h2>
@@ -473,6 +522,7 @@ export default function SignPage() {
           </Button>
         </div>
       </aside>
+      )}
     </div>
   )
 }

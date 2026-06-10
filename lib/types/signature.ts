@@ -36,6 +36,8 @@ export interface PublicContractView {
     representative?: string
     business_number?: string
     address?: string
+    /** "개인" 이면 company_name=성명, representative=전화번호, business_number=주민등록번호 */
+    client_type?: "사업자" | "개인"
   }
   contract_data: Record<string, string | null | undefined>
   clauses: Array<{ order: number; title: string; body: string }>

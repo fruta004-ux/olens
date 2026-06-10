@@ -180,6 +180,8 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ token: str
     return NextResponse.json({
       ok: true,
       signed_at: signedAtIso,
+      // 서명 페이지가 완료 화면에서 도장 찍힌 계약서를 바로 보여줄 수 있도록 반환
+      seal_url: sealUrl,
     })
   } catch (err) {
     const message = err instanceof Error ? err.message : "unknown"

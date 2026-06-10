@@ -40,7 +40,7 @@ export async function GET(_req: NextRequest, ctx: { params: Promise<{ token: str
 
     const { data: sigReq, error: sigErr } = await admin
       .from("signature_requests")
-      .select("id, contract_id, recipient_email, recipient_name, status, expires_at, opened_at, message")
+      .select("id, contract_id, recipient_email, recipient_name, status, expires_at, opened_at, signed_at, message")
       .eq("token", token)
       .maybeSingle()
 
@@ -53,24 +53,23 @@ export async function GET(_req: NextRequest, ctx: { params: Promise<{ token: str
     }
 
     // 만료 / 상태 검증
+    // 서명 완료된 요청은 만료와 무관하게 "완료된 계약서 보기" 로 계속 접근 가능.
+    const isSigned = sigReq.status === "signed"
     const now = Date.now()
     const expiredAt = new Date(sigReq.expires_at).getTime()
-    if (sigReq.status === "expired" || now > expiredAt) {
+    if (sigReq.status === "cancelled") {
+      return NextResponse.json({ error: "cancelled", reason: "cancelled" }, { status: 410 })
+    }
+    if (!isSigned && (sigReq.status === "expired" || now > expiredAt)) {
       // 만료 처리
       if (sigReq.status !== "expired") {
         await admin.from("signature_requests").update({ status: "expired" }).eq("id", sigReq.id)
       }
       return NextResponse.json({ error: "expired", reason: "expired" }, { status: 410 })
     }
-    if (sigReq.status === "cancelled") {
-      return NextResponse.json({ error: "cancelled", reason: "cancelled" }, { status: 410 })
-    }
-    if (sigReq.status === "signed") {
-      return NextResponse.json({ error: "already signed", reason: "signed" }, { status: 409 })
-    }
 
     // 처음 열어본 경우 기록
-    if (!sigReq.opened_at) {
+    if (!isSigned && !sigReq.opened_at) {
       await admin
         .from("signature_requests")
         .update({ opened_at: new Date().toISOString() })
@@ -94,8 +93,9 @@ export async function GET(_req: NextRequest, ctx: { params: Promise<{ token: str
     }
 
     // 갑(거래처) 정보 live join
+    // 갑이 "개인" 인 계약서는 성명/전화번호/주민등록번호를 계약서에 직접 입력하므로 덮어쓰지 않는다.
     let clientInfo = contract.client_info as PublicContractView["client_info"]
-    if (contract.deal_id) {
+    if (contract.deal_id && clientInfo?.client_type !== "개인") {
       const { data: deal } = await admin
         .from("deals")
         .select("account:accounts!account_id ( company_name, representative, business_number, address )")
@@ -104,6 +104,7 @@ export async function GET(_req: NextRequest, ctx: { params: Promise<{ token: str
       const acc = Array.isArray(deal?.account) ? deal!.account[0] : deal?.account
       if (acc) {
         clientInfo = {
+          client_type: clientInfo?.client_type,
           company_name: (acc as { company_name?: string }).company_name || "",
           representative: (acc as { representative?: string }).representative || "",
           business_number: (acc as { business_number?: string }).business_number || "",
@@ -143,6 +144,8 @@ export async function GET(_req: NextRequest, ctx: { params: Promise<{ token: str
 
     return NextResponse.json({
       ok: true,
+      signed: isSigned,
+      signed_at: sigReq.signed_at || null,
       request: {
         id: sigReq.id,
         recipient_name: sigReq.recipient_name,
