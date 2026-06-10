@@ -50,17 +50,28 @@ interface PageData {
   isLast: boolean
 }
 
+/** 카테고리별 전문(preamble) 목적 문구 — HWP 원본 양식의 문구를 따른다. */
+const PREAMBLE_PURPOSE_BY_CATEGORY: Record<string, string> = {
+  마케팅: "온라인 마케팅을 위하여",
+  영상: "영상 제작·납품을 위하여",
+}
+
 function buildPreambleInnerHTML(contract: Contract, contractDateFormatted: string): string {
   const clientName = contract.client_info?.company_name || "홍길동"
-  const dealName = contract.contract_data?.content_description
-    ? `${clientName} 홈페이지 구축`
-    : `${clientName} ${contract.category} 프로젝트`
-
   const clientLabel = contract.client_info?.company_name
     ? escapeHtml(contract.client_info.company_name)
     : "홍길동"
   const sellerLabel = escapeHtml(contract.company_info?.company_name || "플루타")
   const cat = escapeHtml(contract.category)
+
+  const purpose = PREAMBLE_PURPOSE_BY_CATEGORY[contract.category]
+  if (purpose) {
+    return `${clientLabel} (이하 &quot;갑&quot;이라 한다)와 ${sellerLabel} (이하 &quot;을&quot;이라 한다)는 ${escapeHtml(purpose)} 다음과 같이 계약을 체결한다.`
+  }
+
+  const dealName = contract.contract_data?.content_description
+    ? `${clientName} 홈페이지 구축`
+    : `${clientName} ${contract.category} 프로젝트`
 
   return `${clientLabel} (이하 &quot;갑&quot;이라 한다)와 ${sellerLabel} (이하 &quot;을&quot;이라 한다)은 ${escapeHtml(contractDateFormatted)}자로 &apos;${escapeHtml(dealName)}&apos;(이하 &quot;${cat} 구축&quot;이라 한다.)에 관해 다음과 같이 계약을 체결한다.`
 }

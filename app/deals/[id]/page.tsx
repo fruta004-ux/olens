@@ -843,6 +843,11 @@ function DealDetailPageClient({ dealId }: { dealId: string }) {
       const numericAmount = extractNumericAmount(costRaw)
       const { deposit, balance } = calculateDepositBalance(numericAmount)
 
+      // 마케팅 계약서는 월간 대행료 기반 — 정기 월 금액이 있으면 우선 사용
+      const monthlyFeeRaw =
+        (contractFormData as any).recurring_monthly_amount || (matchedCategory === "마케팅" ? costRaw : "")
+      const monthlyFeeNumeric = extractNumericAmount(monthlyFeeRaw)
+
       await supabase.from("contracts").insert({
         contract_number: generateContractNumber(),
         template_id: template.id,
@@ -864,6 +869,8 @@ function DealDetailPageClient({ dealId }: { dealId: string }) {
           balance_amount: balance > 0 ? formatAmountKR(balance) : "",
           dev_start: contractFormData.work_start_date || "",
           dev_end: "",
+          monthly_fee: monthlyFeeNumeric > 0 ? formatAmountKR(monthlyFeeNumeric) : "",
+          setup_fee: "",
         },
         clauses: template.clauses || [],
         bank_info: template.bank_info || {},

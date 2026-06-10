@@ -68,6 +68,9 @@ export function CreateContractDialog({ open, onOpenChange, dealData, editContrac
   const [balanceAmount, setBalanceAmount] = useState("")
   const [devStart, setDevStart] = useState("")
   const [devEnd, setDevEnd] = useState("")
+  // 마케팅 계약서 전용
+  const [monthlyFee, setMonthlyFee] = useState("")
+  const [setupFee, setSetupFee] = useState("")
 
   // Template & clauses
   const [templates, setTemplates] = useState<any[]>([])
@@ -105,6 +108,9 @@ export function CreateContractDialog({ open, onOpenChange, dealData, editContrac
       setBalanceAmount(editContract.contract_data?.balance_amount || "")
       setDevStart(editContract.contract_data?.dev_start || "")
       setDevEnd(editContract.contract_data?.dev_end || "")
+      setMonthlyFee(editContract.contract_data?.monthly_fee || "")
+      setSetupFee(editContract.contract_data?.setup_fee || "")
+      setSelectedTemplateId(editContract.template_id || null)
       setClauses(editContract.clauses || [])
       setBankInfo(editContract.bank_info || {})
       setCompanyInfo(editContract.company_info || {})
@@ -149,6 +155,17 @@ export function CreateContractDialog({ open, onOpenChange, dealData, editContrac
   }
 
   const getCategoryTemplates = () => templates.filter(t => t.category === category)
+
+  // 수정 모드에서 같은 카테고리의 다른 양식으로 전환 (예: 마케팅 광고 대행 포함 ↔ 미포함)
+  const handleSwitchTemplate = (template: any) => {
+    if (template.id === selectedTemplateId) return
+    if (!confirm(`"${template.title}" 양식으로 변경할까요?\n조항 내용이 선택한 양식으로 교체됩니다. (직접 수정한 조항은 사라집니다)`)) return
+    setSelectedTemplateId(template.id)
+    setTitle(template.title || `${category} 계약서`)
+    setClauses(template.clauses || [])
+    setBankInfo(template.bank_info || {})
+    setCompanyInfo(template.company_info || {})
+  }
 
   const prefillFromDeal = () => {
     if (!dealData) return
@@ -199,6 +216,8 @@ export function CreateContractDialog({ open, onOpenChange, dealData, editContrac
           balance_amount: balanceAmount,
           dev_start: devStart,
           dev_end: devEnd,
+          monthly_fee: monthlyFee,
+          setup_fee: setupFee,
         },
         clauses,
         bank_info: bankInfo,
@@ -208,7 +227,8 @@ export function CreateContractDialog({ open, onOpenChange, dealData, editContrac
       }
 
       if (editContract?.id) {
-        const { error } = await supabase.from("contracts").update(payload).eq("id", editContract.id)
+        const updatePayload = { ...payload, template_id: selectedTemplateId || editContract.template_id || null }
+        const { error } = await supabase.from("contracts").update(updatePayload).eq("id", editContract.id)
         if (error) throw error
         onSuccess?.(editContract.id)
       } else {
@@ -287,12 +307,17 @@ export function CreateContractDialog({ open, onOpenChange, dealData, editContrac
                           ? "bg-violet-600 text-white border-violet-600"
                           : "bg-background text-muted-foreground border-border hover:bg-muted"
                       }`}
-                      onClick={() => setSelectedTemplateId(t.id)}
+                      onClick={() => (editContract ? handleSwitchTemplate(t) : setSelectedTemplateId(t.id))}
                     >
                       {t.title}
                     </button>
                   ))}
                 </div>
+                {editContract && (
+                  <p className="text-xs text-muted-foreground mt-1">
+                    다른 양식을 선택하면 조항이 해당 양식으로 교체됩니다.
+                  </p>
+                )}
               </div>
             )}
             <div>
@@ -344,45 +369,84 @@ export function CreateContractDialog({ open, onOpenChange, dealData, editContrac
           {/* 계약 조건 */}
           <TabsContent value="contract" className="space-y-4 mt-4">
             <div>
-              <label className="text-sm font-medium">구축 내용 (제3조에 들어갈 내용)</label>
-              <Input value={contentDescription} onChange={e => setContentDescription(e.target.value)} className="mt-1" placeholder="웹/앱 반응형 제작" />
+              <label className="text-sm font-medium">
+                {category === "마케팅" ? "홍보 내용 (제2조 주요 내용)" : category === "영상" ? "제작 내용 (제2조 주요 내용)" : "구축 내용 (제3조에 들어갈 내용)"}
+              </label>
+              <Input
+                value={contentDescription}
+                onChange={e => setContentDescription(e.target.value)}
+                className="mt-1"
+                placeholder={category === "마케팅" ? "블로그 포스팅 월 4건, 메타 광고 운영" : category === "영상" ? "숏폼 영상 제작_스탠다드_3건" : "웹/앱 반응형 제작"}
+              />
             </div>
-            <div>
-              <label className="text-sm font-medium">대금 (VAT별도)</label>
-              <Input value={amount} onChange={e => setAmount(e.target.value)} className="mt-1" placeholder="0,000,000" />
-            </div>
-            <Separator />
-            <div className="grid grid-cols-2 gap-3">
-              <div>
-                <label className="text-sm font-medium">계약금 비율</label>
-                <Input value={depositPercent} onChange={e => setDepositPercent(e.target.value)} className="mt-1" />
-              </div>
-              <div>
-                <label className="text-sm font-medium">계약금 금액 (VAT포함)</label>
-                <Input value={depositAmount} onChange={e => setDepositAmount(e.target.value)} className="mt-1" />
-              </div>
-            </div>
-            <div className="grid grid-cols-2 gap-3">
-              <div>
-                <label className="text-sm font-medium">잔금 비율</label>
-                <Input value={balancePercent} onChange={e => setBalancePercent(e.target.value)} className="mt-1" />
-              </div>
-              <div>
-                <label className="text-sm font-medium">잔금 금액 (VAT포함)</label>
-                <Input value={balanceAmount} onChange={e => setBalanceAmount(e.target.value)} className="mt-1" />
-              </div>
-            </div>
-            <Separator />
-            <div className="grid grid-cols-2 gap-3">
-              <div>
-                <label className="text-sm font-medium">개발 시작일</label>
-                <Input value={devStart} onChange={e => setDevStart(e.target.value)} className="mt-1" placeholder="2026년 02월 19일" />
-              </div>
-              <div>
-                <label className="text-sm font-medium">개발 종료일</label>
-                <Input value={devEnd} onChange={e => setDevEnd(e.target.value)} className="mt-1" placeholder="2026년 04월 19일" />
-              </div>
-            </div>
+            {category === "마케팅" ? (
+              <>
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="text-sm font-medium">월간 대행료 (VAT별도)</label>
+                    <Input value={monthlyFee} onChange={e => setMonthlyFee(e.target.value)} className="mt-1" placeholder="000,000" />
+                  </div>
+                  <div>
+                    <label className="text-sm font-medium">메타 광고 초기 세팅비 (VAT별도)</label>
+                    <Input value={setupFee} onChange={e => setSetupFee(e.target.value)} className="mt-1" placeholder="000,000" />
+                  </div>
+                </div>
+                <Separator />
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="text-sm font-medium">유효기간 시작일</label>
+                    <Input value={devStart} onChange={e => setDevStart(e.target.value)} className="mt-1" placeholder="2026년 06월 01일" />
+                  </div>
+                  <div>
+                    <label className="text-sm font-medium">유효기간 종료일</label>
+                    <Input value={devEnd} onChange={e => setDevEnd(e.target.value)} className="mt-1" placeholder="2027년 05월 31일" />
+                  </div>
+                </div>
+              </>
+            ) : (
+              <>
+                <div>
+                  <label className="text-sm font-medium">대금 (VAT별도)</label>
+                  <Input value={amount} onChange={e => setAmount(e.target.value)} className="mt-1" placeholder="0,000,000" />
+                </div>
+                {category !== "영상" && (
+                  <>
+                    <Separator />
+                    <div className="grid grid-cols-2 gap-3">
+                      <div>
+                        <label className="text-sm font-medium">계약금 비율</label>
+                        <Input value={depositPercent} onChange={e => setDepositPercent(e.target.value)} className="mt-1" />
+                      </div>
+                      <div>
+                        <label className="text-sm font-medium">계약금 금액 (VAT포함)</label>
+                        <Input value={depositAmount} onChange={e => setDepositAmount(e.target.value)} className="mt-1" />
+                      </div>
+                    </div>
+                    <div className="grid grid-cols-2 gap-3">
+                      <div>
+                        <label className="text-sm font-medium">잔금 비율</label>
+                        <Input value={balancePercent} onChange={e => setBalancePercent(e.target.value)} className="mt-1" />
+                      </div>
+                      <div>
+                        <label className="text-sm font-medium">잔금 금액 (VAT포함)</label>
+                        <Input value={balanceAmount} onChange={e => setBalanceAmount(e.target.value)} className="mt-1" />
+                      </div>
+                    </div>
+                  </>
+                )}
+                <Separator />
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="text-sm font-medium">{category === "영상" ? "제작 시작일" : "개발 시작일"}</label>
+                    <Input value={devStart} onChange={e => setDevStart(e.target.value)} className="mt-1" placeholder="2026년 02월 19일" />
+                  </div>
+                  <div>
+                    <label className="text-sm font-medium">{category === "영상" ? "제작 종료일" : "개발 종료일"}</label>
+                    <Input value={devEnd} onChange={e => setDevEnd(e.target.value)} className="mt-1" placeholder="2026년 04월 19일" />
+                  </div>
+                </div>
+              </>
+            )}
           </TabsContent>
 
           {/* 조항 편집 */}

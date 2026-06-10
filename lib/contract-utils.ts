@@ -99,6 +99,8 @@ export function replacePlaceholders(text: string, contract: Contract): string {
     "{{balance_amount}}": cd.balance_amount || "000,000",
     "{{dev_start}}": cd.dev_start || "2026년 00월 00일",
     "{{dev_end}}": cd.dev_end || "2026년 00월 00일",
+    "{{monthly_fee}}": cd.monthly_fee || "000,000",
+    "{{setup_fee}}": cd.setup_fee || "000,000",
   }
 
   let result = text

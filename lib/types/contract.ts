@@ -37,6 +37,10 @@ export interface ContractDataValues {
   balance_amount?: string
   dev_start?: string
   dev_end?: string
+  /** 마케팅 계약서 — 월간 대행료 (VAT별도) */
+  monthly_fee?: string
+  /** 마케팅 계약서 — 첫 달 메타 광고 초기 세팅 비용 (VAT별도) */
+  setup_fee?: string
 }
 
 export interface Contract {
