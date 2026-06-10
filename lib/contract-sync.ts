@@ -108,7 +108,9 @@ export async function enrichContractsWithLiveAccount<T extends EnrichableContrac
     let next = c
 
     // 갑 정보 enrich
-    if (c.deal_id) {
+    // 단, 갑이 "개인" 인 계약서는 성명/전화번호/주민등록번호를 계약서에 직접 입력하므로
+    // 거래처(accounts) 정보로 덮어쓰지 않는다.
+    if (c.deal_id && c.client_info?.client_type !== "개인") {
       const live = dealToAccount.get(c.deal_id as string)
       if (live) next = { ...next, client_info: live }
     }

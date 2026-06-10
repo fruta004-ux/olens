@@ -101,12 +101,21 @@ function buildSignatureHTML(contract: Contract, contractDateFormatted: string): 
     </span>
   `.trim()
 
-  return `
-    <div class="signature">
-      <div class="sig-date">계약일자 : ${escapeHtml(contractDateFormatted)}</div>
-      <div class="parties">
-        <div class="party">
-          <h3>(갑)</h3>
+  // 갑이 "개인" 이면 사업자 항목 대신 주민번호/전화번호/성명으로 표기.
+  // 도장(인)은 항상 마지막 행(사업자: 대표자, 개인: 성명) 옆에 찍힌다.
+  const isIndividual = ci.client_type === "개인"
+  const clientRowsHTML = isIndividual
+    ? `
+          <div class="row"><span class="label">주 소 :</span><span>${escapeHtml(ci.address || "")}</span></div>
+          <div class="row"><span class="label">주민번호 :</span><span>${escapeHtml(ci.business_number || "")}</span></div>
+          <div class="row"><span class="label">전화번호 :</span><span>${escapeHtml(ci.representative || "")}</span></div>
+          <div class="row row-rep">
+            <span class="label">성 명 :</span>
+            <span>${escapeHtml(ci.company_name || "")}</span>
+            ${buildSealZone("client-seal-zone", clientSealUrl, "갑 도장")}
+          </div>
+    `.trim()
+    : `
           <div class="row"><span class="label">주 소 :</span><span>${escapeHtml(ci.address || "")}</span></div>
           <div class="row"><span class="label">사 업 자 :</span><span>${escapeHtml(ci.business_number || "")}</span></div>
           <div class="row"><span class="label">회 사 명 :</span><span>${escapeHtml(ci.company_name || "")}</span></div>
@@ -115,6 +124,15 @@ function buildSignatureHTML(contract: Contract, contractDateFormatted: string): 
             <span>${escapeHtml(ci.representative || "")}</span>
             ${buildSealZone("client-seal-zone", clientSealUrl, "갑 도장")}
           </div>
+    `.trim()
+
+  return `
+    <div class="signature">
+      <div class="sig-date">계약일자 : ${escapeHtml(contractDateFormatted)}</div>
+      <div class="parties">
+        <div class="party">
+          <h3>(갑)</h3>
+          ${clientRowsHTML}
         </div>
         <div class="party">
           <h3>(을)</h3>
@@ -427,9 +445,9 @@ function buildSignatureInlineForMeasure(contract: Contract, contractDateFormatte
         <div>
           <h3 style="font-weight:bold;margin:0 0 8px 0;font-size:10.5px">(갑)</h3>
           <div style="margin-bottom:4px;display:flex"><span style="font-weight:600;width:56px;flex-shrink:0">주 소 :</span><span>${escapeHtml(ci.address || "")}</span></div>
-          <div style="margin-bottom:4px;display:flex"><span style="font-weight:600;width:56px;flex-shrink:0">사 업 자 :</span><span>${escapeHtml(ci.business_number || "")}</span></div>
-          <div style="margin-bottom:4px;display:flex"><span style="font-weight:600;width:56px;flex-shrink:0">회 사 명 :</span><span>${escapeHtml(ci.company_name || "")}</span></div>
-          <div style="display:flex"><span style="font-weight:600;width:56px;flex-shrink:0">대 표 자 :</span><span>${escapeHtml(ci.representative || "")}</span></div>
+          <div style="margin-bottom:4px;display:flex"><span style="font-weight:600;width:56px;flex-shrink:0">${ci.client_type === "개인" ? "주민번호" : "사 업 자"} :</span><span>${escapeHtml(ci.business_number || "")}</span></div>
+          <div style="margin-bottom:4px;display:flex"><span style="font-weight:600;width:56px;flex-shrink:0">${ci.client_type === "개인" ? "전화번호" : "회 사 명"} :</span><span>${escapeHtml(ci.client_type === "개인" ? ci.representative || "" : ci.company_name || "")}</span></div>
+          <div style="display:flex"><span style="font-weight:600;width:56px;flex-shrink:0">${ci.client_type === "개인" ? "성 명" : "대 표 자"} :</span><span>${escapeHtml(ci.client_type === "개인" ? ci.company_name || "" : ci.representative || "")}</span></div>
         </div>
         <div>
           <h3 style="font-weight:bold;margin:0 0 8px 0;font-size:10.5px">(을)</h3>
@@ -793,7 +811,12 @@ export function ContractViewDialog({ open, onOpenChange, contract, onDelete }: C
             contractId={contract.id}
             contractTitle={contract.title}
             defaultEmail=""
-            defaultName={liveContract.client_info?.representative || liveContract.client_info?.company_name || ""}
+            defaultName={
+              // 개인 계약은 company_name 이 성명 (representative 는 전화번호)
+              liveContract.client_info?.client_type === "개인"
+                ? liveContract.client_info?.company_name || ""
+                : liveContract.client_info?.representative || liveContract.client_info?.company_name || ""
+            }
           />
         )}
 

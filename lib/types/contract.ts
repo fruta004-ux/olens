@@ -13,11 +13,21 @@ export interface ContractClause {
   body: string
 }
 
+/** 갑(상대방) 유형 — 사업자(기본) 또는 개인 */
+export const CLIENT_TYPES = ["사업자", "개인"] as const
+export type ClientType = (typeof CLIENT_TYPES)[number]
+
+/**
+ * 갑(상대방) 정보.
+ * client_type 이 "개인" 이면 같은 필드를 다른 의미로 사용한다:
+ *   company_name → 성명, representative → 전화번호, business_number → 주민등록번호
+ */
 export interface ContractClientInfo {
   address?: string
   business_number?: string
   company_name?: string
   representative?: string
+  client_type?: ClientType
 }
 
 export type ContractCompanyInfo = ContractClientInfo

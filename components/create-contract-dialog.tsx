@@ -54,6 +54,9 @@ export function CreateContractDialog({ open, onOpenChange, dealData, editContrac
   const [status, setStatus] = useState("초안")
 
   // Client info (갑)
+  // clientType 이 "개인" 이면 같은 필드를 다른 의미로 사용:
+  // companyName → 성명, representative → 전화번호, businessNumber → 주민등록번호
+  const [clientType, setClientType] = useState<"사업자" | "개인">("사업자")
   const [clientCompanyName, setClientCompanyName] = useState("")
   const [clientRepresentative, setClientRepresentative] = useState("")
   const [clientBusinessNumber, setClientBusinessNumber] = useState("")
@@ -96,6 +99,7 @@ export function CreateContractDialog({ open, onOpenChange, dealData, editContrac
       setTitle(editContract.title || "")
       setContractDate(editContract.contract_date || "")
       setStatus(editContract.status || "초안")
+      setClientType(editContract.client_info?.client_type === "개인" ? "개인" : "사업자")
       setClientCompanyName(editContract.client_info?.company_name || "")
       setClientRepresentative(editContract.client_info?.representative || "")
       setClientBusinessNumber(editContract.client_info?.business_number || "")
@@ -202,6 +206,7 @@ export function CreateContractDialog({ open, onOpenChange, dealData, editContrac
         contract_date: contractDate,
         status,
         client_info: {
+          client_type: clientType,
           company_name: clientCompanyName,
           representative: clientRepresentative,
           business_number: clientBusinessNumber,
@@ -346,19 +351,43 @@ export function CreateContractDialog({ open, onOpenChange, dealData, editContrac
           {/* 갑 정보 */}
           <TabsContent value="client" className="space-y-4 mt-4">
             <p className="text-xs text-muted-foreground">계약 상대방(갑) 정보를 입력합니다.</p>
+            <div>
+              <label className="text-sm font-medium">갑 유형</label>
+              <div className="flex gap-1.5 mt-1.5">
+                {(["사업자", "개인"] as const).map(type => (
+                  <button
+                    key={type}
+                    type="button"
+                    className={`px-3 py-1.5 text-xs rounded-md border transition-colors ${
+                      clientType === type
+                        ? "bg-primary text-primary-foreground border-primary"
+                        : "bg-background text-muted-foreground border-border hover:bg-muted"
+                    }`}
+                    onClick={() => setClientType(type)}
+                  >
+                    {type}
+                  </button>
+                ))}
+              </div>
+              {clientType === "개인" && (
+                <p className="text-xs text-muted-foreground mt-1">
+                  개인 계약은 성명·전화번호·주민등록번호로 계약서에 표기됩니다.
+                </p>
+              )}
+            </div>
             <div className="grid grid-cols-2 gap-3">
               <div>
-                <label className="text-sm font-medium">회사명</label>
-                <Input value={clientCompanyName} onChange={e => setClientCompanyName(e.target.value)} className="mt-1" />
+                <label className="text-sm font-medium">{clientType === "개인" ? "성명" : "회사명"}</label>
+                <Input value={clientCompanyName} onChange={e => setClientCompanyName(e.target.value)} className="mt-1" placeholder={clientType === "개인" ? "홍길동" : ""} />
               </div>
               <div>
-                <label className="text-sm font-medium">대표자</label>
-                <Input value={clientRepresentative} onChange={e => setClientRepresentative(e.target.value)} className="mt-1" />
+                <label className="text-sm font-medium">{clientType === "개인" ? "전화번호" : "대표자"}</label>
+                <Input value={clientRepresentative} onChange={e => setClientRepresentative(e.target.value)} className="mt-1" placeholder={clientType === "개인" ? "010-0000-0000" : ""} />
               </div>
             </div>
             <div>
-              <label className="text-sm font-medium">사업자번호</label>
-              <Input value={clientBusinessNumber} onChange={e => setClientBusinessNumber(e.target.value)} className="mt-1" />
+              <label className="text-sm font-medium">{clientType === "개인" ? "주민등록번호" : "사업자번호"}</label>
+              <Input value={clientBusinessNumber} onChange={e => setClientBusinessNumber(e.target.value)} className="mt-1" placeholder={clientType === "개인" ? "000000-0000000" : ""} />
             </div>
             <div>
               <label className="text-sm font-medium">주소</label>
