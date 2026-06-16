@@ -10,7 +10,7 @@ import { Calendar } from "@/components/ui/calendar"
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
 import {
   CalendarIcon, X, Plus, Save, Trash2, Edit, Search, FolderPlus,
-  ChevronUp, ChevronDown, FileText, Folder, Check, Copy,
+  ChevronUp, ChevronDown, FileText, Folder, Check, Copy, Minus,
 } from "lucide-react"
 import cn from "classnames"
 import { createBrowserClient } from "@/lib/supabase/client"
@@ -121,6 +121,7 @@ export function CreateQuotationDialog({
   ])
   const [saving, setSaving] = useState(false)
   const [validUntilOpen, setValidUntilOpen] = useState(false)
+  const [minimized, setMinimized] = useState(false) // 최소화 상태 (내용 보존)
 
   // 좌측 패널 상태
   const [presets, setPresets] = useState<Preset[]>([])
@@ -224,6 +225,7 @@ export function CreateQuotationDialog({
       setShowCategoryAdd(false)
       setSearch("")
       setActiveCategory(ALL)
+      setMinimized(false)
     }
   }, [open, editQuotation])
 
@@ -455,8 +457,22 @@ export function CreateQuotationDialog({
   )
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="!max-w-[1280px] w-[96vw] h-[92vh] overflow-hidden p-0 flex flex-col gap-0">
+    <>
+    <Dialog open={open && !minimized} onOpenChange={onOpenChange}>
+      <DialogContent
+        style={{ transformOrigin: "100% 100%" }}
+        className="!max-w-[1280px] w-[96vw] h-[92vh] overflow-hidden p-0 flex flex-col gap-0 duration-300 data-[state=closed]:zoom-out-50 data-[state=open]:zoom-in-50"
+      >
+        {/* 최소화 버튼 (닫기 X 왼쪽) — 내용은 유지된 채 우측 하단으로 접힘 */}
+        <button
+          type="button"
+          onClick={() => setMinimized(true)}
+          title="최소화 (작성 내용 유지)"
+          className="absolute top-4 right-12 z-10 rounded-xs opacity-70 transition-opacity hover:opacity-100 focus:outline-hidden"
+        >
+          <Minus className="h-4 w-4" />
+          <span className="sr-only">최소화</span>
+        </button>
         <DialogHeader className="px-4 py-3 border-b shrink-0">
           <DialogTitle className="text-lg font-bold">
             {isEditMode ? "견적서 수정" : "견적서 생성"}
@@ -873,5 +889,21 @@ export function CreateQuotationDialog({
         </div>
       </DialogContent>
     </Dialog>
+
+    {/* 최소화 상태: 팝업의 오른쪽 아래 꼭지점(96vw×92vh 중앙정렬 기준 right:2vw, bottom:4vh) 위치에
+        '견적서' 박스가 그 코너로 접혀 들어오는 효과와 함께 표시. 누르면 작성하던 그대로 복원 */}
+    {open && minimized && (
+      <button
+        type="button"
+        onClick={() => setMinimized(false)}
+        title="견적서 작성 화면 열기"
+        style={{ right: "2vw", bottom: "4vh", transformOrigin: "100% 100%" }}
+        className="fixed z-[60] flex items-center gap-2 rounded-md border bg-background px-4 py-2.5 text-sm font-semibold shadow-lg hover:bg-muted hover:shadow-xl transition-all animate-in zoom-in-50 fade-in-0 slide-in-from-bottom-2 duration-300"
+      >
+        <FileText className="h-4 w-4" />
+        견적서
+      </button>
+    )}
+    </>
   )
 }
