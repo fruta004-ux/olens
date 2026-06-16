@@ -1,6 +1,6 @@
 "use client"
 
-import React, { useState, useEffect } from "react"
+import React, { useState, useEffect, useRef } from "react"
 import { Button } from "@/components/ui/button"
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
@@ -10,7 +10,7 @@ import { Calendar } from "@/components/ui/calendar"
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
 import {
   CalendarIcon, X, Plus, Save, Trash2, Edit, Search, FolderPlus,
-  ChevronUp, ChevronDown, FileText, Folder, Check,
+  ChevronUp, ChevronDown, FileText, Folder, Check, Copy,
 } from "lucide-react"
 import cn from "classnames"
 import { createBrowserClient } from "@/lib/supabase/client"
@@ -58,7 +58,6 @@ interface SavedQuotation {
   title: string
   items: QuotationItem[]
   notes: string | null
-  category: string | null
 }
 
 interface Category {
@@ -78,6 +77,7 @@ interface CreateQuotationDialogProps {
 
 const ALL = "__all__"
 const NONE = "__none__"
+const QUOT_PAGE_SIZE = 20
 
 const COMPANY_INFO = {
   플루타: {
@@ -129,6 +129,16 @@ export function CreateQuotationDialog({
   const [search, setSearch] = useState("")
   const [activeCategory, setActiveCategory] = useState<string>(ALL)
 
+  // 등록된 견적서: 서버 사이드 페이지네이션 + 검색 + 무한 스크롤
+  const [quotLoading, setQuotLoading] = useState(false)
+  const [quotHasMore, setQuotHasMore] = useState(true)
+  const quotOffsetRef = useRef(0)
+  const quotHasMoreRef = useRef(true)
+  const quotLoadingRef = useRef(false)
+  const searchRef = useRef("")
+  const listScrollRef = useRef<HTMLDivElement | null>(null)
+  const sentinelRef = useRef<HTMLDivElement | null>(null)
+
   // 프리셋 저장 폼
   const [showPresetSave, setShowPresetSave] = useState(false)
   const [presetName, setPresetName] = useState("")
@@ -157,18 +167,39 @@ export function CreateQuotationDialog({
     if (data) setCategories(data)
   }
 
-  const loadSavedQuotations = async () => {
-    const { data } = await supabase
-      .from("quotations")
-      .select("id, quotation_number, company, title, items, notes, category")
-      .order("created_at", { ascending: false })
-      .limit(200)
-    if (data) {
-      setSavedQuotations(data.map((q: any) => ({
-        ...q,
-        category: q.category ?? null,
-        items: Array.isArray(q.items) ? q.items : typeof q.items === "string" ? JSON.parse(q.items) : [],
-      })))
+  // 등록된 견적서를 20개씩 서버에서 불러온다. reset=true면 처음부터 다시, false면 다음 페이지 이어붙임.
+  // term이 있으면 제목/견적번호를 DB 전체 대상으로 검색한다.
+  const fetchQuotations = async (reset: boolean, term: string) => {
+    if (quotLoadingRef.current) return
+    if (!reset && !quotHasMoreRef.current) return
+    quotLoadingRef.current = true
+    setQuotLoading(true)
+    try {
+      const from = reset ? 0 : quotOffsetRef.current
+      let q = supabase
+        .from("quotations")
+        .select("id, quotation_number, company, title, items, notes")
+        .order("created_at", { ascending: false })
+      // PostgREST or() 구문을 깨는 문자 제거
+      const t = term.trim().replace(/[,()*%\\]/g, " ").trim()
+      if (t) q = q.or(`title.ilike.%${t}%,quotation_number.ilike.%${t}%`)
+      q = q.range(from, from + QUOT_PAGE_SIZE - 1)
+      const { data } = await q
+      const mapped: SavedQuotation[] = (data || []).map((row: any) => ({
+        id: row.id,
+        quotation_number: row.quotation_number,
+        company: row.company,
+        title: row.title,
+        notes: row.notes ?? null,
+        items: Array.isArray(row.items) ? row.items : typeof row.items === "string" ? JSON.parse(row.items) : [],
+      }))
+      quotOffsetRef.current = from + mapped.length
+      quotHasMoreRef.current = mapped.length === QUOT_PAGE_SIZE
+      setQuotHasMore(quotHasMoreRef.current)
+      setSavedQuotations((prev) => (reset ? mapped : [...prev, ...mapped]))
+    } finally {
+      quotLoadingRef.current = false
+      setQuotLoading(false)
     }
   }
 
@@ -176,7 +207,6 @@ export function CreateQuotationDialog({
     if (open) {
       loadPresets()
       loadCategories()
-      loadSavedQuotations()
       if (editQuotation) {
         setCompany(editQuotation.company)
         setTitle(editQuotation.title)
@@ -196,6 +226,40 @@ export function CreateQuotationDialog({
       setActiveCategory(ALL)
     }
   }, [open, editQuotation])
+
+  useEffect(() => { searchRef.current = search }, [search])
+
+  // 검색어 변경(또는 다이얼로그 오픈) 시 등록 견적서를 처음부터 다시 조회 (디바운스)
+  useEffect(() => {
+    if (!open) return
+    const timer = setTimeout(() => {
+      quotOffsetRef.current = 0
+      quotHasMoreRef.current = true
+      setQuotHasMore(true)
+      fetchQuotations(true, search)
+    }, 250)
+    return () => clearTimeout(timer)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [search, open])
+
+  // 무한 스크롤: 센티넬이 보이면 다음 20개 로드
+  useEffect(() => {
+    if (!open) return
+    const sentinel = sentinelRef.current
+    if (!sentinel) return
+    const observer = new IntersectionObserver(
+      (entries) => {
+        // 최초 로드 전(offset 0)에는 동작하지 않도록 가드
+        if (entries[0]?.isIntersecting && quotOffsetRef.current > 0) {
+          fetchQuotations(false, searchRef.current)
+        }
+      },
+      { root: listScrollRef.current, rootMargin: "150px" }
+    )
+    observer.observe(sentinel)
+    return () => observer.disconnect()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, quotHasMore])
 
   const addItem = () => {
     setItems([...items, { id: generateId(), name: "", quantity: 1, unit_price: 0, amount: 0 }])
@@ -293,11 +357,6 @@ export function CreateQuotationDialog({
     loadPresets()
   }
 
-  const setQuotationCategoryValue = async (quotationId: string, category: string) => {
-    await supabase.from("quotations").update({ category: category || null }).eq("id", quotationId)
-    loadSavedQuotations()
-  }
-
   // 카테고리 CRUD
   const addCategory = async () => {
     const name = newCategoryName.trim()
@@ -313,11 +372,9 @@ export function CreateQuotationDialog({
     if (!confirm(`'${cat.name}' 카테고리를 삭제하시겠습니까?\n(이 카테고리의 프리셋/견적서는 '미분류'로 이동합니다)`)) return
     await supabase.from("quotation_categories").delete().eq("id", cat.id)
     await supabase.from("quotation_presets").update({ category: null }).eq("category", cat.name)
-    await supabase.from("quotations").update({ category: null }).eq("category", cat.name)
     if (activeCategory === cat.name) setActiveCategory(ALL)
     loadCategories()
     loadPresets()
-    loadSavedQuotations()
   }
 
   // 필터
@@ -330,7 +387,6 @@ export function CreateQuotationDialog({
   }
 
   const visiblePresets = presets.filter(p => matchCategory(p.category) && matchSearch(p.name, p.title))
-  const visibleQuotations = savedQuotations.filter(q => matchCategory(q.category) && matchSearch(q.title, q.quotation_number))
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -518,7 +574,7 @@ export function CreateQuotationDialog({
             </div>
 
             {/* 목록 (프리셋 + 등록된 견적서) */}
-            <div className="flex-1 overflow-y-auto p-3 space-y-4">
+            <div ref={listScrollRef} className="flex-1 overflow-y-auto p-3 space-y-4">
               {/* 프리셋 섹션 */}
               <div className="space-y-1.5">
                 <div className="flex items-center justify-between">
@@ -591,27 +647,41 @@ export function CreateQuotationDialog({
                 )}
               </div>
 
-              {/* 등록된 견적서 섹션 */}
+              {/* 등록된 견적서 섹션 (서버 페이지네이션 + 검색 + 무한 스크롤) */}
               <div className="space-y-1.5">
                 <span className="text-xs font-semibold flex items-center gap-1 text-foreground">
-                  <FileText className="h-3.5 w-3.5" /> 등록된 견적서 ({visibleQuotations.length})
+                  <FileText className="h-3.5 w-3.5" /> 등록된 견적서 ({savedQuotations.length})
                 </span>
-                {visibleQuotations.length === 0 ? (
-                  <p className="text-[11px] text-muted-foreground py-2 text-center">표시할 견적서가 없습니다.</p>
+                {savedQuotations.length === 0 && !quotLoading ? (
+                  <p className="text-[11px] text-muted-foreground py-2 text-center">
+                    {search.trim() ? "검색 결과가 없습니다." : "등록된 견적서가 없습니다."}
+                  </p>
                 ) : (
-                  visibleQuotations.map((q) => (
-                    <div key={q.id} className="group flex items-start gap-1.5 p-2 bg-background rounded border hover:border-primary/50 transition-colors">
-                      <button type="button" className="flex-1 text-left min-w-0" onClick={() => applySavedQuotation(q)} title="이 견적서 내용을 불러오기">
+                  savedQuotations.map((q) => (
+                    <div key={q.id} className="flex items-center gap-1.5 p-2 bg-background rounded border hover:border-primary/50 transition-colors">
+                      <div className="flex-1 min-w-0">
                         <p className="text-xs font-medium truncate">{q.title || "(제목 없음)"}</p>
                         <p className="text-[11px] text-muted-foreground truncate">
                           {q.quotation_number} · {q.company} · {q.items.length}개 항목
                         </p>
-                      </button>
-                      <div className="shrink-0">
-                        {categorySelect(q.category, (v) => setQuotationCategoryValue(q.id, v))}
                       </div>
+                      <Button type="button" size="sm" variant="outline"
+                        className="h-7 px-2 text-[11px] gap-1 shrink-0"
+                        onClick={() => applySavedQuotation(q)}
+                        title="이 견적서를 복제해 새 견적서로 적용">
+                        <Copy className="h-3 w-3" /> 양식 사용
+                      </Button>
                     </div>
                   ))
+                )}
+
+                {/* 무한 스크롤 센티넬 / 상태 표시 */}
+                {quotHasMore && <div ref={sentinelRef} className="h-4" />}
+                {quotLoading && (
+                  <p className="text-[11px] text-center text-muted-foreground py-1">불러오는 중…</p>
+                )}
+                {!quotHasMore && savedQuotations.length > 0 && (
+                  <p className="text-[11px] text-center text-muted-foreground/70 py-1">모두 불러왔습니다</p>
                 )}
               </div>
             </div>
@@ -692,18 +762,34 @@ export function CreateQuotationDialog({
                 <table className="w-full text-xs border-collapse">
                   <thead>
                     <tr className="bg-gray-100 border-b-2 border-black">
-                      <th className="py-1.5 px-2 border-r border-black text-center w-10 font-semibold">NO</th>
+                      <th className="py-1.5 px-2 border-r border-black text-center w-14 font-semibold">NO</th>
                       <th className="py-1.5 px-2 border-r border-black text-center font-semibold">품 목</th>
                       <th className="py-1.5 px-2 border-r border-black text-center w-16 font-semibold">수량</th>
                       <th className="py-1.5 px-2 border-r border-black text-center w-28 font-semibold">단가</th>
                       <th className="py-1.5 px-2 border-r border-black text-center w-28 font-semibold">금액</th>
-                      <th className="py-1.5 px-2 text-center w-16 font-semibold">순서</th>
+                      <th className="py-1.5 px-2 text-center w-10 font-semibold"></th>
                     </tr>
                   </thead>
                   <tbody>
                     {items.map((item, idx) => (
                       <tr key={item.id} className="border-b border-gray-300">
-                        <td className="py-0.5 px-2 border-r border-gray-300 text-center text-xs">{idx + 1}</td>
+                        <td className="py-0.5 px-1 border-r border-gray-300">
+                          <div className="flex items-center justify-center gap-1">
+                            <div className="flex flex-col">
+                              <button type="button" onClick={() => moveItem(idx, -1)} disabled={idx === 0}
+                                className="flex h-3 w-4 items-center justify-center text-gray-400 hover:text-gray-700 disabled:opacity-25 disabled:hover:text-gray-400"
+                                title="위로">
+                                <ChevronUp className="h-3 w-3" />
+                              </button>
+                              <button type="button" onClick={() => moveItem(idx, 1)} disabled={idx === items.length - 1}
+                                className="flex h-3 w-4 items-center justify-center text-gray-400 hover:text-gray-700 disabled:opacity-25 disabled:hover:text-gray-400"
+                                title="아래로">
+                                <ChevronDown className="h-3 w-3" />
+                              </button>
+                            </div>
+                            <span className="text-xs tabular-nums">{idx + 1}</span>
+                          </div>
+                        </td>
                         <td className="py-0.5 px-1 border-r border-gray-300">
                           <Input placeholder="품목명" value={item.name}
                             onChange={(e) => updateItem(item.id, "name", e.target.value)}
@@ -722,21 +808,11 @@ export function CreateQuotationDialog({
                         <td className={cn("py-0.5 px-2 border-r border-gray-300 text-right text-xs font-medium", item.amount < 0 && "text-red-600")}>
                           {item.amount !== 0 ? `₩${formatNumber(item.amount)}` : ""}
                         </td>
-                        <td className="py-0.5 px-1">
-                          <div className="flex items-center justify-center gap-0.5">
-                            <Button type="button" variant="ghost" size="sm" onClick={() => moveItem(idx, -1)}
-                              disabled={idx === 0} className="h-6 w-5 p-0" title="위로">
-                              <ChevronUp className="w-3 h-3" />
-                            </Button>
-                            <Button type="button" variant="ghost" size="sm" onClick={() => moveItem(idx, 1)}
-                              disabled={idx === items.length - 1} className="h-6 w-5 p-0" title="아래로">
-                              <ChevronDown className="w-3 h-3" />
-                            </Button>
-                            <Button type="button" variant="ghost" size="sm" onClick={() => removeItem(item.id)}
-                              disabled={items.length === 1} className="h-6 w-5 p-0 hover:text-destructive" title="삭제">
-                              <X className="w-3 h-3" />
-                            </Button>
-                          </div>
+                        <td className="py-0.5 px-1 text-center">
+                          <Button type="button" variant="ghost" size="sm" onClick={() => removeItem(item.id)}
+                            disabled={items.length === 1} className="h-6 w-6 p-0 hover:text-destructive" title="삭제">
+                            <X className="w-3 h-3" />
+                          </Button>
                         </td>
                       </tr>
                     ))}

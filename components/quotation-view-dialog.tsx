@@ -376,9 +376,9 @@ export function QuotationViewDialog({ open, onOpenChange, quotation, clientName,
                         <td className="py-1 px-2 text-xs">{companyInfo.business_item}</td>
                       </tr>
                       <tr>
-                        <td className="py-1 px-2 bg-gray-100 font-semibold border-r border-black">전화번호</td>
-                        <td className="py-1 px-2 border-r border-black">{companyInfo.phone}</td>
-                        <td className="py-1 px-2 bg-gray-100 font-semibold text-center border-r border-black w-12">
+                        <td className="py-1 px-2 bg-gray-100 font-semibold border-r border-gray-400">전화번호</td>
+                        <td className="py-1 px-2 border-r border-gray-400">{companyInfo.phone}</td>
+                        <td className="py-1 px-2 bg-gray-100 font-semibold text-center border-r border-gray-400 w-12">
                           팩스
                         </td>
                         <td className="py-1 px-2">-</td>
