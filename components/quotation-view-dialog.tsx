@@ -177,29 +177,41 @@ export function QuotationViewDialog({ open, onOpenChange, quotation, clientName,
     window.print()
   }
 
+  // 파일명으로 사용할 수 없는 문자 제거
+  const buildFileName = () => {
+    const base = (quotation.title || quotation.quotation_number || "견적서")
+      .replace(/[\\/:*?"<>|]/g, "_")
+      .replace(/\s+/g, " ")
+      .trim()
+    return `${base || quotation.quotation_number}.pdf`
+  }
+
   const handleSavePdf = async () => {
     setSavingPdf(true)
     try {
-      const html2canvas = (await import("html2canvas")).default
+      // html2canvas는 Tailwind v4의 oklch() 색상을 파싱하지 못해 실패하므로
+      // 브라우저 렌더링 엔진(SVG foreignObject)을 사용하는 html-to-image를 사용한다.
+      const { toPng } = await import("html-to-image")
       const { jsPDF } = await import("jspdf")
 
       const printEl = document.querySelector(".print-page") as HTMLElement
       if (!printEl) { alert("견적서 영역을 찾을 수 없습니다."); return }
 
-      const canvas = await html2canvas(printEl, {
-        scale: 2,
-        useCORS: true,
+      const dataUrl = await toPng(printEl, {
+        pixelRatio: 2,
         backgroundColor: "#ffffff",
+        cacheBust: true,
+        width: printEl.offsetWidth,
+        height: printEl.offsetHeight,
       })
 
-      const imgData = canvas.toDataURL("image/png")
       const pdf = new jsPDF({ orientation: "portrait", unit: "mm", format: "a4" })
-      const pdfWidth = 210
-      const pdfHeight = 297
-      pdf.addImage(imgData, "PNG", 0, 0, pdfWidth, pdfHeight)
+      pdf.addImage(dataUrl, "PNG", 0, 0, 210, 297)
 
-      const fileName = `견적서_${quotation.quotation_number}_${clientName || ""}.pdf`
+      const fileName = buildFileName()
 
+      // File System Access API가 있으면 저장 위치를 직접 선택하는 네이티브 창을 띄운다.
+      // (브라우저 보안상 저장 후 탐색기를 자동으로 열어 파일을 선택해주는 것은 불가능)
       if ("showSaveFilePicker" in window) {
         try {
           const handle = await (window as any).showSaveFilePicker({
@@ -207,22 +219,18 @@ export function QuotationViewDialog({ open, onOpenChange, quotation, clientName,
             types: [{ description: "PDF 파일", accept: { "application/pdf": [".pdf"] } }],
           })
           const writable = await handle.createWritable()
-          const pdfBlob = pdf.output("blob")
-          await writable.write(pdfBlob)
+          await writable.write(pdf.output("blob"))
           await writable.close()
-          alert("PDF가 저장되었습니다.")
         } catch (err: any) {
-          if (err.name !== "AbortError") {
-            pdf.save(fileName)
-          }
+          if (err?.name === "AbortError") return // 사용자가 취소
+          pdf.save(fileName)
         }
       } else {
         pdf.save(fileName)
       }
     } catch (error) {
       console.error("PDF 저장 실패:", error)
-      alert("PDF 저장에 실패했습니다. 인쇄를 사용해주세요.")
-      window.print()
+      alert("PDF 저장에 실패했습니다. 다시 시도하거나 인쇄 기능을 사용해주세요.")
     } finally {
       setSavingPdf(false)
     }

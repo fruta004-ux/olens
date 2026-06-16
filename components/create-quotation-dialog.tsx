@@ -8,7 +8,10 @@ import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
 import { Calendar } from "@/components/ui/calendar"
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
-import { CalendarIcon, X, Plus, Save, FolderOpen, Trash2, Edit } from "lucide-react"
+import {
+  CalendarIcon, X, Plus, Save, Trash2, Edit, Search, FolderPlus,
+  ChevronUp, ChevronDown, FileText, Folder, Check,
+} from "lucide-react"
 import cn from "classnames"
 import { createBrowserClient } from "@/lib/supabase/client"
 
@@ -45,6 +48,22 @@ interface Preset {
   title: string | null
   items: QuotationItem[]
   notes: string | null
+  category: string | null
+}
+
+interface SavedQuotation {
+  id: string
+  quotation_number: string
+  company: string
+  title: string
+  items: QuotationItem[]
+  notes: string | null
+  category: string | null
+}
+
+interface Category {
+  id: string
+  name: string
 }
 
 interface CreateQuotationDialogProps {
@@ -56,6 +75,9 @@ interface CreateQuotationDialogProps {
   onSuccess?: (quotationId: string, totalAmount: number) => void
   editQuotation?: EditableQuotation | null
 }
+
+const ALL = "__all__"
+const NONE = "__none__"
 
 const COMPANY_INFO = {
   플루타: {
@@ -100,12 +122,22 @@ export function CreateQuotationDialog({
   const [saving, setSaving] = useState(false)
   const [validUntilOpen, setValidUntilOpen] = useState(false)
 
-  // Preset state
+  // 좌측 패널 상태
   const [presets, setPresets] = useState<Preset[]>([])
-  const [presetName, setPresetName] = useState("")
+  const [savedQuotations, setSavedQuotations] = useState<SavedQuotation[]>([])
+  const [categories, setCategories] = useState<Category[]>([])
+  const [search, setSearch] = useState("")
+  const [activeCategory, setActiveCategory] = useState<string>(ALL)
+
+  // 프리셋 저장 폼
   const [showPresetSave, setShowPresetSave] = useState(false)
+  const [presetName, setPresetName] = useState("")
+  const [presetCategory, setPresetCategory] = useState<string>("")
   const [editingPresetId, setEditingPresetId] = useState<string | null>(null)
-  const [showPresetList, setShowPresetList] = useState(false)
+
+  // 카테고리 추가
+  const [showCategoryAdd, setShowCategoryAdd] = useState(false)
+  const [newCategoryName, setNewCategoryName] = useState("")
 
   const supabase = createBrowserClient()
 
@@ -114,7 +146,28 @@ export function CreateQuotationDialog({
     if (data) {
       setPresets(data.map((p: any) => ({
         ...p,
+        category: p.category ?? null,
         items: Array.isArray(p.items) ? p.items : typeof p.items === "string" ? JSON.parse(p.items) : [],
+      })))
+    }
+  }
+
+  const loadCategories = async () => {
+    const { data } = await supabase.from("quotation_categories").select("*").order("name", { ascending: true })
+    if (data) setCategories(data)
+  }
+
+  const loadSavedQuotations = async () => {
+    const { data } = await supabase
+      .from("quotations")
+      .select("id, quotation_number, company, title, items, notes, category")
+      .order("created_at", { ascending: false })
+      .limit(200)
+    if (data) {
+      setSavedQuotations(data.map((q: any) => ({
+        ...q,
+        category: q.category ?? null,
+        items: Array.isArray(q.items) ? q.items : typeof q.items === "string" ? JSON.parse(q.items) : [],
       })))
     }
   }
@@ -122,6 +175,8 @@ export function CreateQuotationDialog({
   useEffect(() => {
     if (open) {
       loadPresets()
+      loadCategories()
+      loadSavedQuotations()
       if (editQuotation) {
         setCompany(editQuotation.company)
         setTitle(editQuotation.title)
@@ -135,8 +190,10 @@ export function CreateQuotationDialog({
         setNotes("")
         setItems([{ id: generateId(), name: "", quantity: 1, unit_price: 0, amount: 0 }])
       }
-      setShowPresetList(false)
       setShowPresetSave(false)
+      setShowCategoryAdd(false)
+      setSearch("")
+      setActiveCategory(ALL)
     }
   }, [open, editQuotation])
 
@@ -146,6 +203,16 @@ export function CreateQuotationDialog({
 
   const removeItem = (id: string) => {
     if (items.length > 1) setItems(items.filter((item) => item.id !== id))
+  }
+
+  const moveItem = (index: number, dir: -1 | 1) => {
+    const target = index + dir
+    if (target < 0 || target >= items.length) return
+    const next = [...items]
+    const tmp = next[index]
+    next[index] = next[target]
+    next[target] = tmp
+    setItems(next)
   }
 
   const updateItem = (id: string, field: keyof QuotationItem, value: any) => {
@@ -167,16 +234,31 @@ export function CreateQuotationDialog({
   const taxAmount = Math.round(supplyAmount * 0.1)
   const totalAmount = supplyAmount + taxAmount
 
-  // Preset CRUD
+  // 프리셋 CRUD
+  const openPresetSave = () => {
+    setEditingPresetId(null)
+    setPresetName("")
+    setPresetCategory(activeCategory !== ALL && activeCategory !== NONE ? activeCategory : "")
+    setShowPresetSave(true)
+  }
+
   const savePreset = async () => {
     if (!presetName.trim()) { alert("프리셋 이름을 입력해주세요."); return }
-    const payload = { name: presetName, company, title, items: JSON.stringify(items), notes }
+    const payload = {
+      name: presetName,
+      company,
+      title,
+      items: JSON.stringify(items),
+      notes,
+      category: presetCategory || null,
+    }
     if (editingPresetId) {
       await supabase.from("quotation_presets").update(payload).eq("id", editingPresetId)
     } else {
       await supabase.from("quotation_presets").insert(payload)
     }
     setPresetName("")
+    setPresetCategory("")
     setEditingPresetId(null)
     setShowPresetSave(false)
     loadPresets()
@@ -192,9 +274,63 @@ export function CreateQuotationDialog({
     setCompany(preset.company as "플루타" | "오코랩스")
     setTitle(preset.title || "")
     setNotes(preset.notes || "")
-    setItems(preset.items.map(item => ({ ...item, id: generateId() })))
-    setShowPresetList(false)
+    setItems(preset.items.length > 0
+      ? preset.items.map(item => ({ ...item, id: generateId() }))
+      : [{ id: generateId(), name: "", quantity: 1, unit_price: 0, amount: 0 }])
   }
+
+  const applySavedQuotation = (q: SavedQuotation) => {
+    setCompany(q.company as "플루타" | "오코랩스")
+    setTitle(q.title || "")
+    setNotes(q.notes || "")
+    setItems(q.items.length > 0
+      ? q.items.map(item => ({ ...item, id: generateId() }))
+      : [{ id: generateId(), name: "", quantity: 1, unit_price: 0, amount: 0 }])
+  }
+
+  const setPresetCategoryValue = async (presetId: string, category: string) => {
+    await supabase.from("quotation_presets").update({ category: category || null }).eq("id", presetId)
+    loadPresets()
+  }
+
+  const setQuotationCategoryValue = async (quotationId: string, category: string) => {
+    await supabase.from("quotations").update({ category: category || null }).eq("id", quotationId)
+    loadSavedQuotations()
+  }
+
+  // 카테고리 CRUD
+  const addCategory = async () => {
+    const name = newCategoryName.trim()
+    if (!name) return
+    if (categories.some(c => c.name === name)) { alert("이미 존재하는 카테고리입니다."); return }
+    await supabase.from("quotation_categories").insert({ name })
+    setNewCategoryName("")
+    setShowCategoryAdd(false)
+    loadCategories()
+  }
+
+  const deleteCategory = async (cat: Category) => {
+    if (!confirm(`'${cat.name}' 카테고리를 삭제하시겠습니까?\n(이 카테고리의 프리셋/견적서는 '미분류'로 이동합니다)`)) return
+    await supabase.from("quotation_categories").delete().eq("id", cat.id)
+    await supabase.from("quotation_presets").update({ category: null }).eq("category", cat.name)
+    await supabase.from("quotations").update({ category: null }).eq("category", cat.name)
+    if (activeCategory === cat.name) setActiveCategory(ALL)
+    loadCategories()
+    loadPresets()
+    loadSavedQuotations()
+  }
+
+  // 필터
+  const matchCategory = (c: string | null) =>
+    activeCategory === ALL ? true : activeCategory === NONE ? !c : c === activeCategory
+  const matchSearch = (...fields: (string | null | undefined)[]) => {
+    if (!search.trim()) return true
+    const q = search.trim().toLowerCase()
+    return fields.some(f => (f || "").toLowerCase().includes(q))
+  }
+
+  const visiblePresets = presets.filter(p => matchCategory(p.category) && matchSearch(p.name, p.title))
+  const visibleQuotations = savedQuotations.filter(q => matchCategory(q.category) && matchSearch(q.title, q.quotation_number))
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -247,256 +383,418 @@ export function CreateQuotationDialog({
   const companyInfo = COMPANY_INFO[company]
   const todayStr = new Date().toLocaleDateString("ko-KR", { year: "numeric", month: "2-digit", day: "2-digit" }).replace(/\. /g, "-").replace(".", "")
 
+  // 카테고리 선택용 옵션
+  const categorySelect = (value: string | null, onChange: (v: string) => void) => (
+    <select
+      value={value || ""}
+      onClick={(e) => e.stopPropagation()}
+      onChange={(e) => onChange(e.target.value)}
+      className="h-6 max-w-[88px] rounded border border-gray-300 bg-background px-1 text-[11px] text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring"
+    >
+      <option value="">미분류</option>
+      {categories.map((c) => (
+        <option key={c.id} value={c.name}>{c.name}</option>
+      ))}
+    </select>
+  )
+
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="!max-w-[900px] max-h-[95vh] overflow-y-auto p-0">
-        <DialogHeader className="p-4 pb-0">
-          <DialogTitle className="text-xl font-bold">
+      <DialogContent className="!max-w-[1280px] w-[96vw] h-[92vh] overflow-hidden p-0 flex flex-col gap-0">
+        <DialogHeader className="px-4 py-3 border-b shrink-0">
+          <DialogTitle className="text-lg font-bold">
             {isEditMode ? "견적서 수정" : "견적서 생성"}
           </DialogTitle>
           <DialogDescription>
-            {isEditMode ? `견적서 ${editQuotation?.quotation_number}을 수정합니다.` : "거래에 대한 견적서를 작성하세요."}
+            {isEditMode ? `견적서 ${editQuotation?.quotation_number}을 수정합니다.` : "왼쪽에서 회사·프리셋을 선택하고 오른쪽에서 견적서를 작성하세요."}
           </DialogDescription>
         </DialogHeader>
 
-        {/* 프리셋 + 회사 선택 바 */}
-        <div className="px-4 flex items-center gap-3 flex-wrap">
-          <div className="flex items-center gap-2">
-            <Label className="text-xs font-semibold whitespace-nowrap">회사</Label>
-            {(["플루타", "오코랩스"] as const).map((c) => (
-              <Button key={c} size="sm" variant={company === c ? "default" : "outline"} className="h-7 text-xs"
-                onClick={() => setCompany(c)}>{c}</Button>
-            ))}
-          </div>
-          <div className="ml-auto flex items-center gap-2">
-            <Button type="button" variant="outline" size="sm" className="h-7 text-xs gap-1"
-              onClick={() => setShowPresetList(!showPresetList)}>
-              <FolderOpen className="h-3 w-3" /> 프리셋 불러오기
-            </Button>
-            <Button type="button" variant="outline" size="sm" className="h-7 text-xs gap-1"
-              onClick={() => { setShowPresetSave(true); setEditingPresetId(null); setPresetName("") }}>
-              <Save className="h-3 w-3" /> 프리셋 저장
-            </Button>
-          </div>
-        </div>
-
-        {/* 프리셋 저장 폼 */}
-        {showPresetSave && (
-          <div className="mx-4 p-3 bg-blue-50 border border-blue-200 rounded-lg flex items-center gap-2">
-            <Input placeholder="프리셋 이름" value={presetName} onChange={(e) => setPresetName(e.target.value)}
-              className="h-8 text-sm flex-1" />
-            <Button size="sm" className="h-8 text-xs" onClick={savePreset}>
-              {editingPresetId ? "수정" : "저장"}
-            </Button>
-            <Button size="sm" variant="ghost" className="h-8 text-xs" onClick={() => { setShowPresetSave(false); setEditingPresetId(null) }}>
-              취소
-            </Button>
-          </div>
-        )}
-
-        {/* 프리셋 목록 */}
-        {showPresetList && (
-          <div className="mx-4 p-3 bg-muted/50 border rounded-lg max-h-[200px] overflow-y-auto">
-            {presets.length === 0 ? (
-              <p className="text-xs text-muted-foreground text-center py-4">저장된 프리셋이 없습니다.</p>
-            ) : (
-              <div className="space-y-1.5">
-                {presets.map((preset) => (
-                  <div key={preset.id} className="flex items-center gap-2 p-2 bg-background rounded border hover:bg-muted/50 transition-colors">
-                    <div className="flex-1 cursor-pointer" onClick={() => applyPreset(preset)}>
-                      <p className="text-sm font-medium">{preset.name}</p>
-                      <p className="text-xs text-muted-foreground">
-                        {preset.company} · {preset.items.length}개 항목
-                        {preset.title && ` · ${preset.title}`}
-                      </p>
-                    </div>
-                    <Button variant="ghost" size="sm" className="h-7 w-7 p-0"
-                      onClick={() => {
-                        setEditingPresetId(preset.id)
-                        setPresetName(preset.name)
-                        setShowPresetSave(true)
-                        setShowPresetList(false)
-                      }}>
-                      <Edit className="h-3 w-3" />
-                    </Button>
-                    <Button variant="ghost" size="sm" className="h-7 w-7 p-0 hover:text-destructive"
-                      onClick={() => deletePreset(preset.id)}>
-                      <Trash2 className="h-3 w-3" />
-                    </Button>
-                  </div>
+        <div className="flex flex-1 overflow-hidden">
+          {/* ===================== 좌측 패널 ===================== */}
+          <aside className="w-[340px] shrink-0 border-r flex flex-col overflow-hidden bg-muted/30">
+            {/* 회사 선택 */}
+            <div className="p-3 border-b shrink-0 space-y-2">
+              <Label className="text-xs font-semibold">발행 회사</Label>
+              <div className="grid grid-cols-2 gap-2">
+                {(["플루타", "오코랩스"] as const).map((c) => (
+                  <Button
+                    key={c}
+                    type="button"
+                    size="sm"
+                    variant={company === c ? "default" : "outline"}
+                    className="h-8 text-xs"
+                    onClick={() => setCompany(c)}
+                  >
+                    {company === c && <Check className="h-3 w-3 mr-1" />}
+                    {c}
+                  </Button>
                 ))}
               </div>
-            )}
-          </div>
-        )}
-
-        {/* 견적서 본문 - 출력 상세와 동일한 디자인 */}
-        <form onSubmit={handleSubmit} className="px-4 pb-4">
-          <div className="bg-white border-2 border-black">
-            {/* 제목 */}
-            <div className="text-center py-3 border-b-2 border-black">
-              <h1 className="text-2xl font-bold underline decoration-2 underline-offset-4">견 적 서</h1>
             </div>
 
-            {/* 상단: 고객 정보 + 공급자 정보 */}
-            <div className="grid grid-cols-2 border-b-2 border-black">
-              {/* 왼쪽: 기본 정보 입력 */}
-              <div className="p-3 border-r-2 border-black space-y-2">
-                <div>
-                  <label className="text-xs text-gray-500">견적 제목 <span className="text-red-500">*</span></label>
-                  <Input placeholder="예: 홈페이지 제작 견적서" value={title}
-                    onChange={(e) => setTitle(e.target.value)} className="h-8 text-sm mt-0.5" required />
+            {/* 검색창 */}
+            <div className="p-3 border-b shrink-0">
+              <div className="relative">
+                <Search className="absolute left-2 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
+                <Input
+                  placeholder="프리셋·견적서 검색"
+                  value={search}
+                  onChange={(e) => setSearch(e.target.value)}
+                  className="h-8 text-xs pl-7"
+                />
+              </div>
+            </div>
+
+            {/* 카테고리 칩 */}
+            <div className="p-3 border-b shrink-0 space-y-2">
+              <div className="flex items-center justify-between">
+                <Label className="text-xs font-semibold">카테고리</Label>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  className="h-6 px-1.5 text-[11px] gap-1"
+                  onClick={() => { setShowCategoryAdd(v => !v); setNewCategoryName("") }}
+                >
+                  <FolderPlus className="h-3 w-3" /> 추가
+                </Button>
+              </div>
+              {showCategoryAdd && (
+                <div className="flex items-center gap-1">
+                  <Input
+                    autoFocus
+                    placeholder="새 카테고리 이름"
+                    value={newCategoryName}
+                    onChange={(e) => setNewCategoryName(e.target.value)}
+                    onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); addCategory() } }}
+                    className="h-7 text-xs"
+                  />
+                  <Button type="button" size="sm" className="h-7 px-2 text-xs" onClick={addCategory}>저장</Button>
                 </div>
-                <div className="grid grid-cols-2 gap-2">
-                  <div>
-                    <label className="text-xs text-gray-500">견적일자</label>
-                    <Input value={todayStr} disabled className="h-8 text-sm mt-0.5 bg-gray-50" />
-                  </div>
-                  <div>
-                    <label className="text-xs text-gray-500">유효기간</label>
-                    <Popover open={validUntilOpen} onOpenChange={setValidUntilOpen}>
-                      <PopoverTrigger asChild>
-                        <Button variant="outline" className={cn("w-full h-8 text-sm justify-start mt-0.5", !validUntil && "text-muted-foreground")}>
-                          <CalendarIcon className="mr-1 h-3 w-3" />
-                          {validUntil ? validUntil.toLocaleDateString("ko-KR") : "선택"}
-                        </Button>
-                      </PopoverTrigger>
-                      <PopoverContent className="w-auto p-0" align="start">
-                        <Calendar mode="single" selected={validUntil} onSelect={(date) => { setValidUntil(date); setValidUntilOpen(false) }} initialFocus />
-                      </PopoverContent>
-                    </Popover>
-                  </div>
+              )}
+              <div className="flex flex-wrap gap-1.5">
+                {[{ key: ALL, label: "전체" }, { key: NONE, label: "미분류" }].map((c) => (
+                  <button
+                    key={c.key}
+                    type="button"
+                    onClick={() => setActiveCategory(c.key)}
+                    className={cn(
+                      "px-2 py-1 rounded-full text-[11px] border transition-colors",
+                      activeCategory === c.key
+                        ? "bg-primary text-primary-foreground border-primary"
+                        : "bg-background text-muted-foreground border-gray-300 hover:bg-muted"
+                    )}
+                  >
+                    {c.label}
+                  </button>
+                ))}
+                {categories.map((c) => (
+                  <span
+                    key={c.id}
+                    className={cn(
+                      "group inline-flex items-center gap-1 pl-2 pr-1 py-1 rounded-full text-[11px] border transition-colors cursor-pointer",
+                      activeCategory === c.name
+                        ? "bg-primary text-primary-foreground border-primary"
+                        : "bg-background text-muted-foreground border-gray-300 hover:bg-muted"
+                    )}
+                    onClick={() => setActiveCategory(c.name)}
+                  >
+                    {c.name}
+                    <button
+                      type="button"
+                      onClick={(e) => { e.stopPropagation(); deleteCategory(c) }}
+                      className={cn(
+                        "rounded-full p-0.5 hover:bg-black/10",
+                        activeCategory === c.name ? "text-primary-foreground" : "text-muted-foreground"
+                      )}
+                      title="카테고리 삭제"
+                    >
+                      <X className="h-2.5 w-2.5" />
+                    </button>
+                  </span>
+                ))}
+              </div>
+            </div>
+
+            {/* 목록 (프리셋 + 등록된 견적서) */}
+            <div className="flex-1 overflow-y-auto p-3 space-y-4">
+              {/* 프리셋 섹션 */}
+              <div className="space-y-1.5">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-semibold flex items-center gap-1 text-foreground">
+                    <Folder className="h-3.5 w-3.5" /> 프리셋 ({visiblePresets.length})
+                  </span>
+                  <Button type="button" variant="outline" size="sm" className="h-6 px-2 text-[11px] gap-1" onClick={openPresetSave}>
+                    <Save className="h-3 w-3" /> 현재 내용 저장
+                  </Button>
                 </div>
+
+                {showPresetSave && (
+                  <div className="p-2 bg-blue-50 border border-blue-200 rounded-lg space-y-2">
+                    <Input
+                      placeholder={editingPresetId ? "프리셋 이름 수정" : "프리셋 이름"}
+                      value={presetName}
+                      onChange={(e) => setPresetName(e.target.value)}
+                      className="h-7 text-xs"
+                    />
+                    <select
+                      value={presetCategory}
+                      onChange={(e) => setPresetCategory(e.target.value)}
+                      className="h-7 w-full rounded border border-gray-300 bg-background px-1.5 text-xs focus:outline-none focus:ring-1 focus:ring-ring"
+                    >
+                      <option value="">미분류</option>
+                      {categories.map((c) => <option key={c.id} value={c.name}>{c.name}</option>)}
+                    </select>
+                    <div className="flex gap-1.5">
+                      <Button type="button" size="sm" className="h-7 flex-1 text-xs" onClick={savePreset}>
+                        {editingPresetId ? "수정" : "저장"}
+                      </Button>
+                      <Button type="button" size="sm" variant="ghost" className="h-7 text-xs" onClick={() => { setShowPresetSave(false); setEditingPresetId(null) }}>
+                        취소
+                      </Button>
+                    </div>
+                  </div>
+                )}
+
+                {visiblePresets.length === 0 ? (
+                  <p className="text-[11px] text-muted-foreground py-2 text-center">표시할 프리셋이 없습니다.</p>
+                ) : (
+                  visiblePresets.map((preset) => (
+                    <div key={preset.id} className="group flex items-start gap-1.5 p-2 bg-background rounded border hover:border-primary/50 transition-colors">
+                      <button type="button" className="flex-1 text-left min-w-0" onClick={() => applyPreset(preset)}>
+                        <p className="text-xs font-medium truncate">{preset.name}</p>
+                        <p className="text-[11px] text-muted-foreground truncate">
+                          {preset.company} · {preset.items.length}개 항목{preset.title ? ` · ${preset.title}` : ""}
+                        </p>
+                      </button>
+                      <div className="flex flex-col items-end gap-1 shrink-0">
+                        {categorySelect(preset.category, (v) => setPresetCategoryValue(preset.id, v))}
+                        <div className="flex items-center gap-0.5">
+                          <Button type="button" variant="ghost" size="sm" className="h-5 w-5 p-0"
+                            onClick={() => {
+                              setEditingPresetId(preset.id)
+                              setPresetName(preset.name)
+                              setPresetCategory(preset.category || "")
+                              setShowPresetSave(true)
+                            }}>
+                            <Edit className="h-3 w-3" />
+                          </Button>
+                          <Button type="button" variant="ghost" size="sm" className="h-5 w-5 p-0 hover:text-destructive"
+                            onClick={() => deletePreset(preset.id)}>
+                            <Trash2 className="h-3 w-3" />
+                          </Button>
+                        </div>
+                      </div>
+                    </div>
+                  ))
+                )}
               </div>
 
-              {/* 오른쪽: 공급자 정보 (읽기전용) */}
-              <div className="p-0">
+              {/* 등록된 견적서 섹션 */}
+              <div className="space-y-1.5">
+                <span className="text-xs font-semibold flex items-center gap-1 text-foreground">
+                  <FileText className="h-3.5 w-3.5" /> 등록된 견적서 ({visibleQuotations.length})
+                </span>
+                {visibleQuotations.length === 0 ? (
+                  <p className="text-[11px] text-muted-foreground py-2 text-center">표시할 견적서가 없습니다.</p>
+                ) : (
+                  visibleQuotations.map((q) => (
+                    <div key={q.id} className="group flex items-start gap-1.5 p-2 bg-background rounded border hover:border-primary/50 transition-colors">
+                      <button type="button" className="flex-1 text-left min-w-0" onClick={() => applySavedQuotation(q)} title="이 견적서 내용을 불러오기">
+                        <p className="text-xs font-medium truncate">{q.title || "(제목 없음)"}</p>
+                        <p className="text-[11px] text-muted-foreground truncate">
+                          {q.quotation_number} · {q.company} · {q.items.length}개 항목
+                        </p>
+                      </button>
+                      <div className="shrink-0">
+                        {categorySelect(q.category, (v) => setQuotationCategoryValue(q.id, v))}
+                      </div>
+                    </div>
+                  ))
+                )}
+              </div>
+            </div>
+          </aside>
+
+          {/* ===================== 우측: 견적서 본문 ===================== */}
+          <div className="flex-1 overflow-y-auto">
+            <form onSubmit={handleSubmit} className="p-4">
+              <div className="bg-white border-2 border-black max-w-[760px] mx-auto">
+                {/* 제목 */}
+                <div className="text-center py-3 border-b-2 border-black">
+                  <h1 className="text-2xl font-bold underline decoration-2 underline-offset-4">견 적 서</h1>
+                </div>
+
+                {/* 상단: 고객 정보 + 공급자 정보 */}
+                <div className="grid grid-cols-2 border-b-2 border-black">
+                  <div className="p-3 border-r-2 border-black space-y-2">
+                    <div>
+                      <label className="text-xs text-gray-500">견적 제목 <span className="text-red-500">*</span></label>
+                      <Input placeholder="예: 홈페이지 제작 견적서" value={title}
+                        onChange={(e) => setTitle(e.target.value)} className="h-8 text-sm mt-0.5" required />
+                    </div>
+                    <div className="grid grid-cols-2 gap-2">
+                      <div>
+                        <label className="text-xs text-gray-500">견적일자</label>
+                        <Input value={todayStr} disabled className="h-8 text-sm mt-0.5 bg-gray-50" />
+                      </div>
+                      <div>
+                        <label className="text-xs text-gray-500">유효기간</label>
+                        <Popover open={validUntilOpen} onOpenChange={setValidUntilOpen}>
+                          <PopoverTrigger asChild>
+                            <Button type="button" variant="outline" className={cn("w-full h-8 text-sm justify-start mt-0.5", !validUntil && "text-muted-foreground")}>
+                              <CalendarIcon className="mr-1 h-3 w-3" />
+                              {validUntil ? validUntil.toLocaleDateString("ko-KR") : "선택"}
+                            </Button>
+                          </PopoverTrigger>
+                          <PopoverContent className="w-auto p-0" align="start">
+                            <Calendar mode="single" selected={validUntil} onSelect={(date) => { setValidUntil(date); setValidUntilOpen(false) }} initialFocus />
+                          </PopoverContent>
+                        </Popover>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="p-0">
+                    <table className="w-full text-xs border-collapse">
+                      <tbody>
+                        <tr className="border-b border-gray-400">
+                          <td className="py-1 px-2 bg-gray-100 font-semibold w-16 border-r border-gray-400">등록번호</td>
+                          <td className="py-1 px-2" colSpan={3}>{companyInfo.registration}</td>
+                        </tr>
+                        <tr className="border-b border-gray-400">
+                          <td className="py-1 px-2 bg-gray-100 font-semibold border-r border-gray-400">상 호</td>
+                          <td className="py-1 px-2 border-r border-gray-400">{companyInfo.name}</td>
+                          <td className="py-1 px-2 bg-gray-100 font-semibold text-center border-r border-gray-400 w-10">성명</td>
+                          <td className="py-1 px-2">{companyInfo.representative}</td>
+                        </tr>
+                        <tr className="border-b border-gray-400">
+                          <td className="py-1 px-2 bg-gray-100 font-semibold border-r border-gray-400">주 소</td>
+                          <td className="py-1 px-2 text-xs leading-tight" colSpan={3}>{companyInfo.address} {companyInfo.addressDetail}</td>
+                        </tr>
+                        <tr className="border-b border-gray-400">
+                          <td className="py-1 px-2 bg-gray-100 font-semibold border-r border-gray-400">업 태</td>
+                          <td className="py-1 px-2 border-r border-gray-400">{companyInfo.business_type}</td>
+                          <td className="py-1 px-2 bg-gray-100 font-semibold text-center border-r border-gray-400 w-10">종목</td>
+                          <td className="py-1 px-2 text-xs">{companyInfo.business_item}</td>
+                        </tr>
+                        <tr>
+                          <td className="py-1 px-2 bg-gray-100 font-semibold border-r border-gray-400">전화번호</td>
+                          <td className="py-1 px-2" colSpan={3}>{companyInfo.phone}</td>
+                        </tr>
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+
+                {/* 품목 테이블 */}
                 <table className="w-full text-xs border-collapse">
+                  <thead>
+                    <tr className="bg-gray-100 border-b-2 border-black">
+                      <th className="py-1.5 px-2 border-r border-black text-center w-10 font-semibold">NO</th>
+                      <th className="py-1.5 px-2 border-r border-black text-center font-semibold">품 목</th>
+                      <th className="py-1.5 px-2 border-r border-black text-center w-16 font-semibold">수량</th>
+                      <th className="py-1.5 px-2 border-r border-black text-center w-28 font-semibold">단가</th>
+                      <th className="py-1.5 px-2 border-r border-black text-center w-28 font-semibold">금액</th>
+                      <th className="py-1.5 px-2 text-center w-16 font-semibold">순서</th>
+                    </tr>
+                  </thead>
                   <tbody>
-                    <tr className="border-b border-gray-400">
-                      <td className="py-1 px-2 bg-gray-100 font-semibold w-16 border-r border-gray-400">등록번호</td>
-                      <td className="py-1 px-2" colSpan={3}>{companyInfo.registration}</td>
-                    </tr>
-                    <tr className="border-b border-gray-400">
-                      <td className="py-1 px-2 bg-gray-100 font-semibold border-r border-gray-400">상 호</td>
-                      <td className="py-1 px-2 border-r border-gray-400">{companyInfo.name}</td>
-                      <td className="py-1 px-2 bg-gray-100 font-semibold text-center border-r border-gray-400 w-10">성명</td>
-                      <td className="py-1 px-2">{companyInfo.representative}</td>
-                    </tr>
-                    <tr className="border-b border-gray-400">
-                      <td className="py-1 px-2 bg-gray-100 font-semibold border-r border-gray-400">주 소</td>
-                      <td className="py-1 px-2 text-xs leading-tight" colSpan={3}>{companyInfo.address} {companyInfo.addressDetail}</td>
-                    </tr>
-                    <tr className="border-b border-gray-400">
-                      <td className="py-1 px-2 bg-gray-100 font-semibold border-r border-gray-400">업 태</td>
-                      <td className="py-1 px-2 border-r border-gray-400">{companyInfo.business_type}</td>
-                      <td className="py-1 px-2 bg-gray-100 font-semibold text-center border-r border-gray-400 w-10">종목</td>
-                      <td className="py-1 px-2 text-xs">{companyInfo.business_item}</td>
-                    </tr>
-                    <tr>
-                      <td className="py-1 px-2 bg-gray-100 font-semibold border-r border-gray-400">전화번호</td>
-                      <td className="py-1 px-2" colSpan={3}>{companyInfo.phone}</td>
-                    </tr>
+                    {items.map((item, idx) => (
+                      <tr key={item.id} className="border-b border-gray-300">
+                        <td className="py-0.5 px-2 border-r border-gray-300 text-center text-xs">{idx + 1}</td>
+                        <td className="py-0.5 px-1 border-r border-gray-300">
+                          <Input placeholder="품목명" value={item.name}
+                            onChange={(e) => updateItem(item.id, "name", e.target.value)}
+                            className="h-7 text-xs border-0 shadow-none focus-visible:ring-0 bg-transparent" />
+                        </td>
+                        <td className="py-0.5 px-1 border-r border-gray-300">
+                          <Input type="number" min="1" value={item.quantity}
+                            onChange={(e) => updateItem(item.id, "quantity", Number.parseInt(e.target.value) || 1)}
+                            className="h-7 text-xs text-right border-0 shadow-none focus-visible:ring-0 bg-transparent" />
+                        </td>
+                        <td className="py-0.5 px-1 border-r border-gray-300">
+                          <Input type="number" placeholder="0" value={item.unit_price || ""}
+                            onChange={(e) => updateItem(item.id, "unit_price", Number(e.target.value) || 0)}
+                            className="h-7 text-xs text-right border-0 shadow-none focus-visible:ring-0 bg-transparent" />
+                        </td>
+                        <td className={cn("py-0.5 px-2 border-r border-gray-300 text-right text-xs font-medium", item.amount < 0 && "text-red-600")}>
+                          {item.amount !== 0 ? `₩${formatNumber(item.amount)}` : ""}
+                        </td>
+                        <td className="py-0.5 px-1">
+                          <div className="flex items-center justify-center gap-0.5">
+                            <Button type="button" variant="ghost" size="sm" onClick={() => moveItem(idx, -1)}
+                              disabled={idx === 0} className="h-6 w-5 p-0" title="위로">
+                              <ChevronUp className="w-3 h-3" />
+                            </Button>
+                            <Button type="button" variant="ghost" size="sm" onClick={() => moveItem(idx, 1)}
+                              disabled={idx === items.length - 1} className="h-6 w-5 p-0" title="아래로">
+                              <ChevronDown className="w-3 h-3" />
+                            </Button>
+                            <Button type="button" variant="ghost" size="sm" onClick={() => removeItem(item.id)}
+                              disabled={items.length === 1} className="h-6 w-5 p-0 hover:text-destructive" title="삭제">
+                              <X className="w-3 h-3" />
+                            </Button>
+                          </div>
+                        </td>
+                      </tr>
+                    ))}
                   </tbody>
                 </table>
+
+                {/* 항목 추가 버튼 */}
+                <div className="border-b border-gray-300 py-1 text-center">
+                  <Button type="button" variant="ghost" size="sm" onClick={addItem} className="h-6 text-xs text-muted-foreground gap-1">
+                    <Plus className="w-3 h-3" /> 항목 추가
+                  </Button>
+                </div>
+
+                {/* 합계 */}
+                <div className="border-t-2 border-black">
+                  <table className="w-full text-xs border-collapse">
+                    <tbody>
+                      <tr className="border-b-2 border-black bg-blue-50">
+                        <td className="py-2 px-3 font-bold text-sm w-28 border-r border-black">공급가액</td>
+                        <td className={cn("py-2 px-3 text-right font-bold text-base tracking-wide", supplyAmount < 0 && "text-red-600")}>
+                          ₩ {formatNumber(supplyAmount)}
+                        </td>
+                      </tr>
+                      <tr className="border-b border-gray-300">
+                        <td className="py-1.5 px-3 bg-gray-100 font-semibold text-xs border-r border-gray-400">부가세 (10%)</td>
+                        <td className={cn("py-1.5 px-3 text-right font-medium text-xs text-gray-600", taxAmount < 0 && "text-red-600")}>
+                          ₩ {formatNumber(taxAmount)}
+                        </td>
+                      </tr>
+                      <tr>
+                        <td className="py-1.5 px-3 bg-gray-100 font-semibold text-xs border-r border-gray-400">합 계</td>
+                        <td className={cn("py-1.5 px-3 text-right font-semibold text-xs", totalAmount < 0 && "text-red-600")}>
+                          ₩ {formatNumber(totalAmount)}
+                        </td>
+                      </tr>
+                    </tbody>
+                  </table>
+                </div>
+
+                {/* 비고 */}
+                <div className="border-t-2 border-black p-3">
+                  <label className="text-xs font-semibold text-gray-700 block mb-1">비고</label>
+                  <Textarea placeholder="특이사항이나 추가 정보를 입력하세요" value={notes}
+                    onChange={(e) => setNotes(e.target.value)} rows={3}
+                    className="text-xs border-gray-300 resize-none" />
+                </div>
               </div>
-            </div>
 
-            {/* 품목 테이블 */}
-            <table className="w-full text-xs border-collapse">
-              <thead>
-                <tr className="bg-gray-100 border-b-2 border-black">
-                  <th className="py-1.5 px-2 border-r border-black text-center w-10 font-semibold">NO</th>
-                  <th className="py-1.5 px-2 border-r border-black text-center font-semibold">품 목</th>
-                  <th className="py-1.5 px-2 border-r border-black text-center w-16 font-semibold">수량</th>
-                  <th className="py-1.5 px-2 border-r border-black text-center w-28 font-semibold">단가</th>
-                  <th className="py-1.5 px-2 border-r border-black text-center w-28 font-semibold">금액</th>
-                  <th className="py-1.5 px-2 text-center w-10 font-semibold"></th>
-                </tr>
-              </thead>
-              <tbody>
-                {items.map((item, idx) => (
-                  <tr key={item.id} className="border-b border-gray-300">
-                    <td className="py-0.5 px-2 border-r border-gray-300 text-center text-xs">{idx + 1}</td>
-                    <td className="py-0.5 px-1 border-r border-gray-300">
-                      <Input placeholder="품목명" value={item.name}
-                        onChange={(e) => updateItem(item.id, "name", e.target.value)}
-                        className="h-7 text-xs border-0 shadow-none focus-visible:ring-0 bg-transparent" />
-                    </td>
-                    <td className="py-0.5 px-1 border-r border-gray-300">
-                      <Input type="number" min="1" value={item.quantity}
-                        onChange={(e) => updateItem(item.id, "quantity", Number.parseInt(e.target.value) || 1)}
-                        className="h-7 text-xs text-right border-0 shadow-none focus-visible:ring-0 bg-transparent" />
-                    </td>
-                    <td className="py-0.5 px-1 border-r border-gray-300">
-                      <Input type="number" placeholder="0" value={item.unit_price || ""}
-                        onChange={(e) => updateItem(item.id, "unit_price", Number(e.target.value) || 0)}
-                        className="h-7 text-xs text-right border-0 shadow-none focus-visible:ring-0 bg-transparent" />
-                    </td>
-                    <td className={cn("py-0.5 px-2 border-r border-gray-300 text-right text-xs font-medium", item.amount < 0 && "text-red-600")}>
-                      {item.amount !== 0 ? `₩${formatNumber(item.amount)}` : ""}
-                    </td>
-                    <td className="py-0.5 px-1 text-center">
-                      <Button type="button" variant="ghost" size="sm" onClick={() => removeItem(item.id)}
-                        disabled={items.length === 1} className="h-6 w-6 p-0">
-                        <X className="w-3 h-3" />
-                      </Button>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-
-            {/* 항목 추가 버튼 */}
-            <div className="border-b border-gray-300 py-1 text-center">
-              <Button type="button" variant="ghost" size="sm" onClick={addItem} className="h-6 text-xs text-muted-foreground gap-1">
-                <Plus className="w-3 h-3" /> 항목 추가
-              </Button>
-            </div>
-
-            {/* 합계 */}
-            <div className="border-t-2 border-black">
-              <table className="w-full text-xs border-collapse">
-                <tbody>
-                  <tr className="border-b-2 border-black bg-blue-50">
-                    <td className="py-2 px-3 font-bold text-sm w-28 border-r border-black">공급가액</td>
-                    <td className={cn("py-2 px-3 text-right font-bold text-base tracking-wide", supplyAmount < 0 && "text-red-600")}>
-                      ₩ {formatNumber(supplyAmount)}
-                    </td>
-                  </tr>
-                  <tr className="border-b border-gray-300">
-                    <td className="py-1.5 px-3 bg-gray-100 font-semibold text-xs border-r border-gray-400">부가세 (10%)</td>
-                    <td className={cn("py-1.5 px-3 text-right font-medium text-xs text-gray-600", taxAmount < 0 && "text-red-600")}>
-                      ₩ {formatNumber(taxAmount)}
-                    </td>
-                  </tr>
-                  <tr>
-                    <td className="py-1.5 px-3 bg-gray-100 font-semibold text-xs border-r border-gray-400">합 계</td>
-                    <td className={cn("py-1.5 px-3 text-right font-semibold text-xs", totalAmount < 0 && "text-red-600")}>
-                      ₩ {formatNumber(totalAmount)}
-                    </td>
-                  </tr>
-                </tbody>
-              </table>
-            </div>
-
-            {/* 비고 */}
-            <div className="border-t-2 border-black p-3">
-              <label className="text-xs font-semibold text-gray-700 block mb-1">비고</label>
-              <Textarea placeholder="특이사항이나 추가 정보를 입력하세요" value={notes}
-                onChange={(e) => setNotes(e.target.value)} rows={3}
-                className="text-xs border-gray-300 resize-none" />
-            </div>
+              {/* 버튼 */}
+              <div className="flex gap-3 pt-4 max-w-[760px] mx-auto">
+                <Button type="button" variant="outline" onClick={() => onOpenChange(false)} className="flex-1">취소</Button>
+                <Button type="submit" disabled={saving} className="flex-1">
+                  {saving ? (isEditMode ? "수정 중..." : "생성 중...") : (isEditMode ? "견적서 수정" : "견적서 생성")}
+                </Button>
+              </div>
+            </form>
           </div>
-
-          {/* 버튼 */}
-          <div className="flex gap-3 pt-4">
-            <Button type="button" variant="outline" onClick={() => onOpenChange(false)} className="flex-1">취소</Button>
-            <Button type="submit" disabled={saving} className="flex-1">
-              {saving ? (isEditMode ? "수정 중..." : "생성 중...") : (isEditMode ? "견적서 수정" : "견적서 생성")}
-            </Button>
-          </div>
-        </form>
+        </div>
       </DialogContent>
     </Dialog>
   )
