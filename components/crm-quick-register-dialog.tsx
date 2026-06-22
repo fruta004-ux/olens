@@ -471,11 +471,18 @@ export function CrmQuickRegisterDialog({ open, onOpenChange }: CrmQuickRegisterD
       bodyMessage = lines.slice(bodyStartIdx).join("\n").trim()
     }
 
-    // 본문에서 회사명 추출 시도 (예: "OOO 입니다.")
+    // 본문에서 회사명 추출 시도 (예: "안녕하세요 플루타입니다")
+    // 주의: 인사말("안녕하세요")로 시작하는 짧은 자기소개에서만 추출한다.
+    // 그렇지 않으면 "...사진이 없어서 고민입니다." 같은 본문 문장이 통째로
+    // 회사명으로 잡히는 버그가 발생한다.
     let companyFromBody = ""
-    const companyMatch = bodyMessage.match(/^(?:안녕하세요[.\s]*)?\s*(.+?)\s*(?:입니다|이에요|에요)[.\s]/m)
-    if (companyMatch) {
-      companyFromBody = companyMatch[1].trim()
+    const introMatch = bodyMessage.match(/^안녕하세요[,.\s]*([^\n.?!]{1,20}?)\s*(?:입니다|이에요|에요)/)
+    if (introMatch) {
+      const candidate = introMatch[1].trim()
+      // 짧고(≤20자) 단어 수가 적은(≤3) 경우만 회사명으로 인정 (문장 오인 방지)
+      if (candidate && candidate.length <= 20 && candidate.split(/\s+/).length <= 3) {
+        companyFromBody = candidate
+      }
     }
 
     // 명칭(회사명): "회사명 / 헤더이름" 형식 (둘 다 있을 때)
