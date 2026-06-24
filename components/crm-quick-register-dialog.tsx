@@ -508,6 +508,17 @@ export function CrmQuickRegisterDialog({ open, onOpenChange }: CrmQuickRegisterD
     // 등급: 출력 양식에서 제거됨 (담당자로 대체)
     parsed.grade = ""
 
+    // 담당자: 채널톡 양식 텍스트를 이 탭에 붙여넣는 경우 대비.
+    // "담당자 :" 라인이 있으면 우선, 없으면 "응 대 :" 라인을 사용.
+    // (아임웹 사이트 원본 텍스트엔 두 라인 모두 없으므로 기본값 유지 → 부작용 없음)
+    const imwebManagerMatch = text.match(/담당자\s*[:：]\s*(.+?)(?=\r?\n|$)/i)
+    if (imwebManagerMatch) {
+      parsed.assigned_to = normalizeAssignedTo(imwebManagerMatch[1].trim())
+    } else {
+      const imwebRespMatch = text.match(/응\s*대\s*[:：]\s*(.+?)(?=\r?\n|$)/i)
+      if (imwebRespMatch) parsed.assigned_to = normalizeAssignedTo(imwebRespMatch[1].trim())
+    }
+
     // 내용: 본문 메시지 → 운영 중 사이트 → 레퍼런스 URL → 견적 범위
     const contentParts: string[] = []
     if (bodyMessage) contentParts.push(bodyMessage)
