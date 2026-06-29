@@ -64,6 +64,8 @@ interface Props {
   open: boolean
   onOpenChange: (open: boolean) => void
   imageUrl: string | null
+  /** 여러 장(반쪽/여러 페이지) 업로드 시 전체 목록. 없으면 imageUrl 단일 사용. */
+  imageUrls?: string[]
   initialData: Partial<BusinessRegistrationFields>
   ocrData: Partial<BusinessRegistrationFields> | null
   ocrLoading?: boolean
@@ -75,12 +77,16 @@ export function BusinessRegistrationVerifyDialog({
   open,
   onOpenChange,
   imageUrl,
+  imageUrls,
   initialData,
   ocrData,
   ocrLoading,
   onRunOcr,
   onApply,
 }: Props) {
+  // 표시할 이미지 목록 (여러 장 우선, 없으면 단일 imageUrl)
+  const urls = imageUrls && imageUrls.length > 0 ? imageUrls : imageUrl ? [imageUrl] : []
+  const hasImage = urls.length > 0
   const [form, setForm] = useState<BusinessRegistrationFields>({ ...EMPTY, ...(initialData as any) })
   const [zoom, setZoom] = useState(1)
   const [rotation, setRotation] = useState(0)
@@ -176,7 +182,7 @@ export function BusinessRegistrationVerifyDialog({
                 size="icon"
                 className="h-7 w-7"
                 onClick={() => setZoom((z) => Math.max(0.5, z - 0.25))}
-                disabled={!imageUrl}
+                disabled={!hasImage}
               >
                 <ZoomOut className="h-4 w-4" />
               </Button>
@@ -186,7 +192,7 @@ export function BusinessRegistrationVerifyDialog({
                 size="icon"
                 className="h-7 w-7"
                 onClick={() => setZoom((z) => Math.min(4, z + 0.25))}
-                disabled={!imageUrl}
+                disabled={!hasImage}
               >
                 <ZoomIn className="h-4 w-4" />
               </Button>
@@ -195,14 +201,17 @@ export function BusinessRegistrationVerifyDialog({
                 size="icon"
                 className="h-7 w-7 ml-2"
                 onClick={() => setRotation((r) => (r + 90) % 360)}
-                disabled={!imageUrl}
+                disabled={!hasImage}
               >
                 <RotateCw className="h-4 w-4" />
               </Button>
+              {urls.length > 1 && (
+                <span className="text-[11px] text-muted-foreground ml-2">{urls.length}장</span>
+              )}
               <div className="flex-1" />
-              {imageUrl && (
+              {hasImage && (
                 <a
-                  href={imageUrl}
+                  href={urls[0]}
                   target="_blank"
                   rel="noopener noreferrer"
                   className="text-[11px] text-primary hover:underline"
@@ -211,22 +220,35 @@ export function BusinessRegistrationVerifyDialog({
                 </a>
               )}
             </div>
-            <div className="flex-1 overflow-auto flex items-center justify-center p-4">
-              {imageUrl ? (
-                <img
-                  src={imageUrl}
-                  alt="사업자등록증"
-                  className="select-none transition-transform"
-                  style={{
-                    transform: `scale(${zoom}) rotate(${rotation}deg)`,
-                    transformOrigin: "center center",
-                    maxWidth: zoom <= 1 ? "100%" : "none",
-                    maxHeight: zoom <= 1 ? "100%" : "none",
-                  }}
-                  draggable={false}
-                />
+            <div className="flex-1 overflow-auto flex flex-col items-center justify-start gap-3 p-4">
+              {hasImage ? (
+                urls.map((u, i) => {
+                  const isPdf = /\.pdf(\?|$)/i.test(u)
+                  return isPdf ? (
+                    <iframe
+                      key={u + i}
+                      src={u}
+                      title={`사업자등록증 ${i + 1}`}
+                      className="w-full h-[80vh] min-h-[500px] border rounded bg-white"
+                    />
+                  ) : (
+                    <img
+                      key={u + i}
+                      src={u}
+                      alt={`사업자등록증 ${i + 1}`}
+                      className="select-none transition-transform"
+                      style={{
+                        transform: `scale(${zoom}) rotate(${rotation}deg)`,
+                        transformOrigin: "center center",
+                        maxWidth: zoom <= 1 ? "100%" : "none",
+                        maxHeight: zoom <= 1 ? "100%" : "none",
+                      }}
+                      draggable={false}
+                    />
+                  )
+                })
               ) : (
-                <div className="text-center text-muted-foreground text-sm">
+                <div className="text-center text-muted-foreground text-sm m-auto">
                   <ImageIcon className="h-12 w-12 mx-auto mb-2 opacity-40" />
                   업로드된 사업자등록증이 없습니다
                 </div>

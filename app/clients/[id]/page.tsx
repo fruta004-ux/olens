@@ -315,6 +315,7 @@ function ClientDetailPageClient({ clientId }: { clientId: string }) {
   const [businessRegOcrResult, setBusinessRegOcrResult] = useState<Partial<BusinessRegistrationFields> | null>(null)
   const [businessRegUploading, setBusinessRegUploading] = useState(false)
   const businessRegInputRef = React.useRef<HTMLInputElement>(null)
+  const businessRegAppendInputRef = React.useRef<HTMLInputElement>(null)
 
   const supabase = createBrowserClient()
 
@@ -865,38 +866,62 @@ function ClientDetailPageClient({ clientId }: { clientId: string }) {
     // 거래처 정보(OCR/수기 수정) 변경은 자동으로 모든 계약서에 즉시 반영됨.
   }
 
-  // 사업자등록증 업로드 → Supabase Storage 저장
-  const handleBusinessRegUpload = async (file: File) => {
+  // 사업자등록증 이미지 URL 목록 추출.
+  // 여러 장(반쪽/여러 페이지)은 business_registration_ocr._image_urls 에 저장하고,
+  // 대표 1장은 business_registration_url 로 둔다 (하위호환).
+  const getBizRegUrls = (account: any): string[] => {
+    const fromOcr = account?.business_registration_ocr?._image_urls
+    if (Array.isArray(fromOcr) && fromOcr.length > 0) return fromOcr.filter(Boolean)
+    return account?.business_registration_url ? [account.business_registration_url] : []
+  }
+
+  // 사업자등록증 업로드 → Supabase Storage 저장 (여러 장 동시/추가 업로드 지원)
+  const uploadBizRegFiles = async (files: File[], opts?: { append?: boolean }) => {
     if (!dealData.account_id) {
       alert("거래처(account)가 없어 업로드할 수 없습니다.")
       return
     }
-    if (!/^image\//.test(file.type) && file.type !== "application/pdf") {
+    const valid = files.filter((f) => /^image\//.test(f.type) || f.type === "application/pdf")
+    if (valid.length === 0) {
       alert("이미지 또는 PDF 파일만 업로드 가능합니다.")
       return
     }
     setBusinessRegUploading(true)
     try {
-      const ext = file.name.split(".").pop() || "jpg"
-      const safeName = `${dealData.account_id}_${Date.now()}.${ext}`
-      const { data: upData, error: upErr } = await supabase.storage
-        .from("business-registrations")
-        .upload(safeName, file, { upsert: true, contentType: file.type || undefined })
-      if (upErr) {
-        console.error("[BR] 업로드 실패 (full):", JSON.stringify(upErr, Object.getOwnPropertyNames(upErr)))
-        console.error("[BR] 업로드 실패 (raw):", upErr)
-        const msg = (upErr as any)?.message || (upErr as any)?.error || (upErr as any)?.statusCode || "원인 불명"
-        alert(`업로드 실패: ${msg}\n파일: ${safeName}\n크기: ${(file.size / 1024 / 1024).toFixed(2)}MB\nMIME: ${file.type}`)
-        return
+      const uploadedUrls: string[] = []
+      for (const file of valid) {
+        const ext = file.name.split(".").pop() || (file.type === "application/pdf" ? "pdf" : "jpg")
+        const safeName = `${dealData.account_id}_${Date.now()}_${Math.random().toString(36).slice(2, 7)}.${ext}`
+        const { error: upErr } = await supabase.storage
+          .from("business-registrations")
+          .upload(safeName, file, { upsert: true, contentType: file.type || undefined })
+        if (upErr) {
+          console.error("[BR] 업로드 실패 (full):", JSON.stringify(upErr, Object.getOwnPropertyNames(upErr)))
+          const msg = (upErr as any)?.message || (upErr as any)?.error || (upErr as any)?.statusCode || "원인 불명"
+          alert(`업로드 실패: ${msg}\n파일: ${safeName}\n크기: ${(file.size / 1024 / 1024).toFixed(2)}MB\nMIME: ${file.type}`)
+          return
+        }
+        const { data: urlData } = supabase.storage.from("business-registrations").getPublicUrl(safeName)
+        uploadedUrls.push(urlData.publicUrl)
       }
-      const { data: urlData } = supabase.storage.from("business-registrations").getPublicUrl(safeName)
-      const url = urlData.publicUrl
-      await handleUpdateAccount({ business_registration_url: url })
+      if (uploadedUrls.length === 0) return
+
+      const existing = opts?.append ? getBizRegUrls(dealData.account) : []
+      const merged = [...existing, ...uploadedUrls].slice(0, 4)
+      const prevOcr =
+        dealData.account?.business_registration_ocr && typeof dealData.account.business_registration_ocr === "object"
+          ? dealData.account.business_registration_ocr
+          : {}
+      await handleUpdateAccount({
+        business_registration_url: merged[0],
+        business_registration_ocr: { ...prevOcr, _image_urls: merged },
+      })
+
       // 업로드 직후: 다이얼로그 즉시 오픈 + OCR 자동 실행 (사용자는 결과 확인/수정만)
       setBusinessRegOcrResult(null)
       setShowBusinessRegDialog(true)
-      // 업로드된 URL을 직접 넘겨서 state 갱신 race 방지
-      runBusinessRegOcr(url).catch((err) => {
+      // 업로드된 URL 목록을 직접 넘겨서 state 갱신 race 방지
+      runBusinessRegOcr(merged).catch((err) => {
         console.error("[BR] 자동 OCR 실패:", err)
       })
     } finally {
@@ -904,9 +929,36 @@ function ClientDetailPageClient({ clientId }: { clientId: string }) {
     }
   }
 
-  const runBusinessRegOcr = async (overrideUrl?: string) => {
-    const url = overrideUrl || dealData.account?.business_registration_url
-    if (!url) {
+  // 클립보드 붙여넣기: 캡쳐 이미지를 Ctrl+V 로 바로 업로드.
+  // 이미지 클립보드일 때만 동작하므로 일반 텍스트 붙여넣기는 방해하지 않는다.
+  // 이미 업로드된 이미지가 있으면 추가(append)로 처리해 반쪽 이미지를 이어 붙일 수 있다.
+  useEffect(() => {
+    const onPaste = (e: ClipboardEvent) => {
+      const items = e.clipboardData?.items
+      if (!items) return
+      const imgs: File[] = []
+      for (const it of Array.from(items)) {
+        if (it.kind === "file" && it.type.startsWith("image/")) {
+          const f = it.getAsFile()
+          if (f) imgs.push(f)
+        }
+      }
+      if (imgs.length === 0) return
+      e.preventDefault()
+      uploadBizRegFiles(imgs, { append: getBizRegUrls(dealData.account).length > 0 })
+    }
+    window.addEventListener("paste", onPaste)
+    return () => window.removeEventListener("paste", onPaste)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [dealData.account_id, dealData.account?.business_registration_url, dealData.account?.business_registration_ocr])
+
+  const runBusinessRegOcr = async (override?: string | string[]) => {
+    const urls = Array.isArray(override)
+      ? override
+      : override
+        ? [override]
+        : getBizRegUrls(dealData.account)
+    if (urls.length === 0) {
       alert("업로드된 사업자등록증이 없습니다.")
       return
     }
@@ -915,7 +967,7 @@ function ClientDetailPageClient({ clientId }: { clientId: string }) {
       const res = await fetch("/api/ocr-business-registration", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ imageUrl: url }),
+        body: JSON.stringify(urls.length > 1 ? { imageUrls: urls } : { imageUrl: urls[0] }),
       })
       const json = await res.json()
       if (!res.ok || !json.ok) {
@@ -951,7 +1003,8 @@ function ClientDetailPageClient({ clientId }: { clientId: string }) {
       tax_type: fields.tax_type || null,
     }
     if (ocrRaw) {
-      updates.business_registration_ocr = ocrRaw
+      // 여러 장 업로드 정보(_image_urls)를 잃지 않도록 병합
+      updates.business_registration_ocr = { ...ocrRaw, _image_urls: getBizRegUrls(dealData.account) }
     }
     await handleUpdateAccount(updates)
   }
@@ -1779,7 +1832,7 @@ function ClientDetailPageClient({ clientId }: { clientId: string }) {
                             사업자등록증
                           </CardTitle>
                           <p className="text-xs text-muted-foreground mt-1">
-                            이미지를 업로드하면 OCR로 정보를 자동 추출하고, 좌/우 비교로 검증할 수 있어요.
+                            이미지/PDF 업로드 시 OCR로 자동 추출됩니다. 반으로 나눠 찍은 경우 여러 장 추가, 캡쳐는 Ctrl+V 붙여넣기도 됩니다.
                           </p>
                         </div>
                         <div className="flex items-center gap-2">
@@ -1787,10 +1840,23 @@ function ClientDetailPageClient({ clientId }: { clientId: string }) {
                             ref={businessRegInputRef}
                             type="file"
                             accept="image/*,application/pdf"
+                            multiple
                             className="hidden"
                             onChange={(e) => {
-                              const f = e.target.files?.[0]
-                              if (f) handleBusinessRegUpload(f)
+                              const fs = Array.from(e.target.files || [])
+                              if (fs.length) uploadBizRegFiles(fs, { append: false })
+                              e.target.value = ""
+                            }}
+                          />
+                          <input
+                            ref={businessRegAppendInputRef}
+                            type="file"
+                            accept="image/*,application/pdf"
+                            multiple
+                            className="hidden"
+                            onChange={(e) => {
+                              const fs = Array.from(e.target.files || [])
+                              if (fs.length) uploadBizRegFiles(fs, { append: true })
                               e.target.value = ""
                             }}
                           />
@@ -1806,43 +1872,81 @@ function ClientDetailPageClient({ clientId }: { clientId: string }) {
                             ) : (
                               <Upload className="h-3.5 w-3.5" />
                             )}
-                            {dealData.account?.business_registration_url ? "다시 업로드" : "업로드"}
+                            {getBizRegUrls(dealData.account).length > 0 ? "다시 업로드" : "업로드"}
                           </Button>
-                          {dealData.account?.business_registration_url && (
-                            <Button
-                              size="sm"
-                              className="gap-1.5"
-                              onClick={() => {
-                                setBusinessRegOcrResult(null)
-                                setShowBusinessRegDialog(true)
-                              }}
-                            >
-                              <Sparkles className="h-3.5 w-3.5" />
-                              OCR 검증
-                            </Button>
+                          {getBizRegUrls(dealData.account).length > 0 && (
+                            <>
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                onClick={() => businessRegAppendInputRef.current?.click()}
+                                disabled={businessRegUploading}
+                                className="gap-1.5"
+                                title="반으로 나눠 찍은 나머지 이미지를 추가합니다 (최대 4장)"
+                              >
+                                <Plus className="h-3.5 w-3.5" />
+                                이미지 추가
+                              </Button>
+                              <Button
+                                size="sm"
+                                className="gap-1.5"
+                                onClick={() => {
+                                  setBusinessRegOcrResult(null)
+                                  setShowBusinessRegDialog(true)
+                                }}
+                              >
+                                <Sparkles className="h-3.5 w-3.5" />
+                                OCR 검증
+                              </Button>
+                            </>
                           )}
                         </div>
                       </CardHeader>
                       <CardContent>
-                        {dealData.account?.business_registration_url ? (
+                        {getBizRegUrls(dealData.account).length > 0 ? (
                           <div
-                            className="relative border rounded-lg overflow-hidden bg-muted/30 cursor-zoom-in group"
-                            onClick={() => {
-                              setBusinessRegOcrResult(null)
-                              setShowBusinessRegDialog(true)
-                            }}
+                            className={cn(
+                              "grid gap-2",
+                              getBizRegUrls(dealData.account).length > 1 ? "grid-cols-2" : "grid-cols-1"
+                            )}
                           >
-                            <img
-                              src={dealData.account.business_registration_url}
-                              alt="사업자등록증"
-                              className="w-full max-h-[400px] object-contain"
-                            />
-                            <div className="absolute inset-0 bg-black/0 group-hover:bg-black/40 transition-colors flex items-center justify-center opacity-0 group-hover:opacity-100">
-                              <div className="text-white text-sm font-medium flex items-center gap-2">
-                                <Sparkles className="h-4 w-4" />
-                                클릭하여 확대 / OCR 검증
-                              </div>
-                            </div>
+                            {getBizRegUrls(dealData.account).map((u, i) => {
+                              const isPdf = /\.pdf(\?|$)/i.test(u)
+                              return (
+                                <div
+                                  key={u + i}
+                                  className="relative border rounded-lg overflow-hidden bg-muted/30 cursor-zoom-in group"
+                                  onClick={() => {
+                                    setBusinessRegOcrResult(null)
+                                    setShowBusinessRegDialog(true)
+                                  }}
+                                >
+                                  {isPdf ? (
+                                    <div className="w-full h-[200px] flex flex-col items-center justify-center text-muted-foreground gap-2">
+                                      <FileText className="h-10 w-10" />
+                                      <span className="text-xs">PDF 문서</span>
+                                    </div>
+                                  ) : (
+                                    <img
+                                      src={u}
+                                      alt={`사업자등록증 ${i + 1}`}
+                                      className="w-full max-h-[400px] object-contain"
+                                    />
+                                  )}
+                                  {getBizRegUrls(dealData.account).length > 1 && (
+                                    <span className="absolute left-1.5 top-1.5 text-[10px] bg-black/60 text-white rounded px-1.5 py-0.5">
+                                      {i + 1}/{getBizRegUrls(dealData.account).length}
+                                    </span>
+                                  )}
+                                  <div className="absolute inset-0 bg-black/0 group-hover:bg-black/40 transition-colors flex items-center justify-center opacity-0 group-hover:opacity-100">
+                                    <div className="text-white text-sm font-medium flex items-center gap-2">
+                                      <Sparkles className="h-4 w-4" />
+                                      클릭하여 확대 / OCR 검증
+                                    </div>
+                                  </div>
+                                </div>
+                              )
+                            })}
                           </div>
                         ) : (
                           <div
@@ -1858,14 +1962,14 @@ function ClientDetailPageClient({ clientId }: { clientId: string }) {
                             }}
                             onDrop={(e) => {
                               e.preventDefault()
-                              const f = e.dataTransfer.files?.[0]
-                              if (f) handleBusinessRegUpload(f)
+                              const fs = Array.from(e.dataTransfer.files || [])
+                              if (fs.length) uploadBizRegFiles(fs, { append: false })
                             }}
                           >
                             <Upload className="h-8 w-8 mx-auto text-muted-foreground mb-2" />
                             <p className="text-sm font-medium">사업자등록증을 업로드하세요</p>
                             <p className="text-xs text-muted-foreground mt-1">
-                              파일을 끌어다 놓거나 클릭해서 선택 · 이미지/PDF 지원
+                              끌어다 놓기 · 클릭 선택 · Ctrl+V 붙여넣기 · 여러 장(반쪽)/PDF 지원
                             </p>
                           </div>
                         )}
@@ -3518,6 +3622,7 @@ function ClientDetailPageClient({ clientId }: { clientId: string }) {
         open={showBusinessRegDialog}
         onOpenChange={setShowBusinessRegDialog}
         imageUrl={dealData.account?.business_registration_url || null}
+        imageUrls={getBizRegUrls(dealData.account)}
         initialData={{
           company_name: dealData.account?.company_name || "",
           brand_name: dealData.account?.brand_name || "",
