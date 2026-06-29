@@ -929,6 +929,34 @@ function ClientDetailPageClient({ clientId }: { clientId: string }) {
     }
   }
 
+  // 사업자등록증 이미지 1장 삭제 (스토리지 파일도 함께 삭제 시도)
+  const removeBizRegImage = async (url: string) => {
+    if (!confirm("이 사업자등록증 이미지를 삭제할까요?")) return
+    const current = getBizRegUrls(dealData.account)
+    const next = current.filter((u) => u !== url)
+
+    // 스토리지 파일도 삭제 시도 (실패해도 목록 갱신은 계속)
+    try {
+      const marker = "/business-registrations/"
+      const idx = url.indexOf(marker)
+      if (idx >= 0) {
+        const path = decodeURIComponent(url.slice(idx + marker.length).split("?")[0])
+        await supabase.storage.from("business-registrations").remove([path])
+      }
+    } catch (e) {
+      console.warn("[BR] 스토리지 파일 삭제 실패(목록만 갱신):", e)
+    }
+
+    const prevOcr =
+      dealData.account?.business_registration_ocr && typeof dealData.account.business_registration_ocr === "object"
+        ? dealData.account.business_registration_ocr
+        : {}
+    await handleUpdateAccount({
+      business_registration_url: next[0] || null,
+      business_registration_ocr: { ...prevOcr, _image_urls: next },
+    })
+  }
+
   // 클립보드 붙여넣기: 캡쳐 이미지를 Ctrl+V 로 바로 업로드.
   // 이미지 클립보드일 때만 동작하므로 일반 텍스트 붙여넣기는 방해하지 않는다.
   // 이미 업로드된 이미지가 있으면 추가(append)로 처리해 반쪽 이미지를 이어 붙일 수 있다.
@@ -1938,6 +1966,17 @@ function ClientDetailPageClient({ clientId }: { clientId: string }) {
                                       {i + 1}/{getBizRegUrls(dealData.account).length}
                                     </span>
                                   )}
+                                  <button
+                                    type="button"
+                                    onClick={(e) => {
+                                      e.stopPropagation()
+                                      removeBizRegImage(u)
+                                    }}
+                                    className="absolute right-1.5 top-1.5 z-10 rounded-full bg-black/60 p-1 text-white transition-colors hover:bg-red-600"
+                                    title="이미지 삭제"
+                                  >
+                                    <X className="h-3.5 w-3.5" />
+                                  </button>
                                   <div className="absolute inset-0 bg-black/0 group-hover:bg-black/40 transition-colors flex items-center justify-center opacity-0 group-hover:opacity-100">
                                     <div className="text-white text-sm font-medium flex items-center gap-2">
                                       <Sparkles className="h-4 w-4" />
