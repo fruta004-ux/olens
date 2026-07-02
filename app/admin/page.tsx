@@ -22,6 +22,7 @@ import CrmSidebar from "@/components/crm-sidebar"
 import CrmHeader from "@/components/crm-header"
 import { PatchNotesManager } from "@/components/patch-notes-manager"
 import BackupPanel from "@/components/backup-panel"
+import { MembersManager } from "@/components/members-manager"
 import { format } from "date-fns"
 import { ko } from "date-fns/locale"
 
@@ -1481,6 +1482,7 @@ export default function AdminPage() {
               <TabsTrigger value="contract_template">계약서 템플릿</TabsTrigger>
               <TabsTrigger value="activity">활동 기록</TabsTrigger>
               <TabsTrigger value="activity_score">활동 지수</TabsTrigger>
+              <TabsTrigger value="members">멤버 관리</TabsTrigger>
               <TabsTrigger value="patchnotes">패치노트</TabsTrigger>
               <TabsTrigger value="backup">백업</TabsTrigger>
             </TabsList>
@@ -1495,6 +1497,9 @@ export default function AdminPage() {
             <TabsContent value="contract_template">{renderContractTemplates()}</TabsContent>
             <TabsContent value="activity">{renderActivityLog()}</TabsContent>
             <TabsContent value="activity_score">{renderActivityScores()}</TabsContent>
+            <TabsContent value="members">
+              <MembersManager />
+            </TabsContent>
             <TabsContent value="patchnotes">
               <PatchNotesManager />
             </TabsContent>

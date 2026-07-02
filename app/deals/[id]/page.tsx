@@ -945,51 +945,69 @@ function DealDetailPageClient({ dealId }: { dealId: string }) {
           firstPaymentDueDate = dueDate
         }
 
-        // 1) 마스터 생성
-        const { data: master, error: masterErr } = await supabase
+        // 중복 방지: 같은 거래(source_deal_id)로 만든 활성 정기 마스터가 이미 있으면 재사용.
+        // (S5 재진입 / 단계 토글 / 재저장 / 더블클릭 시 마스터가 또 생기는 것을 막음)
+        let masterId: string | null = null
+        const { data: existingMaster } = await supabase
           .from("recurring_projects")
-          .insert({
-            client_id: clientId,
-            account_id: dealData.account_id || null,
-            source_deal_id: resolvedId,
-            category,
-            project_name: buildSpecProjectName(companyName, category, "월 대행비"),
-            monthly_amount: monthlyAmount,
-            payment_day: paymentDay,
-            invoice_issue_day: invoiceIssueDay,
-            payment_offset_months: paymentOffset,
-            cost_type: "월 대행비",
-            assigned_to: dealData.assigned_to || null,
-            finance_assigned_to: "김다예",
-            notes: null,
-            is_active: true,
-            start_month: startMonthKey,
-          })
           .select("id")
-          .single()
+          .eq("source_deal_id", resolvedId)
+          .eq("is_active", true)
+          .order("created_at", { ascending: true })
+          .limit(1)
+          .maybeSingle()
 
-        if (masterErr) {
-          const detail = {
-            message: masterErr.message,
-            code: (masterErr as any).code,
+        if (existingMaster?.id) {
+          masterId = existingMaster.id
+        } else {
+          // 1) 마스터 생성
+          const { data: master, error: masterErr } = await supabase
+            .from("recurring_projects")
+            .insert({
+              client_id: clientId,
+              account_id: dealData.account_id || null,
+              source_deal_id: resolvedId,
+              category,
+              project_name: buildSpecProjectName(companyName, category, "월 대행비"),
+              monthly_amount: monthlyAmount,
+              payment_day: paymentDay,
+              invoice_issue_day: invoiceIssueDay,
+              payment_offset_months: paymentOffset,
+              cost_type: "월 대행비",
+              assigned_to: dealData.assigned_to || null,
+              finance_assigned_to: "김다예",
+              notes: null,
+              is_active: true,
+              start_month: startMonthKey,
+            })
+            .select("id")
+            .single()
+
+          if (masterErr) {
+            const detail = {
+              message: masterErr.message,
+              code: (masterErr as any).code,
+            }
+            console.error("[v0] recurring_projects 생성 오류:", detail)
+            const isMissing =
+              detail.code === "PGRST205" ||
+              detail.code === "42P01" ||
+              /relation .* does not exist/i.test(detail.message || "") ||
+              /Could not find the table/i.test(detail.message || "")
+            return { ok: false, tableMissing: isMissing }
           }
-          console.error("[v0] recurring_projects 생성 오류:", detail)
-          const isMissing =
-            detail.code === "PGRST205" ||
-            detail.code === "42P01" ||
-            /relation .* does not exist/i.test(detail.message || "") ||
-            /Could not find the table/i.test(detail.message || "")
-          return { ok: false, tableMissing: isMissing }
+          masterId = master?.id ?? null
         }
 
-        // 2) 첫 달치 project_specs 행 생성
-        const { error: specErr } = await supabase.from("project_specs").insert({
-          client_id: clientId,
-          account_id: dealData.account_id || null,
-          linked_contract_id: contractId,
-          linked_deal_id: resolvedId,
-          recurring_project_id: master?.id || null,
-          spec_month: startMonthKey,
+        // 2) 첫 달치 project_specs 행 생성 (이미 같은 달 행이 있으면 무시 — 중복 재진입 대비)
+        const { error: specErr } = await supabase.from("project_specs").upsert(
+          {
+            client_id: clientId,
+            account_id: dealData.account_id || null,
+            linked_contract_id: contractId,
+            linked_deal_id: resolvedId,
+            recurring_project_id: masterId,
+            spec_month: startMonthKey,
           category,
           project_name: buildSpecProjectName(companyName, category, "월 대행비"),
           cost_type: "월 대행비",
@@ -1002,7 +1020,9 @@ function DealDetailPageClient({ dealId }: { dealId: string }) {
           notes: `자동 생성: 정기 ${monthKeyToLabelKor(startMonthKey)} (1회차)`,
           assigned_to: dealData.assigned_to || null,
           finance_assigned_to: "김다예",
-        })
+          },
+          { onConflict: "recurring_project_id,spec_month", ignoreDuplicates: true }
+        )
 
         if (specErr) {
           const detail = {

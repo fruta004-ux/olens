@@ -20,6 +20,7 @@ import {
   History,
   ScrollText,
   ClipboardList,
+  CalendarCheck,
   BookOpen,
   ExternalLink,
   StickyNote,
@@ -81,6 +82,7 @@ const stage2SubMenus = [
 
 const stage3SubMenus = [
   { name: "프로젝트 명세서 요청서", href: "/project-specs", icon: ClipboardList },
+  { name: "월별 업무 현황", href: "/monthly-tracker", icon: CalendarCheck },
 ]
 
 const stage6SubMenus = [
