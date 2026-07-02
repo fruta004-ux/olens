@@ -32,9 +32,12 @@ import {
   deriveProjectStatus,
   projectPercent,
   summarizeItems,
-  currentMonth,
   shiftMonth,
-  monthLabel,
+  resolveCycleDay,
+  cycleKeyFor,
+  cycleDayLabel,
+  cycleRangeLabel,
+  daysUntilCycleEnd,
 } from "@/lib/monthly-deliverables"
 
 interface ProjectRow {
@@ -44,6 +47,7 @@ interface ProjectRow {
   assigned_to: string | null
   project_owner_id: string | null
   payment_day: number | null
+  cycle_start_day: number | null
   start_month: string | null
   contract_start_date: string | null
   contract_end_date: string | null
@@ -53,16 +57,10 @@ interface ProjectRow {
 
 // 날짜 표기 (2026-05-04 → 26.05.04)
 const fmtDate = (d: string | null) => (d ? d.slice(2).replace(/-/g, ".") : "—")
-// 회차 진행 날짜 (payment_day 4 → "04일~03일")
-const cycleLabel = (day: number | null) => {
-  if (!day) return "—"
-  const pad = (n: number) => String(n).padStart(2, "0")
-  const end = day === 1 ? "말" : pad(day - 1)
-  return `${pad(day)}일~${end}일`
-}
 
 interface MonthStatusRow {
   recurring_project_id: string
+  month: string
   status_override: string | null
   note: string | null
 }
@@ -89,7 +87,8 @@ function StatusChip({ status, manual }: { status: ProjectStatus; manual?: boolea
 export default function MonthlyTrackerPage() {
   const supabase = useMemo(() => createBrowserClient(), [])
   const router = useRouter()
-  const [month, setMonth] = useState<string>(currentMonth())
+  // 회차 오프셋: 0 = 각 프로젝트의 현재 회차, -1 = 한 회차 전 …
+  const [cycleOffset, setCycleOffset] = useState(0)
   const [projects, setProjects] = useState<ProjectRow[]>([])
   const [members, setMembers] = useState<Member[]>([])
   const [itemsByProject, setItemsByProject] = useState<Record<string, DeliverableItem[]>>({})
@@ -98,6 +97,12 @@ export default function MonthlyTrackerPage() {
   const [replicating, setReplicating] = useState(false)
   const [search, setSearch] = useState("")
 
+  // 프로젝트별 표시 회차 키 (오프셋 반영)
+  const keyForProject = useCallback(
+    (p: ProjectRow) => shiftMonth(cycleKeyFor(resolveCycleDay(p)), cycleOffset),
+    [cycleOffset]
+  )
+
   const loadData = useCallback(async () => {
     setLoading(true)
     try {
@@ -105,7 +110,7 @@ export default function MonthlyTrackerPage() {
         supabase
           .from("recurring_projects")
           .select(
-            "id, project_name, category, assigned_to, project_owner_id, payment_day, start_month, contract_start_date, contract_end_date, account:accounts(company_name, brand_name), client:clients(deal_name)"
+            "id, project_name, category, assigned_to, project_owner_id, payment_day, cycle_start_day, start_month, contract_start_date, contract_end_date, account:accounts(company_name, brand_name), client:clients(deal_name)"
           )
           .eq("is_active", true),
         fetchActiveMembers(supabase),
@@ -122,28 +127,40 @@ export default function MonthlyTrackerPage() {
         return
       }
 
+      // 프로젝트마다 회차 시작 달이 달라 후보 키(최대 2개 달)를 모두 조회 후 프로젝트별로 필터
+      const keyById: Record<string, string> = {}
+      const keySet = new Set<string>()
+      for (const p of projList) {
+        const k = shiftMonth(cycleKeyFor(resolveCycleDay(p)), cycleOffset)
+        keyById[p.id] = k
+        keySet.add(k)
+      }
+      const keys = Array.from(keySet)
+
       const [{ data: itemData }, { data: statusData }] = await Promise.all([
         supabase
           .from("monthly_deliverable_items")
           .select("*")
-          .eq("month", month)
+          .in("month", keys)
           .in("recurring_project_id", ids)
           .order("sort_order", { ascending: true }),
         supabase
           .from("monthly_project_status")
-          .select("recurring_project_id, status_override, note")
-          .eq("month", month)
+          .select("recurring_project_id, month, status_override, note")
+          .in("month", keys)
           .in("recurring_project_id", ids),
       ])
 
       const itemsMap: Record<string, DeliverableItem[]> = {}
-      for (const it of (itemData || []) as DeliverableItem[]) {
+      for (const it of (itemData || []) as (DeliverableItem & { month: string })[]) {
+        if (it.month !== keyById[it.recurring_project_id]) continue
         ;(itemsMap[it.recurring_project_id] ||= []).push(it)
       }
       setItemsByProject(itemsMap)
 
       const statusMap: Record<string, MonthStatusRow> = {}
       for (const s of (statusData || []) as MonthStatusRow[]) {
+        if (s.month !== keyById[s.recurring_project_id]) continue
         statusMap[s.recurring_project_id] = s
       }
       setStatusByProject(statusMap)
@@ -153,13 +170,13 @@ export default function MonthlyTrackerPage() {
     } finally {
       setLoading(false)
     }
-  }, [supabase, month])
+  }, [supabase, cycleOffset])
 
   useEffect(() => {
     loadData()
   }, [loadData])
 
-  // 프로젝트의 이번 달 유효 상태(override 우선, 없으면 자동 산출)
+  // 프로젝트의 표시 회차 유효 상태(override 우선, 없으면 자동 산출)
   const effectiveStatus = useCallback(
     (projectId: string): { status: ProjectStatus; manual: boolean } => {
       const override = statusByProject[projectId]?.status_override
@@ -184,7 +201,7 @@ export default function MonthlyTrackerPage() {
   // PO 드롭다운 후보 = 그로우(marketer)/영상(video) 역할 멤버
   const poMembers = useMemo(() => members.filter((m) => PO_ROLES.includes(m.role)), [members])
 
-  // 프로젝트(정기 마스터) 필드 즉시 수정 — PO/영업담당
+  // 프로젝트(정기 마스터) 필드 즉시 수정 — PO
   const updateProjectField = async (id: string, patch: Partial<ProjectRow>) => {
     setProjects((prev) => prev.map((p) => (p.id === id ? { ...p, ...patch } : p)))
     const { error } = await supabase.from("recurring_projects").update(patch).eq("id", id)
@@ -231,13 +248,12 @@ export default function MonthlyTrackerPage() {
   }
 
   const openProject = (p: ProjectRow) => {
-    router.push(`/monthly-tracker/${p.id}?month=${encodeURIComponent(month)}`)
+    router.push(`/monthly-tracker/${p.id}?month=${encodeURIComponent(keyForProject(p))}`)
   }
 
-  // 전월 복제 + 미완료 자동 이월
+  // 이전 회차 복제 + 미완료 자동 이월 (프로젝트별 회차 키 기준)
   const replicateFromPrev = async () => {
-    const prev = shiftMonth(month, -1)
-    if (!confirm(`${monthLabel(prev)} 항목을 ${monthLabel(month)} 으로 복제합니다.\n완료 항목은 새로(대기) 생성하고, 미완료 항목은 '이월'로 이어옵니다.\n(이번 달에 이미 항목이 있는 프로젝트는 건너뜁니다)`)) {
+    if (!confirm(`각 프로젝트의 "이전 회차" 항목을 현재 표시 중인 회차로 복제합니다.\n완료 항목은 새로(대기) 생성하고, 미완료 항목은 '이월'로 이어옵니다.\n(이미 항목이 있는 프로젝트는 건너뜁니다)`)) {
       return
     }
     setReplicating(true)
@@ -245,16 +261,28 @@ export default function MonthlyTrackerPage() {
       const ids = projects.map((p) => p.id)
       if (ids.length === 0) return
 
+      const curKeyById: Record<string, string> = {}
+      const prevKeyById: Record<string, string> = {}
+      const prevKeys = new Set<string>()
+      for (const p of projects) {
+        const k = keyForProject(p)
+        curKeyById[p.id] = k
+        const pk = shiftMonth(k, -1)
+        prevKeyById[p.id] = pk
+        prevKeys.add(pk)
+      }
+
       const { data: prevItems, error } = await supabase
         .from("monthly_deliverable_items")
         .select("*")
-        .eq("month", prev)
+        .in("month", Array.from(prevKeys))
         .in("recurring_project_id", ids)
         .order("sort_order", { ascending: true })
       if (error) throw error
 
       const prevByProject: Record<string, DeliverableItem[]> = {}
-      for (const it of (prevItems || []) as DeliverableItem[]) {
+      for (const it of (prevItems || []) as (DeliverableItem & { month: string })[]) {
+        if (it.month !== prevKeyById[it.recurring_project_id]) continue
         ;(prevByProject[it.recurring_project_id] ||= []).push(it)
       }
 
@@ -263,14 +291,14 @@ export default function MonthlyTrackerPage() {
       for (const p of projects) {
         if ((itemsByProject[p.id] || []).length > 0) {
           skipped++
-          continue // 이번 달 이미 있음
+          continue // 표시 회차에 이미 있음
         }
         const src = prevByProject[p.id] || []
         src.forEach((it, idx) => {
           const completed = it.status === "완료"
           rows.push({
             recurring_project_id: p.id,
-            month,
+            month: curKeyById[p.id],
             item_name: it.item_name,
             target_qty: it.target_qty,
             done_qty: completed ? 0 : it.done_qty,
@@ -285,7 +313,7 @@ export default function MonthlyTrackerPage() {
       }
 
       if (rows.length === 0) {
-        toast.info("복제할 전월 항목이 없습니다.")
+        toast.info("복제할 이전 회차 항목이 없습니다.")
         return
       }
       const { error: insErr } = await supabase.from("monthly_deliverable_items").insert(rows)
@@ -299,6 +327,9 @@ export default function MonthlyTrackerPage() {
       setReplicating(false)
     }
   }
+
+  const offsetLabel =
+    cycleOffset === 0 ? "현재 회차" : cycleOffset < 0 ? `${-cycleOffset}회차 전` : `${cycleOffset}회차 후`
 
   return (
     <div className="flex h-screen bg-background">
@@ -314,28 +345,28 @@ export default function MonthlyTrackerPage() {
                 월별 업무 완수 현황
               </h1>
               <p className="text-sm text-muted-foreground mt-0.5">
-                정기 프로젝트의 이번 달 이행 항목 완수 여부를 체크합니다. 행을 클릭하면 상세 페이지로 이동합니다.
+                각 프로젝트의 회차(계약 사이클) 기준으로 이행 항목 완수 여부를 체크합니다. 행을 클릭하면 상세로 이동합니다.
               </p>
             </div>
             <div className="flex items-center gap-2">
-              {/* 월 선택 */}
+              {/* 회차 선택 */}
               <div className="flex items-center rounded-md border bg-card">
-                <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => setMonth((m) => shiftMonth(m, -1))}>
+                <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => setCycleOffset((o) => o - 1)}>
                   <ChevronLeft className="h-4 w-4" />
                 </Button>
-                <span className="px-2 text-sm font-semibold min-w-[88px] text-center">{monthLabel(month)}</span>
-                <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => setMonth((m) => shiftMonth(m, 1))}>
+                <span className="px-2 text-sm font-semibold min-w-[88px] text-center">{offsetLabel}</span>
+                <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => setCycleOffset((o) => o + 1)}>
                   <ChevronRight className="h-4 w-4" />
                 </Button>
               </div>
-              {month !== currentMonth() && (
-                <Button variant="outline" size="sm" onClick={() => setMonth(currentMonth())}>
-                  이번 달
+              {cycleOffset !== 0 && (
+                <Button variant="outline" size="sm" onClick={() => setCycleOffset(0)}>
+                  현재 회차
                 </Button>
               )}
               <Button variant="outline" size="sm" className="gap-1.5" onClick={replicateFromPrev} disabled={replicating || loading}>
                 {replicating ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <CopyPlus className="h-3.5 w-3.5" />}
-                전월 복제 + 이월
+                이전 회차 복제 + 이월
               </Button>
               <Button variant="ghost" size="icon" className="h-8 w-8" onClick={loadData} title="새로고침">
                 <RefreshCw className="h-4 w-4" />
@@ -385,7 +416,7 @@ export default function MonthlyTrackerPage() {
                   <TableHead className="w-[10%]">완수율</TableHead>
                   <TableHead className="w-[8%] text-center">계약 시작일</TableHead>
                   <TableHead className="w-[8%] text-center">계약 종료일</TableHead>
-                  <TableHead className="w-[9%] text-center">회차 진행</TableHead>
+                  <TableHead className="w-[10%] text-center">회차 진행</TableHead>
                   <TableHead>업무 이행 항목</TableHead>
                   <TableHead className="w-[12%]">비고</TableHead>
                   <TableHead className="w-[4%]"></TableHead>
@@ -417,6 +448,9 @@ export default function MonthlyTrackerPage() {
                     const pct = projectPercent(items)
                     const { status, manual } = effectiveStatus(p.id)
                     const note = statusByProject[p.id]?.note
+                    const cycleDay = resolveCycleDay(p)
+                    const key = keyForProject(p)
+                    const dLeft = daysUntilCycleEnd(key, cycleDay)
                     return (
                       <TableRow
                         key={p.id}
@@ -493,9 +527,15 @@ export default function MonthlyTrackerPage() {
                         <TableCell className="text-center text-xs tabular-nums text-muted-foreground">
                           {fmtDate(p.contract_end_date)}
                         </TableCell>
-                        {/* 회차 진행 날짜 */}
-                        <TableCell className="text-center text-xs tabular-nums text-muted-foreground">
-                          {cycleLabel(p.payment_day)}
+                        {/* 회차 진행 */}
+                        <TableCell className="text-center text-xs tabular-nums">
+                          <div className="text-muted-foreground">{cycleDayLabel(cycleDay)}</div>
+                          <div className="text-[11px] text-muted-foreground/70 mt-0.5">{cycleRangeLabel(key, cycleDay)}</div>
+                          {cycleOffset === 0 && dLeft >= 0 && (
+                            <span className="inline-block mt-0.5 rounded bg-primary/10 px-1.5 py-0.5 text-[11px] font-bold text-primary">
+                              {dLeft === 0 ? "D-DAY" : `D-${dLeft}`}
+                            </span>
+                          )}
                         </TableCell>
                         {/* 업무 이행 항목 */}
                         <TableCell>

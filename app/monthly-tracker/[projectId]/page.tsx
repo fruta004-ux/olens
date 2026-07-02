@@ -36,7 +36,13 @@ import {
   projectPercent,
   currentMonth,
   shiftMonth,
-  monthLabel,
+  resolveCycleDay,
+  cycleKeyFor,
+  cycleNumber,
+  cycleDayLabel,
+  cycleRange,
+  cycleRangeLabel,
+  daysUntilCycleEnd,
 } from "@/lib/monthly-deliverables"
 
 interface ProjectInfo {
@@ -46,6 +52,7 @@ interface ProjectInfo {
   assigned_to: string | null
   project_owner_id: string | null
   payment_day: number | null
+  cycle_start_day: number | null
   start_month: string | null
   monthly_amount: number | null
   contract_start_date: string | null
@@ -168,6 +175,7 @@ export default function ProjectDetailPage() {
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const savedTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const loadedRef = useRef(false)
+  const initKeyRef = useRef(false) // URL 에 month 없이 진입 시 프로젝트 회차 기준으로 1회 보정
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -176,7 +184,7 @@ export default function ProjectDetailPage() {
         supabase
           .from("recurring_projects")
           .select(
-            "id, project_name, category, assigned_to, project_owner_id, payment_day, start_month, monthly_amount, contract_start_date, contract_end_date, account:accounts(company_name, brand_name), client:clients(deal_name)"
+            "id, project_name, category, assigned_to, project_owner_id, payment_day, cycle_start_day, start_month, monthly_amount, contract_start_date, contract_end_date, account:accounts(company_name, brand_name), client:clients(deal_name)"
           )
           .eq("id", projectId)
           .maybeSingle(),
@@ -190,6 +198,18 @@ export default function ProjectDetailPage() {
       setProjectOwnerId(pInfo?.project_owner_id ?? null)
       setContractStart(pInfo?.contract_start_date ?? "")
       setContractEnd(pInfo?.contract_end_date ?? "")
+
+      // URL 에 month 파라미터 없이 들어온 경우: 이 프로젝트의 "현재 회차" 키로 1회 보정
+      if (!initKeyRef.current) {
+        initKeyRef.current = true
+        if (!searchParams.get("month") && pInfo) {
+          const k = cycleKeyFor(resolveCycleDay(pInfo))
+          if (k !== month) {
+            setMonth(k) // month 변경 → load 재실행
+            return
+          }
+        }
+      }
 
       const [{ data: itemData }, { data: statusData }] = await Promise.all([
         supabase
@@ -353,6 +373,14 @@ export default function ProjectDetailPage() {
   const doneCount = items.filter((i) => i.status === "완료").length
   const carriedCount = items.filter((i) => i.carried_over || i.status === "이월").length
 
+  // ── 회차 정보 ──
+  const cycleDay = project ? resolveCycleDay(project) : 1
+  const cNum = project ? cycleNumber(project.contract_start_date, month, cycleDay) : null
+  const currentKey = project ? cycleKeyFor(cycleDay) : currentMonth()
+  const dLeft = daysUntilCycleEnd(month, cycleDay)
+  const notStarted = cycleRange(month, cycleDay).start.getTime() > Date.now()
+  const [keyYear] = month.split("-")
+
   const updateItem = (idx: number, patch: Partial<WItem>) =>
     setItems((prev) => prev.map((it, i) => (i === idx ? { ...it, ...patch } : it)))
   const addItem = () => setItems((prev) => [...prev, emptyItem()])
@@ -367,7 +395,7 @@ export default function ProjectDetailPage() {
   }
   const goCurrent = async () => {
     await flushPersist()
-    setMonth(currentMonth())
+    setMonth(currentKey)
   }
   const goList = async () => {
     await flushPersist()
@@ -392,19 +420,24 @@ export default function ProjectDetailPage() {
                   <ArrowLeft className="h-4 w-4" />
                   목록
                 </Button>
-                {/* 세그먼트형 월 선택 */}
-                <div className="flex items-center rounded-xl bg-muted p-1">
+                {/* 세그먼트형 회차 선택 */}
+                <div className="flex items-center rounded-xl bg-muted p-1" title={`${keyYear}년 기준`}>
                   <Button variant="ghost" size="icon" className="h-8 w-8 rounded-lg hover:bg-background" onClick={() => goMonth(-1)}>
                     <ChevronLeft className="h-4 w-4" />
                   </Button>
-                  <span className="px-3 text-sm font-semibold tabular-nums min-w-[92px] text-center">{monthLabel(month)}</span>
+                  <span className="px-3 text-sm font-semibold tabular-nums min-w-[150px] text-center">
+                    {cNum ? `${cNum}회차` : month.replace("-", ".")}
+                    <span className="ml-1.5 text-xs font-medium text-muted-foreground">
+                      {cycleRangeLabel(month, cycleDay)}
+                    </span>
+                  </span>
                   <Button variant="ghost" size="icon" className="h-8 w-8 rounded-lg hover:bg-background" onClick={() => goMonth(1)}>
                     <ChevronRight className="h-4 w-4" />
                   </Button>
                 </div>
-                {month !== currentMonth() && (
+                {month !== currentKey && (
                   <Button variant="ghost" size="sm" className="rounded-full text-primary hover:bg-primary/10" onClick={goCurrent}>
-                    이번 달
+                    현재 회차
                   </Button>
                 )}
               </div>
@@ -538,17 +571,35 @@ export default function ProjectDetailPage() {
                       <div className="flex items-center gap-1.5 flex-wrap">
                         {project.category && <MetaChip>{project.category}</MetaChip>}
                         {project.project_name && <MetaChip>{project.project_name}</MetaChip>}
-                        {project.payment_day != null && <MetaChip>회차일 {project.payment_day}일</MetaChip>}
+                        <MetaChip>회차 {cycleDayLabel(cycleDay)}</MetaChip>
+                        {project.payment_day != null && <MetaChip>입금일 {project.payment_day}일</MetaChip>}
                         {project.start_month && <MetaChip>시작 {project.start_month}</MetaChip>}
                         {project.monthly_amount != null && (
                           <MetaChip>월 {Number(project.monthly_amount).toLocaleString()}원</MetaChip>
                         )}
                       </div>
                     </div>
-                    {/* 완수율 */}
+                    {/* 완수율 + 회차 D-day */}
                     <div className="flex items-center gap-4 shrink-0">
                       <div className="text-right">
-                        <div className="text-[13px] text-muted-foreground">이번 달 완수율</div>
+                        <div className="flex items-center justify-end gap-1.5">
+                          <span className="text-[13px] text-muted-foreground">회차 완수율</span>
+                          <span
+                            className={cn(
+                              "rounded-full px-2 py-0.5 text-[12px] font-bold tabular-nums",
+                              notStarted
+                                ? "bg-muted text-muted-foreground"
+                                : dLeft < 0
+                                  ? "bg-muted text-muted-foreground"
+                                  : dLeft <= 5
+                                    ? "bg-red-100 text-red-600"
+                                    : "bg-primary/10 text-primary"
+                            )}
+                            title={`회차 종료일 기준 (${cycleRangeLabel(month, cycleDay)})`}
+                          >
+                            {notStarted ? "시작 전" : dLeft < 0 ? "종료" : dLeft === 0 ? "D-DAY" : `D-${dLeft}`}
+                          </span>
+                        </div>
                         <div className="text-[15px] font-medium mt-1 tabular-nums">
                           <span className="text-foreground font-bold">{doneCount}</span>
                           <span className="text-muted-foreground"> / {total} 완료</span>

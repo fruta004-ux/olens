@@ -116,3 +116,97 @@ export function monthLabel(month: string): string {
   const [y, m] = month.split("-").map(Number)
   return `${y}년 ${m}월`
 }
+
+// ── 회차(cycle) 유틸 ──────────────────────────────────────────
+// 회차는 "회차 시작일"(예: 20일)에 시작해 다음 달 (시작일-1)일(19일)에 끝난다.
+// 저장 키는 회차가 시작되는 달의 yyyy-MM — 기존 month 컬럼을 그대로 재사용한다.
+// (회차 시작일이 1일이면 회차 = 그 달 1일~말일)
+
+const lastDayOf = (y: number, m1: number) => new Date(y, m1, 0).getDate()
+const clampDay = (y: number, m1: number, d: number) => Math.min(Math.max(1, d), lastDayOf(y, m1))
+const pad2 = (n: number) => String(n).padStart(2, "0")
+
+/**
+ * 프로젝트의 회차 시작 일자 결정.
+ * cycle_start_day → 계약시작일의 일자 → payment_day → 1 순 폴백.
+ * (payment_day 는 원래 "입금일"이라 최후 폴백으로만 사용)
+ */
+export function resolveCycleDay(p: {
+  cycle_start_day?: number | null
+  contract_start_date?: string | null
+  payment_day?: number | null
+}): number {
+  if (p.cycle_start_day && p.cycle_start_day >= 1 && p.cycle_start_day <= 31) return p.cycle_start_day
+  if (p.contract_start_date) {
+    const d = parseInt(p.contract_start_date.slice(8, 10), 10)
+    if (d >= 1 && d <= 31) return d
+  }
+  if (p.payment_day && p.payment_day >= 1 && p.payment_day <= 31) return p.payment_day
+  return 1
+}
+
+/** ref 날짜가 속한 회차의 키 (yyyy-MM = 그 회차가 시작된 달) */
+export function cycleKeyFor(cycleDay: number, ref: Date = new Date()): string {
+  const y = ref.getFullYear()
+  const m = ref.getMonth() + 1
+  const startDay = clampDay(y, m, cycleDay)
+  if (ref.getDate() >= startDay) return `${y}-${pad2(m)}`
+  const prev = new Date(y, m - 2, 1)
+  return `${prev.getFullYear()}-${pad2(prev.getMonth() + 1)}`
+}
+
+/** 회차 키 → 시작/종료 날짜 */
+export function cycleRange(key: string, cycleDay: number): { start: Date; end: Date } {
+  const [y, m] = key.split("-").map(Number)
+  const start = new Date(y, m - 1, clampDay(y, m, cycleDay))
+  if (cycleDay <= 1) {
+    return { start, end: new Date(y, m, 0) } // 1일 시작 → 그 달 말일 종료
+  }
+  const ny = m === 12 ? y + 1 : y
+  const nm = m === 12 ? 1 : m + 1
+  return { start, end: new Date(ny, nm - 1, clampDay(ny, nm, cycleDay - 1)) }
+}
+
+/** 회차 번호 (계약시작일 이후 첫 회차 = 1회차). 계약시작일 없으면 null */
+export function cycleNumber(
+  contractStart: string | null | undefined,
+  key: string,
+  cycleDay: number
+): number | null {
+  if (!contractStart) return null
+  const cs = new Date(contractStart + "T00:00:00")
+  if (isNaN(cs.getTime())) return null
+  let fy = cs.getFullYear()
+  let fm = cs.getMonth() + 1
+  // 첫 회차 시작 = 계약시작일 당일 또는 그 이후 첫 회차 시작일
+  if (cs.getDate() > clampDay(fy, fm, cycleDay)) {
+    fm++
+    if (fm > 12) {
+      fm = 1
+      fy++
+    }
+  }
+  const [ky, km] = key.split("-").map(Number)
+  const n = ky * 12 + km - (fy * 12 + fm) + 1
+  return n >= 1 ? n : null
+}
+
+/** "06.20 ~ 07.19" */
+export function cycleRangeLabel(key: string, cycleDay: number): string {
+  const { start, end } = cycleRange(key, cycleDay)
+  const f = (d: Date) => `${pad2(d.getMonth() + 1)}.${pad2(d.getDate())}`
+  return `${f(start)} ~ ${f(end)}`
+}
+
+/** "20일~19일" (시작일이 1일이면 "01일~말일") */
+export function cycleDayLabel(cycleDay: number): string {
+  if (cycleDay <= 1) return "01일~말일"
+  return `${pad2(cycleDay)}일~${pad2(cycleDay - 1)}일`
+}
+
+/** 회차 종료까지 남은 일수 (음수 = 이미 종료된 회차) */
+export function daysUntilCycleEnd(key: string, cycleDay: number, today: Date = new Date()): number {
+  const { end } = cycleRange(key, cycleDay)
+  const t0 = new Date(today.getFullYear(), today.getMonth(), today.getDate())
+  return Math.round((end.getTime() - t0.getTime()) / 86400000)
+}
