@@ -580,33 +580,29 @@ export default function ProjectDetailPage() {
                       </div>
                     </div>
                     {/* 완수율 + 회차 D-day */}
-                    <div className="flex items-center gap-4 shrink-0">
+                    <div className="flex items-center gap-5 shrink-0">
                       <div className="text-right">
-                        <div className="flex items-center justify-end gap-1.5">
-                          <span className="text-[13px] text-muted-foreground">회차 완수율</span>
-                          <span
-                            className={cn(
-                              "rounded-full px-2 py-0.5 text-[12px] font-bold tabular-nums",
-                              notStarted
-                                ? "bg-muted text-muted-foreground"
-                                : dLeft < 0
-                                  ? "bg-muted text-muted-foreground"
-                                  : dLeft <= 5
-                                    ? "bg-red-100 text-red-600"
-                                    : "bg-primary/10 text-primary"
-                            )}
-                            title={`회차 종료일 기준 (${cycleRangeLabel(month, cycleDay)})`}
-                          >
-                            {notStarted ? "시작 전" : dLeft < 0 ? "종료" : dLeft === 0 ? "D-DAY" : `D-${dLeft}`}
-                          </span>
+                        <div className="text-[13px] text-muted-foreground">회차 종료까지</div>
+                        <div
+                          className={cn(
+                            "text-4xl font-extrabold tabular-nums tracking-tight leading-tight",
+                            notStarted || dLeft < 0
+                              ? "text-muted-foreground"
+                              : dLeft <= 5
+                                ? "text-red-500"
+                                : "text-primary"
+                          )}
+                          title={`회차 기간: ${cycleRangeLabel(month, cycleDay)}`}
+                        >
+                          {notStarted ? "시작 전" : dLeft < 0 ? "종료" : dLeft === 0 ? "D-DAY" : `D-${dLeft}`}
                         </div>
-                        <div className="text-[15px] font-medium mt-1 tabular-nums">
+                        <div className="text-[14px] font-medium mt-1 tabular-nums">
                           <span className="text-foreground font-bold">{doneCount}</span>
                           <span className="text-muted-foreground"> / {total} 완료</span>
+                          {carriedCount > 0 && <span className="text-teal-600"> · 이월 {carriedCount}</span>}
                         </div>
-                        {carriedCount > 0 && <div className="text-[13px] text-teal-600 mt-0.5">이월 {carriedCount}건</div>}
                       </div>
-                      <Ring value={pct} size={92} />
+                      <Ring value={pct} size={104} />
                     </div>
                   </div>
                 </div>

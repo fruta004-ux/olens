@@ -96,6 +96,7 @@ export default function MonthlyTrackerPage() {
   const [loading, setLoading] = useState(true)
   const [replicating, setReplicating] = useState(false)
   const [search, setSearch] = useState("")
+  const [poFilter, setPoFilter] = useState<string>("all") // all | __none__ | member id
 
   // 프로젝트별 표시 회차 키 (오프셋 반영)
   const keyForProject = useCallback(
@@ -219,11 +220,25 @@ export default function MonthlyTrackerPage() {
     return m
   }, [members])
 
-  // 검색 필터 (거래처/프로젝트명/영업담당/PO)
+  // PO 필터 옵션 = PO 후보(그로우/영상) ∪ 실제 프로젝트에 지정된 PO(역할 변경돼도 유지)
+  const poFilterOptions = useMemo(() => {
+    const map = new Map<string, string>()
+    poMembers.forEach((m) => map.set(m.id, memberDisplayName(m)))
+    projects.forEach((p) => {
+      if (p.project_owner_id && !map.has(p.project_owner_id)) {
+        map.set(p.project_owner_id, memberNameById[p.project_owner_id] || "(알 수 없음)")
+      }
+    })
+    return Array.from(map, ([id, name]) => ({ id, name }))
+  }, [poMembers, projects, memberNameById])
+
+  // 검색 + PO 필터 (거래처/프로젝트명/영업담당/PO)
   const filteredProjects = useMemo(() => {
     const q = search.trim().toLowerCase()
-    if (!q) return projects
     return projects.filter((p) => {
+      if (poFilter === "__none__" && p.project_owner_id) return false
+      if (poFilter !== "all" && poFilter !== "__none__" && p.project_owner_id !== poFilter) return false
+      if (!q) return true
       const po = p.project_owner_id ? memberNameById[p.project_owner_id] || "" : ""
       const hay = [projectName(p), p.project_name, p.category, p.assigned_to, po]
         .filter(Boolean)
@@ -231,7 +246,7 @@ export default function MonthlyTrackerPage() {
         .toLowerCase()
       return hay.includes(q)
     })
-  }, [projects, search, memberNameById])
+  }, [projects, search, memberNameById, poFilter])
 
   // 프로젝트를 보드에서 제거(비활성화). 이력 보존을 위해 행은 삭제하지 않고 is_active=false.
   const deactivateProject = async (p: ProjectRow) => {
@@ -391,16 +406,39 @@ export default function MonthlyTrackerPage() {
             ))}
           </div>
 
-          {/* 검색 */}
+          {/* 검색 + PO 필터 */}
           <div className="mb-3 flex items-center justify-between gap-3 flex-wrap">
-            <div className="relative w-full max-w-xs">
-              <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-              <Input
-                placeholder="거래처·프로젝트·담당 검색"
-                value={search}
-                onChange={(e) => setSearch(e.target.value)}
-                className="pl-9 h-9"
-              />
+            <div className="flex items-center gap-2 flex-wrap">
+              <div className="relative w-[280px]">
+                <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                <Input
+                  placeholder="거래처·프로젝트·담당 검색"
+                  value={search}
+                  onChange={(e) => setSearch(e.target.value)}
+                  className="pl-9 h-9"
+                />
+              </div>
+              <Select value={poFilter} onValueChange={setPoFilter}>
+                <SelectTrigger
+                  className={cn("h-9 w-[140px] text-sm", poFilter !== "all" && "border-primary/50 text-primary font-medium")}
+                >
+                  <SelectValue placeholder="PO 전체" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">PO 전체</SelectItem>
+                  <SelectItem value="__none__">PO 미지정</SelectItem>
+                  {poFilterOptions.map((o) => (
+                    <SelectItem key={o.id} value={o.id}>
+                      {o.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              {poFilter !== "all" && (
+                <Button variant="ghost" size="sm" className="h-9 text-muted-foreground" onClick={() => setPoFilter("all")}>
+                  초기화
+                </Button>
+              )}
             </div>
             <div className="text-sm text-muted-foreground">{filteredProjects.length}개 프로젝트</div>
           </div>
