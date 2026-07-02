@@ -97,6 +97,8 @@ export default function MonthlyTrackerPage() {
   const [replicating, setReplicating] = useState(false)
   const [search, setSearch] = useState("")
   const [poFilter, setPoFilter] = useState<string>("all") // all | __none__ | member id
+  // 로그인 사용자가 PO 역할(마케팅/영상)이면 자기 프로젝트만 보이도록 잠금
+  const [myPoId, setMyPoId] = useState<string | null>(null)
 
   // 프로젝트별 표시 회차 키 (오프셋 반영)
   const keyForProject = useCallback(
@@ -120,6 +122,11 @@ export default function MonthlyTrackerPage() {
       const projList = (projData || []) as unknown as ProjectRow[]
       setProjects(projList)
       setMembers(memberList)
+
+      // 로그인 사용자가 PO 역할(마케팅/영상)이면 자기 것만 보이게 잠금
+      const { data: auth } = await supabase.auth.getUser()
+      const me = auth?.user ? memberList.find((m) => m.id === auth.user!.id) : null
+      setMyPoId(me && PO_ROLES.includes(me.role) ? me.id : null)
 
       const ids = projList.map((p) => p.id)
       if (ids.length === 0) {
@@ -199,7 +206,7 @@ export default function MonthlyTrackerPage() {
     return counts
   }, [projects, effectiveStatus])
 
-  // PO 드롭다운 후보 = 그로우(marketer)/영상(video) 역할 멤버
+  // PO 드롭다운 후보 = 마케팅(marketer)/영상(video) 역할 멤버
   const poMembers = useMemo(() => members.filter((m) => PO_ROLES.includes(m.role)), [members])
 
   // 프로젝트(정기 마스터) 필드 즉시 수정 — PO
@@ -220,7 +227,7 @@ export default function MonthlyTrackerPage() {
     return m
   }, [members])
 
-  // PO 필터 옵션 = PO 후보(그로우/영상) ∪ 실제 프로젝트에 지정된 PO(역할 변경돼도 유지)
+  // PO 필터 옵션 = PO 후보(마케팅/영상) ∪ 실제 프로젝트에 지정된 PO(역할 변경돼도 유지)
   const poFilterOptions = useMemo(() => {
     const map = new Map<string, string>()
     poMembers.forEach((m) => map.set(m.id, memberDisplayName(m)))
@@ -233,11 +240,16 @@ export default function MonthlyTrackerPage() {
   }, [poMembers, projects, memberNameById])
 
   // 검색 + PO 필터 (거래처/프로젝트명/영업담당/PO)
+  // PO 역할 로그인 사용자는 자기 프로젝트만 (필터 UI 대신 강제 적용)
   const filteredProjects = useMemo(() => {
     const q = search.trim().toLowerCase()
     return projects.filter((p) => {
-      if (poFilter === "__none__" && p.project_owner_id) return false
-      if (poFilter !== "all" && poFilter !== "__none__" && p.project_owner_id !== poFilter) return false
+      if (myPoId) {
+        if (p.project_owner_id !== myPoId) return false
+      } else {
+        if (poFilter === "__none__" && p.project_owner_id) return false
+        if (poFilter !== "all" && poFilter !== "__none__" && p.project_owner_id !== poFilter) return false
+      }
       if (!q) return true
       const po = p.project_owner_id ? memberNameById[p.project_owner_id] || "" : ""
       const hay = [projectName(p), p.project_name, p.category, p.assigned_to, po]
@@ -246,7 +258,7 @@ export default function MonthlyTrackerPage() {
         .toLowerCase()
       return hay.includes(q)
     })
-  }, [projects, search, memberNameById, poFilter])
+  }, [projects, search, memberNameById, poFilter, myPoId])
 
   // 프로젝트를 보드에서 제거(비활성화). 이력 보존을 위해 행은 삭제하지 않고 is_active=false.
   const deactivateProject = async (p: ProjectRow) => {
@@ -418,26 +430,34 @@ export default function MonthlyTrackerPage() {
                   className="pl-9 h-9"
                 />
               </div>
-              <Select value={poFilter} onValueChange={setPoFilter}>
-                <SelectTrigger
-                  className={cn("h-9 w-[140px] text-sm", poFilter !== "all" && "border-primary/50 text-primary font-medium")}
-                >
-                  <SelectValue placeholder="PO 전체" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all">PO 전체</SelectItem>
-                  <SelectItem value="__none__">PO 미지정</SelectItem>
-                  {poFilterOptions.map((o) => (
-                    <SelectItem key={o.id} value={o.id}>
-                      {o.name}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-              {poFilter !== "all" && (
-                <Button variant="ghost" size="sm" className="h-9 text-muted-foreground" onClick={() => setPoFilter("all")}>
-                  초기화
-                </Button>
+              {myPoId ? (
+                <span className="inline-flex h-9 items-center gap-1.5 rounded-md border border-primary/40 bg-primary/5 px-3 text-sm font-medium text-primary">
+                  내 프로젝트만 표시 중 ({memberNameById[myPoId] || ""})
+                </span>
+              ) : (
+                <>
+                  <Select value={poFilter} onValueChange={setPoFilter}>
+                    <SelectTrigger
+                      className={cn("h-9 w-[140px] text-sm", poFilter !== "all" && "border-primary/50 text-primary font-medium")}
+                    >
+                      <SelectValue placeholder="PO 전체" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="all">PO 전체</SelectItem>
+                      <SelectItem value="__none__">PO 미지정</SelectItem>
+                      {poFilterOptions.map((o) => (
+                        <SelectItem key={o.id} value={o.id}>
+                          {o.name}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  {poFilter !== "all" && (
+                    <Button variant="ghost" size="sm" className="h-9 text-muted-foreground" onClick={() => setPoFilter("all")}>
+                      초기화
+                    </Button>
+                  )}
+                </>
               )}
             </div>
             <div className="text-sm text-muted-foreground">{filteredProjects.length}개 프로젝트</div>
@@ -506,7 +526,7 @@ export default function MonthlyTrackerPage() {
                         {/* PO */}
                         <TableCell onClick={(e) => e.stopPropagation()}>
                           {(() => {
-                            // 현재 PO 가 후보(그로우/영상)에 없으면(역할 변경 등) 그 멤버도 옵션에 포함해 표시 유지
+                            // 현재 PO 가 후보(마케팅/영상)에 없으면(역할 변경 등) 그 멤버도 옵션에 포함해 표시 유지
                             const current =
                               p.project_owner_id && !poMembers.some((m) => m.id === p.project_owner_id)
                                 ? members.find((m) => m.id === p.project_owner_id)

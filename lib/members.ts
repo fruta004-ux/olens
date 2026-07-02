@@ -7,7 +7,7 @@ export type MemberRole = "sales" | "marketer" | "video" | "finance" | "admin"
 
 export const ROLE_LABEL: Record<MemberRole, string> = {
   sales: "영업",
-  marketer: "그로우",
+  marketer: "마케팅",
   video: "영상",
   finance: "재무",
   admin: "관리자",
